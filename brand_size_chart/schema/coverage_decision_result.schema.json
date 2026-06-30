@@ -1,0 +1,81 @@
+{
+  "$defs": {
+    "CoverageDecision": {
+      "additionalProperties": false,
+      "description": "Coverage decision for one extracted or selected size group.",
+      "properties": {
+        "is_covered": {
+          "title": "Is Covered",
+          "type": "boolean"
+        },
+        "missing_size_list": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Size List",
+          "type": "array"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "size_group_key": {
+          "title": "Size Group Key",
+          "type": "string"
+        }
+      },
+      "required": [
+        "is_covered",
+        "reason",
+        "size_group_key"
+      ],
+      "title": "CoverageDecision",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Coverage decision result for requested product types.",
+  "properties": {
+    "coverage_decision_list": {
+      "items": {
+        "$ref": "#/$defs/CoverageDecision"
+      },
+      "title": "Coverage Decision List",
+      "type": "array"
+    },
+    "error_list": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Error List",
+      "type": "array"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "success",
+        "failed",
+        "skipped"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "uncovered_product_type_list": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Uncovered Product Type List",
+      "type": "array"
+    }
+  },
+  "required": [
+    "coverage_decision_list",
+    "message",
+    "status"
+  ],
+  "title": "CoverageDecisionResult",
+  "type": "object"
+}

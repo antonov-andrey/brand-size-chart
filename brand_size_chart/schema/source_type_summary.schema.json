@@ -1,0 +1,74 @@
+{
+  "additionalProperties": false,
+  "description": "Summary for one source type loop.",
+  "properties": {
+    "blocker_list": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blocker List",
+      "type": "array"
+    },
+    "conflict_list": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Conflict List",
+      "type": "array"
+    },
+    "evidence_manifest_path_list": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Manifest Path List",
+      "type": "array"
+    },
+    "source_priority": {
+      "minimum": 1,
+      "title": "Source Priority",
+      "type": "integer"
+    },
+    "source_type": {
+      "title": "Source Type",
+      "type": "string"
+    },
+    "state": {
+      "enum": [
+        "passed",
+        "failed",
+        "blocked",
+        "skipped"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "table_result_path_by_size_group_key_map": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Table Result Path By Size Group Key Map",
+      "type": "object"
+    },
+    "verified_size_group_key_list": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Verified Size Group Key List",
+      "type": "array"
+    },
+    "warning_list": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warning List",
+      "type": "array"
+    }
+  },
+  "required": [
+    "source_priority",
+    "source_type",
+    "state"
+  ],
+  "title": "SourceTypeSummary",
+  "type": "object"
+}

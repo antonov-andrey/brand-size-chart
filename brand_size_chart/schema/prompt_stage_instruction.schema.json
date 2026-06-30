@@ -1,0 +1,20 @@
+{
+  "additionalProperties": false,
+  "description": "One stage-specific instruction parsed from the workflow-run prompt.",
+  "properties": {
+    "instruction": {
+      "title": "Instruction",
+      "type": "string"
+    },
+    "stage_key": {
+      "title": "Stage Key",
+      "type": "string"
+    }
+  },
+  "required": [
+    "instruction",
+    "stage_key"
+  ],
+  "title": "PromptStageInstruction",
+  "type": "object"
+}

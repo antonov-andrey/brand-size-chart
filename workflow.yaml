@@ -1,0 +1,27 @@
+name: brand_size_chart
+image: "brand-size-chart:0.1.0"
+command:
+  - "brand-size-chart-run"
+
+data_source_list:
+  - name: brand_list
+    is_private: false
+    mutable_prefix_list: []
+    prompt: "Text file with one brand name per line."
+
+  - name: secret
+    is_private: true
+    mutable_prefix_list:
+      - "playwright_profile/**"
+    prompt: "Private shared runtime assets required by this workflow, using conventional logical paths."
+
+data_container_list:
+  - name: brand_size_chart
+    prompt: "Canonical parsed brand size chart data."
+
+  - name: brand_size_chart_audit
+    prompt: "Audit bundle with source evidence, warnings, checker reports, diagnostics, and runtime blockers."
+
+runtime_capability_list:
+  - name: browser_vpn_runtime
+    data_source_name: secret
