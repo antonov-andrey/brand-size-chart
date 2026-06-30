@@ -517,6 +517,263 @@ def test_table_extraction_calls_codex_browser_stage_and_requires_evidence(monkey
     assert "Use the configured browser" in str(call_list[0]["prompt_text"])
 
 
+def test_source_discovery_rejects_skipped_result_even_when_verification_passes(
+    monkeypatch: object, tmp_path: Path
+) -> None:
+    """Reject `skipped` discovery through a mechanical guard after semantic verification."""
+    source_type_dir = (
+        tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "source_type" / "official_brand_size_guide"
+    )
+
+    def fake_codex_stage_run(
+        *,
+        allow_user_config: bool,
+        browser_runtime_data_source_path: Path | None,
+        model_class: type[BaseModel],
+        prompt_text: str,
+        result_dir: Path,
+        sandbox_mode: str,
+        stage_dir: Path,
+        stage_name: str,
+    ) -> BaseModel:
+        """Return skipped discovery and an incorrectly passing verifier.
+
+        Args:
+            allow_user_config: Whether Codex loads configured MCP tools.
+            browser_runtime_data_source_path: Browser/VPN runtime DataSource path.
+            model_class: Expected stage result model.
+            prompt_text: Prompt text passed to Codex.
+            result_dir: Root result directory.
+            sandbox_mode: Codex sandbox mode.
+            stage_dir: Stage artifact directory.
+            stage_name: Stage name.
+
+        Returns:
+            Fake discovery or verification result.
+        """
+        _ = allow_user_config
+        _ = browser_runtime_data_source_path
+        _ = prompt_text
+        _ = result_dir
+        _ = sandbox_mode
+        _ = stage_dir
+        _ = stage_name
+        if model_class is SourceDiscoveryResult:
+            return SourceDiscoveryResult(
+                discovered_source_list=[],
+                message="No tables found.",
+                source_type="official_brand_size_guide",
+                status="skipped",
+            )
+        return StageVerification(
+            artifact_path_list=[],
+            message="verified",
+            stage_key="source_discovery",
+            status="success",
+        )
+
+    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
+
+    try:
+        workflow._source_discovery_result_get(
+            brand_input=_brand_input_get(),
+            prompt_scope=workflow.PromptScope(),
+            result_dir=tmp_path,
+            secret_path=tmp_path / "secret",
+            source_priority=600,
+            source_type="official_brand_size_guide",
+            source_type_dir=source_type_dir,
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        message = ""
+
+    assert "source_discovery" in message
+    assert "status" in message
+
+
+def test_source_discovery_rejects_duplicate_size_group_key(monkeypatch: object, tmp_path: Path) -> None:
+    """Reject duplicate size group keys before child workflow ids collide."""
+    source_type_dir = (
+        tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "source_type" / "official_brand_size_guide"
+    )
+
+    def fake_codex_stage_run(
+        *,
+        allow_user_config: bool,
+        browser_runtime_data_source_path: Path | None,
+        model_class: type[BaseModel],
+        prompt_text: str,
+        result_dir: Path,
+        sandbox_mode: str,
+        stage_dir: Path,
+        stage_name: str,
+    ) -> BaseModel:
+        """Return duplicate discovered tables.
+
+        Args:
+            allow_user_config: Whether Codex loads configured MCP tools.
+            browser_runtime_data_source_path: Browser/VPN runtime DataSource path.
+            model_class: Expected stage result model.
+            prompt_text: Prompt text passed to Codex.
+            result_dir: Root result directory.
+            sandbox_mode: Codex sandbox mode.
+            stage_dir: Stage artifact directory.
+            stage_name: Stage name.
+
+        Returns:
+            Fake discovery or verification result.
+        """
+        _ = allow_user_config
+        _ = browser_runtime_data_source_path
+        _ = prompt_text
+        _ = sandbox_mode
+        _ = stage_name
+        evidence_path = stage_dir / "evidence" / "guide.md"
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        evidence_path.write_text("browser evidence", encoding="utf-8")
+        if model_class is SourceDiscoveryResult:
+            discovery = SourceDiscovery(
+                confidence=1.0,
+                evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
+                size_group_key="women_upper_size_chart",
+                source_priority=600,
+                source_title="Women upper",
+                source_type="official_brand_size_guide",
+                source_url="https://defacto.example/size",
+            )
+            return SourceDiscoveryResult(
+                discovered_source_list=[discovery, discovery],
+                message="browser discovery completed",
+                source_type="official_brand_size_guide",
+                status="success",
+            )
+        return StageVerification(
+            artifact_path_list=[],
+            message="verified",
+            stage_key="source_discovery",
+            status="success",
+        )
+
+    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
+
+    try:
+        workflow._source_discovery_result_get(
+            brand_input=_brand_input_get(),
+            prompt_scope=workflow.PromptScope(),
+            result_dir=tmp_path,
+            secret_path=tmp_path / "secret",
+            source_priority=600,
+            source_type="official_brand_size_guide",
+            source_type_dir=source_type_dir,
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        message = ""
+
+    assert "duplicate" in message.lower()
+    assert "women_upper_size_chart" in message
+
+
+def test_table_extraction_rejects_identity_change(monkeypatch: object, tmp_path: Path) -> None:
+    """Reject table extraction that changes the discovery-owned identity."""
+    source_type_dir = (
+        tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "source_type" / "official_brand_size_guide"
+    )
+    source_discovery = SourceDiscovery(
+        confidence=1.0,
+        evidence_path_list=[],
+        size_group_key="women_upper_size_chart",
+        source_priority=600,
+        source_title="Women upper",
+        source_type="official_brand_size_guide",
+        source_url="https://defacto.example/size",
+    )
+
+    def fake_codex_stage_run(
+        *,
+        allow_user_config: bool,
+        browser_runtime_data_source_path: Path | None,
+        model_class: type[BaseModel],
+        prompt_text: str,
+        result_dir: Path,
+        sandbox_mode: str,
+        stage_dir: Path,
+        stage_name: str,
+    ) -> BaseModel:
+        """Return extraction with changed size group key.
+
+        Args:
+            allow_user_config: Whether Codex loads configured MCP tools.
+            browser_runtime_data_source_path: Browser/VPN runtime DataSource path.
+            model_class: Expected stage result model.
+            prompt_text: Prompt text passed to Codex.
+            result_dir: Root result directory.
+            sandbox_mode: Codex sandbox mode.
+            stage_dir: Stage artifact directory.
+            stage_name: Stage name.
+
+        Returns:
+            Fake extraction or verification result.
+        """
+        _ = allow_user_config
+        _ = browser_runtime_data_source_path
+        _ = prompt_text
+        _ = sandbox_mode
+        _ = stage_name
+        evidence_path = stage_dir / "evidence" / "table.md"
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        evidence_path.write_text("table evidence", encoding="utf-8")
+        if model_class is TableExtraction:
+            return TableExtraction(
+                applicability_status="turkey_official",
+                chart=BrandSizeChart(
+                    description="Women upper",
+                    row_list=[
+                        BrandSizeChartRow(
+                            measurement_list=[
+                                BrandSizeChartMeasurement(max_value="90", min_value="88", name="chest", unit="cm")
+                            ],
+                            size_label="M",
+                        )
+                    ],
+                ),
+                evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
+                size_group_key="renamed_size_chart",
+                source_title="Women upper",
+                source_type="official_brand_size_guide",
+                source_url="https://defacto.example/size",
+            )
+        return StageVerification(
+            artifact_path_list=[],
+            message="verified",
+            stage_key="table_extraction",
+            status="success",
+        )
+
+    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
+
+    try:
+        workflow._table_stage_run(
+            brand_input=_brand_input_get(),
+            prompt_scope=workflow.PromptScope(),
+            result_dir=tmp_path,
+            secret_path=tmp_path / "secret",
+            source_discovery=source_discovery,
+            source_type="official_brand_size_guide",
+            source_type_dir=source_type_dir,
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        message = ""
+
+    assert "size_group_key" in message
+    assert "women_upper_size_chart" in message
+
+
 def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, tmp_path: Path) -> None:
     """Configure Codex browser stages through browser-vpn-runtime instead of direct Playwright MCP."""
     captured_command: list[str] = []

@@ -34,8 +34,28 @@ Every main stage writes `<stage>/result.json`, and its verification writes `<sta
 
 The root run result is written to `brand_size_chart_audit/run/result.json`. The result model carries `status`, `message`, and `error_list` directly; separate terminal-result artifacts are forbidden.
 
+## Mechanical Guard Contract
+
+Semantic verification owns source correctness and table accuracy, but Python code still owns mechanical invariants that do not require source interpretation.
+
+`PromptScope` must fail when `source_type_allow_list` contains unknown source types or `stage_instruction_list` contains unknown stage keys.
+
+`source_discovery` must fail after semantic verification when status is not `success`, no candidates were returned, the result source type differs from the current source type, one candidate has mismatched source type or source priority, one candidate has empty source URL or title, one evidence reference is missing or outside the result directory, or two candidates in the same source type share one `size_group_key`. If requested product types are present, `product_type_hint_list` may be empty but any non-empty value must belong to the requested product-type list.
+
+`table_extraction` must fail after semantic verification when `source_type`, `source_url`, or `size_group_key` differs from the verified `SourceDiscovery`, one evidence reference is missing or outside the result directory, the chart has no rows, one row has empty `size_label`, one row has no measurements, or one measurement has empty `name`, `unit`, `min_value`, or `max_value`.
+
+`coverage_decision` must fail when `uncovered_product_type_list` contains a value outside the current requested product-type list.
+
+`canonical_selection` must fail when one selection points to no verified `TableExtraction`, repeats one `size_group_key`, has a source priority that differs from the source-type registry, or selects a source type different from the table extraction source type.
+
+`source_type_summary` and final brand output must fail when their artifact paths point outside the result directory or to missing files.
+
 ## Production Runtime Boundary
 
 Production runtime must not import or require subagent protocol files, tracker files, Codex exec orchestration, or agent-pool state. Static prompts are repository artifacts consumed by future DBOS steps.
 
 `DBOS_SYSTEM_DATABASE_URL` must be set before startup. It may use `postgresql://`, `postgres://`, or `sqlite://`. SQLite is allowed only when configured explicitly; DBOS defaults to local SQLite system storage when no system database URL is provided, and this workflow must reject that hidden fallback.
+
+The default private runtime DataSource path is `.secret` under the project root. This directory is ignored by git and must have the same logical location in local compose runs and pod runs. `openvpn/config.json`, `playwright_profile/**`, and `codex_profile/**` are optional. When `openvpn/config.json` exists, the named `.ovpn` file is required and OpenVPN is enabled by the runtime deployment. When it does not exist, browser runtime runs without VPN. When `playwright_profile/**` is absent, runtime starts from an empty browser profile. When `codex_profile/**` is absent, Codex authentication must come from the surrounding runtime environment.
+
+The repository provides standalone local compose profiles independent of `marketplace-automation`: `no-vpn` runs the workflow directly, and `vpn` runs the workflow in the OpenVPN service network namespace. Both profiles set an explicit SQLite DBOS system database under `.secret`.

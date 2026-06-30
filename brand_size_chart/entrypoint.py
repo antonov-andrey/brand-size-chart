@@ -22,7 +22,7 @@ def args_parse() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the brand size-chart DBOS workflow.")
     parser.add_argument("--workflow-run-id", required=True)
     parser.add_argument("--brand-list", required=True, type=Path)
-    parser.add_argument("--secret", required=True)
+    parser.add_argument("--secret", default=Path(".secret"), type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
     parser.add_argument("--workflow-run-prompt", default="")
     parser.add_argument("--workflow-git-url", default=os.environ.get("WORKFLOW_GIT_URL", ""))
@@ -53,7 +53,8 @@ def main() -> None:
     """Configure and launch the DBOS workflow process."""
     args = args_parse()
     brand_list_text = args.brand_list.read_text(encoding="utf-8")
-    codex_profile_path = Path(args.secret) / "codex_profile"
+    secret_path = Path(args.secret)
+    codex_profile_path = secret_path / "codex_profile"
     if codex_profile_path.is_dir():
         os.environ["CODEX_HOME"] = str(codex_profile_path)
 
@@ -79,7 +80,7 @@ def main() -> None:
                 brand_size_chart_workflow,
                 args.workflow_run_id,
                 brand_list_text,
-                args.secret,
+                str(secret_path),
                 str(args.output_dir),
                 args.workflow_run_prompt,
             )

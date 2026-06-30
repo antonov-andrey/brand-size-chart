@@ -34,6 +34,13 @@ from brand_size_chart.source_type import (
 )
 
 MAX_STAGE_ATTEMPT_COUNT = 3
+STAGE_KEY_SET = {
+    "canonical_selection",
+    "coverage_decision",
+    "source_discovery",
+    "table_extraction",
+    "workflow_run_prompt_apply",
+}
 _ResultModelT = TypeVar("_ResultModelT", bound=BaseModel)
 
 
@@ -71,6 +78,27 @@ def _artifact_reference_list_validate(*, evidence_path_list: list[str], result_d
             raise RuntimeError(f"Stage {stage_key} returned evidence outside result_dir: {evidence_path_text}") from exc
         if not evidence_path.exists():
             raise RuntimeError(f"Stage {stage_key} returned missing evidence artifact: {evidence_path_text}")
+
+
+def _artifact_path_list_validate(*, path_list: list[str], result_dir: Path, stage_key: str) -> None:
+    """Validate that output artifact references point to existing run artifacts.
+
+    Args:
+        path_list: Result-dir-relative artifact references.
+        result_dir: Root result directory.
+        stage_key: Stable stage key for diagnostics.
+
+    Raises:
+        RuntimeError: If one artifact reference is absent or points outside the run directory.
+    """
+    for path_text in path_list:
+        artifact_path = result_dir / path_text
+        try:
+            artifact_path.relative_to(result_dir)
+        except ValueError as exc:
+            raise RuntimeError(f"Stage {stage_key} returned artifact outside result_dir: {path_text}") from exc
+        if not artifact_path.exists():
+            raise RuntimeError(f"Stage {stage_key} returned missing artifact: {path_text}")
 
 
 def _brand_audit_dir(result_dir: Path, brand_input: BrandInput) -> Path:
@@ -156,6 +184,42 @@ def _canonical_selection_result_get(table_extraction_list: list[TableExtraction]
     )
 
 
+def _canonical_selection_result_validate(
+    *, canonical_selection_result: CanonicalSelectionResult, table_extraction_list: list[TableExtraction]
+) -> None:
+    """Validate canonical-selection structural consistency.
+
+    Args:
+        canonical_selection_result: Verified canonical-selection result.
+        table_extraction_list: Verified table extractions available for selection.
+
+    Raises:
+        RuntimeError: If selection points to missing or inconsistent table data.
+    """
+    table_extraction_by_size_group_key_map = {
+        table_extraction.size_group_key: table_extraction for table_extraction in table_extraction_list
+    }
+    selected_size_group_key_set: set[str] = set()
+    for selection in canonical_selection_result.canonical_selection_list:
+        if selection.size_group_key in selected_size_group_key_set:
+            raise RuntimeError(f"canonical_selection duplicate size_group_key: {selection.size_group_key}")
+        selected_size_group_key_set.add(selection.size_group_key)
+        table_extraction = table_extraction_by_size_group_key_map.get(selection.size_group_key)
+        if table_extraction is None:
+            raise RuntimeError(f"canonical_selection missing table extraction: {selection.size_group_key}")
+        expected_priority = SOURCE_TYPE_PRIORITY_BY_KEY_MAP[selection.selected_source_type]
+        if selection.selected_source_priority != expected_priority:
+            raise RuntimeError(
+                f"canonical_selection priority mismatch for {selection.size_group_key}: "
+                f"{selection.selected_source_priority} != {expected_priority}"
+            )
+        if selection.selected_source_type != table_extraction.source_type:
+            raise RuntimeError(
+                f"canonical_selection source_type mismatch for {selection.size_group_key}: "
+                f"{selection.selected_source_type} != {table_extraction.source_type}"
+            )
+
+
 def _coverage_decision_result_get(
     *, prompt_scope: PromptScope, table_extraction_list: list[TableExtraction]
 ) -> CoverageDecisionResult:
@@ -190,6 +254,25 @@ def _coverage_decision_result_get(
     )
 
 
+def _coverage_decision_result_validate(
+    *, coverage_decision_result: CoverageDecisionResult, prompt_scope: PromptScope
+) -> None:
+    """Validate coverage decision against the requested product-type scope.
+
+    Args:
+        coverage_decision_result: Coverage decision result.
+        prompt_scope: Current prompt scope.
+
+    Raises:
+        RuntimeError: If coverage output mentions product types outside the requested scope.
+    """
+    requested_product_type_set = set(prompt_scope.product_type_request_list)
+    uncovered_product_type_set = set(coverage_decision_result.uncovered_product_type_list)
+    if not uncovered_product_type_set.issubset(requested_product_type_set):
+        unexpected_product_type_list = sorted(uncovered_product_type_set - requested_product_type_set)
+        raise RuntimeError(f"coverage_decision returned unexpected product types: {unexpected_product_type_list}")
+
+
 def _coverage_decision_semantic_result_get(
     *,
     brand_input: BrandInput,
@@ -212,7 +295,7 @@ def _coverage_decision_semantic_result_get(
     Returns:
         Verified coverage decision result.
     """
-    return _semantic_stage_run(
+    coverage_decision_result = _semantic_stage_run(
         draft_result=_coverage_decision_result_get(
             prompt_scope=prompt_scope,
             table_extraction_list=table_extraction_list,
@@ -235,6 +318,11 @@ def _coverage_decision_semantic_result_get(
         stage_dir=stage_dir,
         stage_key="coverage_decision",
     )
+    _coverage_decision_result_validate(
+        coverage_decision_result=coverage_decision_result,
+        prompt_scope=prompt_scope,
+    )
+    return coverage_decision_result
 
 
 def _prompt_file_text_get(prompt_name: str) -> str:
@@ -260,6 +348,31 @@ def _prompt_scope_get(workflow_run_prompt: str) -> PromptScope:
     """
     prompt_text = workflow_run_prompt.strip()
     return PromptScope(shared_instruction=prompt_text)
+
+
+def _prompt_scope_validate(prompt_scope: PromptScope) -> None:
+    """Validate prompt-derived execution keys.
+
+    Args:
+        prompt_scope: Parsed prompt scope.
+
+    Raises:
+        RuntimeError: If prompt scope contains unknown source types or stage keys.
+    """
+    unknown_source_type_list = [
+        source_type
+        for source_type in prompt_scope.source_type_allow_list
+        if source_type not in SOURCE_TYPE_PRIORITY_BY_KEY_MAP
+    ]
+    if unknown_source_type_list:
+        raise RuntimeError(f"Unknown source_type_allow_list values: {unknown_source_type_list}")
+    unknown_stage_key_list = [
+        stage_instruction.stage_key
+        for stage_instruction in prompt_scope.stage_instruction_list
+        if stage_instruction.stage_key not in STAGE_KEY_SET
+    ]
+    if unknown_stage_key_list:
+        raise RuntimeError(f"Unknown stage_instruction stage_key values: {unknown_stage_key_list}")
 
 
 def _prompt_scope_with_product_type_request_list_get(
@@ -296,6 +409,7 @@ def _prompt_scope_stage_get(*, result_dir: Path, workflow_run_prompt: str) -> Pr
     prompt_scope = _prompt_scope_get(workflow_run_prompt)
     stage_dir = result_dir / "brand_size_chart_audit" / "run" / "workflow_run_prompt_apply"
     if not workflow_run_prompt.strip():
+        _prompt_scope_validate(prompt_scope)
         json_artifact_write(stage_dir / "result.json", prompt_scope)
         json_artifact_write(
             stage_dir / "verification.json",
@@ -311,7 +425,7 @@ def _prompt_scope_stage_get(*, result_dir: Path, workflow_run_prompt: str) -> Pr
         f"Workflow run prompt:\n{workflow_run_prompt}\n\n"
         f"Draft prompt scope JSON:\n{prompt_scope.model_dump_json(indent=2)}\n"
     )
-    return _semantic_stage_run(
+    prompt_scope = _semantic_stage_run(
         draft_result=prompt_scope,
         model_class=PromptScope,
         prompt_context=stage_context,
@@ -321,6 +435,8 @@ def _prompt_scope_stage_get(*, result_dir: Path, workflow_run_prompt: str) -> Pr
         stage_dir=stage_dir,
         stage_key="workflow_run_prompt_apply",
     )
+    _prompt_scope_validate(prompt_scope)
+    return prompt_scope
 
 
 def _semantic_stage_run(
@@ -395,6 +511,69 @@ def _semantic_stage_run(
         feedback_list = verification.feedback_list or verification.error_list
 
     raise RuntimeError(f"Stage {stage_key} did not pass verification after {MAX_STAGE_ATTEMPT_COUNT} attempts.")
+
+
+def _source_discovery_result_validate(
+    *,
+    discovery_result: SourceDiscoveryResult,
+    expected_source_priority: int,
+    expected_source_type: str,
+    prompt_scope: PromptScope,
+    result_dir: Path,
+) -> None:
+    """Validate source-discovery structural consistency after semantic verification.
+
+    Args:
+        discovery_result: Verified source discovery result.
+        expected_source_priority: Registry priority for the source type being processed.
+        expected_source_type: Source type being processed.
+        prompt_scope: Current prompt scope.
+        result_dir: Root result directory.
+
+    Raises:
+        RuntimeError: If discovery is structurally inconsistent.
+    """
+    if discovery_result.status != "success":
+        raise RuntimeError(f"source_discovery status must be success, got {discovery_result.status}")
+    if discovery_result.source_type != expected_source_type:
+        raise RuntimeError(
+            f"source_discovery source_type mismatch: {discovery_result.source_type} != {expected_source_type}"
+        )
+    if not discovery_result.discovered_source_list:
+        raise RuntimeError("source_discovery returned no discovered_source_list items")
+    size_group_key_set: set[str] = set()
+    requested_product_type_set = set(prompt_scope.product_type_request_list)
+    for source_discovery in discovery_result.discovered_source_list:
+        if source_discovery.size_group_key in size_group_key_set:
+            raise RuntimeError(f"source_discovery duplicate size_group_key: {source_discovery.size_group_key}")
+        size_group_key_set.add(source_discovery.size_group_key)
+        if source_discovery.source_type != expected_source_type:
+            raise RuntimeError(
+                f"source_discovery item source_type mismatch for {source_discovery.size_group_key}: "
+                f"{source_discovery.source_type} != {expected_source_type}"
+            )
+        if source_discovery.source_priority != expected_source_priority:
+            raise RuntimeError(
+                f"source_discovery source_priority mismatch for {source_discovery.size_group_key}: "
+                f"{source_discovery.source_priority} != {expected_source_priority}"
+            )
+        if not source_discovery.source_url.strip():
+            raise RuntimeError(f"source_discovery returned empty source_url for {source_discovery.size_group_key}")
+        if not source_discovery.source_title.strip():
+            raise RuntimeError(f"source_discovery returned empty source_title for {source_discovery.size_group_key}")
+        if requested_product_type_set:
+            hint_product_type_set = set(source_discovery.product_type_hint_list)
+            if not hint_product_type_set.issubset(requested_product_type_set):
+                unexpected_product_type_list = sorted(hint_product_type_set - requested_product_type_set)
+                raise RuntimeError(
+                    f"source_discovery returned unexpected product_type_hint_list for "
+                    f"{source_discovery.size_group_key}: {unexpected_product_type_list}"
+                )
+        _artifact_reference_list_validate(
+            evidence_path_list=source_discovery.evidence_path_list,
+            result_dir=result_dir,
+            stage_key="source_discovery",
+        )
 
 
 def _source_discovery_result_get(
@@ -479,13 +658,75 @@ def _source_discovery_result_get(
         stage_key="source_discovery",
         browser_runtime_data_source_path=secret_path,
     )
-    for source_discovery in discovery_result.discovered_source_list:
-        _artifact_reference_list_validate(
-            evidence_path_list=source_discovery.evidence_path_list,
-            result_dir=result_dir,
-            stage_key="source_discovery",
-        )
+    _source_discovery_result_validate(
+        discovery_result=discovery_result,
+        expected_source_priority=source_priority,
+        expected_source_type=source_type,
+        prompt_scope=prompt_scope,
+        result_dir=result_dir,
+    )
     return discovery_result
+
+
+def _table_extraction_validate(
+    *, result_dir: Path, source_discovery: SourceDiscovery, table_extraction: TableExtraction
+) -> None:
+    """Validate table-extraction structural consistency after semantic verification.
+
+    Args:
+        result_dir: Root result directory.
+        source_discovery: Source discovery that owns the table identity.
+        table_extraction: Verified table extraction result.
+
+    Raises:
+        RuntimeError: If table extraction is structurally inconsistent.
+    """
+    if table_extraction.source_type != source_discovery.source_type:
+        raise RuntimeError(
+            f"table_extraction source_type mismatch for {source_discovery.size_group_key}: "
+            f"{table_extraction.source_type} != {source_discovery.source_type}"
+        )
+    if table_extraction.source_url != source_discovery.source_url:
+        raise RuntimeError(
+            f"table_extraction source_url mismatch for {source_discovery.size_group_key}: "
+            f"{table_extraction.source_url} != {source_discovery.source_url}"
+        )
+    if table_extraction.size_group_key != source_discovery.size_group_key:
+        raise RuntimeError(
+            f"table_extraction size_group_key mismatch: "
+            f"{table_extraction.size_group_key} != {source_discovery.size_group_key}"
+        )
+    _artifact_reference_list_validate(
+        evidence_path_list=table_extraction.evidence_path_list,
+        result_dir=result_dir,
+        stage_key="table_extraction",
+    )
+    if not table_extraction.chart.row_list:
+        raise RuntimeError(f"table_extraction returned an empty chart for {table_extraction.size_group_key}")
+    for row_index, chart_row in enumerate(table_extraction.chart.row_list):
+        if not chart_row.size_label.strip():
+            raise RuntimeError(f"table_extraction returned empty size_label at row {row_index}")
+        if not chart_row.measurement_list:
+            raise RuntimeError(f"table_extraction returned empty measurement_list at row {row_index}")
+        for measurement_index, measurement in enumerate(chart_row.measurement_list):
+            if not measurement.name.strip():
+                raise RuntimeError(
+                    f"table_extraction returned empty measurement name at row {row_index}, "
+                    f"measurement {measurement_index}"
+                )
+            if not measurement.unit.strip():
+                raise RuntimeError(
+                    f"table_extraction returned empty measurement unit at row {row_index}, "
+                    f"measurement {measurement_index}"
+                )
+            if not measurement.min_value.strip():
+                raise RuntimeError(
+                    f"table_extraction returned empty min_value at row {row_index}, measurement {measurement_index}"
+                )
+            if not measurement.max_value.strip():
+                raise RuntimeError(
+                    f"table_extraction returned empty max_value at row {row_index}, measurement {measurement_index}"
+                )
 
 
 def _table_stage_run(
@@ -545,13 +786,11 @@ def _table_stage_run(
         stage_key="table_extraction",
         browser_runtime_data_source_path=secret_path,
     )
-    _artifact_reference_list_validate(
-        evidence_path_list=table_result.evidence_path_list,
+    _table_extraction_validate(
         result_dir=result_dir,
-        stage_key="table_extraction",
+        source_discovery=source_discovery,
+        table_extraction=table_result,
     )
-    if not table_result.chart.row_list:
-        raise RuntimeError(f"Stage table_extraction returned an empty chart for {table_result.size_group_key}.")
     return table_result
 
 
@@ -735,6 +974,10 @@ def brand_selection_write_step(
         stage_dir=_brand_audit_dir(Path(result_dir), brand_input) / "canonical_selection",
         stage_key="canonical_selection",
     )
+    _canonical_selection_result_validate(
+        canonical_selection_result=canonical_selection_result,
+        table_extraction_list=table_extraction_list,
+    )
     table_extraction_by_size_group_key_map = {
         table_extraction.size_group_key: table_extraction for table_extraction in table_extraction_list
     }
@@ -765,6 +1008,18 @@ def brand_selection_write_step(
     )
     json_artifact_write(_brand_output_dir(Path(result_dir), brand_input) / "manifest.json", brand_result)
     json_artifact_write(brand_result_path, brand_result)
+    _artifact_path_list_validate(
+        path_list=brand_result.size_chart_path_list,
+        result_dir=Path(result_dir),
+        stage_key="brand_result",
+    )
+    _artifact_path_list_validate(
+        path_list=[
+            _artifact_path(_brand_output_dir(Path(result_dir), brand_input) / "manifest.json", Path(result_dir))
+        ],
+        result_dir=Path(result_dir),
+        stage_key="brand_result",
+    )
     return brand_result.model_dump(mode="json")
 
 
@@ -1182,6 +1437,18 @@ def source_type_summary_write_step(
         table_result_path_by_size_group_key_map=table_result_path_by_size_group_key_map,
         verified_size_group_key_list=list(table_result_path_by_size_group_key_map),
     )
+    if sorted(summary.verified_size_group_key_list) != sorted(summary.table_result_path_by_size_group_key_map):
+        raise RuntimeError(f"source_type_summary key mismatch for {source_type}")
+    _artifact_path_list_validate(
+        path_list=list(summary.table_result_path_by_size_group_key_map.values()),
+        result_dir=Path(result_dir),
+        stage_key="source_type_summary",
+    )
+    _artifact_path_list_validate(
+        path_list=summary.evidence_manifest_path_list,
+        result_dir=Path(result_dir),
+        stage_key="source_type_summary",
+    )
     json_artifact_write(source_type_dir / "source_type_summary" / "result.json", summary)
     return summary.model_dump(mode="json")
 
@@ -1232,6 +1499,7 @@ def _source_type_list_get(prompt_scope: PromptScope) -> list[str]:
     Returns:
         Source type list.
     """
+    _prompt_scope_validate(prompt_scope)
     source_type_list = prompt_scope.source_type_allow_list or [
         source_type
         for source_type, _source_priority in sorted(
@@ -1240,13 +1508,14 @@ def _source_type_list_get(prompt_scope: PromptScope) -> list[str]:
             reverse=True,
         )
     ]
-    known_source_type_list = [
-        source_type for source_type in source_type_list if source_type in SOURCE_TYPE_PRIORITY_BY_KEY_MAP
-    ]
+    known_source_type_list = list(source_type_list)
     if prompt_scope.product_type_request_list:
         return known_source_type_list
-    return [
+    filtered_source_type_list = [
         source_type
         for source_type in known_source_type_list
         if source_type not in PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET
     ]
+    if not filtered_source_type_list:
+        raise RuntimeError("No source types remain after applying product-type scope rules.")
+    return filtered_source_type_list

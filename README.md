@@ -8,10 +8,26 @@ The container accepts a `brand_list` input and a `secret` DataSource path, start
 
 ```bash
 export DBOS_SYSTEM_DATABASE_URL='postgresql://dbos:secret@localhost:5432/brand_size_chart'
-brand-size-chart-run --workflow-run-id run-01 --brand-list brand_list.txt --secret /data-source/secret --output-dir out
+brand-size-chart-run --workflow-run-id run-01 --brand-list brand_list.txt --output-dir out
 ```
 
+The default private runtime DataSource path is `.secret` under the project root. The same path is used by local compose runs and by pod runs.
+
 `DBOS_SYSTEM_DATABASE_URL` is required. It may use `postgresql://`, `postgres://`, or `sqlite://`. SQLite is allowed only when configured explicitly through this environment variable; when the variable is absent, DBOS would fall back to a local SQLite system database and this workflow rejects that hidden fallback.
+
+For standalone local execution without `marketplace-automation`, use Docker Compose:
+
+```bash
+docker compose --profile no-vpn up --build --abort-on-container-exit
+```
+
+For standalone local execution through OpenVPN, put `openvpn/config.json` and the named `.ovpn` file under `.secret/openvpn/`, then run:
+
+```bash
+docker compose --profile vpn up --build --abort-on-container-exit
+```
+
+Both profiles set `DBOS_SYSTEM_DATABASE_URL=sqlite:////workspace/brand-size-chart/.secret/dbos.sqlite` inside the workflow container.
 
 ## Verification
 

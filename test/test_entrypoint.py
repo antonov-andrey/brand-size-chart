@@ -196,3 +196,30 @@ def test_entrypoint_rejects_hidden_sqlite_system_database_fallback(monkeypatch: 
 def test_entrypoint_parser_has_no_dry_run_flag(monkeypatch: object) -> None:
     """Expose exactly one production runtime path without a dry-run switch."""
     assert "--dry-run" not in Path("brand_size_chart/entrypoint.py").read_text(encoding="utf-8")
+
+
+def test_entrypoint_parser_uses_project_secret_by_default(monkeypatch: object, tmp_path: Path) -> None:
+    """Use the project-local `.secret` directory as the default runtime DataSource."""
+    brand_list_path = tmp_path / "brand_list.txt"
+    brand_list_path.write_text("Defacto\n", encoding="utf-8")
+    monkeypatch.setattr(
+        entrypoint,
+        "argparse",
+        entrypoint.argparse,
+    )
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "brand-size-chart-run",
+            "--workflow-run-id",
+            "local",
+            "--brand-list",
+            str(brand_list_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+        ],
+    )
+
+    args = entrypoint.args_parse()
+
+    assert args.secret == Path(".secret")

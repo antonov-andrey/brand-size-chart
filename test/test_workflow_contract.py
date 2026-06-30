@@ -6,6 +6,7 @@ import yaml
 
 from brand_size_chart import workflow
 from brand_size_chart.model import PromptScope
+from brand_size_chart.model import PromptStageInstruction
 from brand_size_chart.source_type import (
     PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET,
     SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP,
@@ -30,6 +31,24 @@ def test_workflow_yaml_declares_required_cross_project_contract_keys() -> None:
             "name": "browser_vpn_runtime",
         }
     ]
+
+
+def test_project_secret_is_ignored_by_git() -> None:
+    """Keep the local private DataSource out of git."""
+    gitignore_text = Path(".gitignore").read_text(encoding="utf-8")
+
+    assert ".secret/" in gitignore_text.splitlines()
+
+
+def test_local_compose_declares_vpn_and_no_vpn_profiles() -> None:
+    """Allow standalone local workflow runs with and without OpenVPN."""
+    compose = yaml.safe_load(Path("compose.yaml").read_text(encoding="utf-8"))
+
+    assert compose["services"]["workflow-no-vpn"]["profiles"] == ["no-vpn"]
+    assert compose["services"]["workflow-vpn"]["profiles"] == ["vpn"]
+    assert compose["services"]["workflow-vpn"]["network_mode"] == "service:openvpn"
+    assert compose["services"]["workflow-no-vpn"]["environment"]["DBOS_SYSTEM_DATABASE_URL"].startswith("sqlite:///")
+    assert compose["services"]["workflow-vpn"]["environment"]["DBOS_SYSTEM_DATABASE_URL"].startswith("sqlite:///")
 
 
 def test_workflow_imports_dbos_eagerly_without_noop_decorator_fallback() -> None:
@@ -81,6 +100,28 @@ def test_source_type_selection_requires_product_types_for_product_page_source_ty
         "official_marketplace_product_page",
         "official_marketplace_store",
     ]
+
+
+def test_prompt_scope_rejects_unknown_source_type_and_stage_key() -> None:
+    """Reject unknown prompt-derived execution keys instead of silently dropping them."""
+    try:
+        workflow._prompt_scope_validate(PromptScope(source_type_allow_list=["unknown_source_type"]))
+    except RuntimeError as exc:
+        source_type_message = str(exc)
+    else:
+        source_type_message = ""
+
+    try:
+        workflow._prompt_scope_validate(
+            PromptScope(stage_instruction_list=[PromptStageInstruction(stage_key="unknown_stage", instruction="x")])
+        )
+    except RuntimeError as exc:
+        stage_key_message = str(exc)
+    else:
+        stage_key_message = ""
+
+    assert "unknown_source_type" in source_type_message
+    assert "unknown_stage" in stage_key_message
 
 
 def test_source_discovery_prompt_makes_table_forms_universal() -> None:

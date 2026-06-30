@@ -1,4 +1,5 @@
 .venv/
+.secret/
 __pycache__/
 .pytest_cache/
 *.pyc

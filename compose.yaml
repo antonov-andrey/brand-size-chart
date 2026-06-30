@@ -1,0 +1,74 @@
+services:
+  openvpn:
+    build:
+      context: ../browser-vpn-runtime
+      dockerfile: docker/openvpn/Dockerfile
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    profiles:
+      - vpn
+    volumes:
+      - ./.secret:/data-source:ro
+      - openvpn-runtime:/runtime
+
+  workflow-no-vpn:
+    build:
+      context: .
+      dockerfile: docker/workflow/Dockerfile
+    command:
+      - bash
+      - -lc
+      - >
+        rm -rf /tmp/browser-vpn-runtime-src /tmp/brand-size-chart-src
+        && cp -a /workspace/browser-vpn-runtime /tmp/browser-vpn-runtime-src
+        && cp -a /workspace/brand-size-chart /tmp/brand-size-chart-src
+        && python -m pip install --root-user-action=ignore --no-cache-dir /tmp/browser-vpn-runtime-src /tmp/brand-size-chart-src
+        && cd /workspace/brand-size-chart
+        && brand-size-chart-run
+        --workflow-run-id "$${WORKFLOW_RUN_ID:-local}"
+        --brand-list "$${BRAND_LIST:-brand_list.txt}"
+        --output-dir "$${OUTPUT_DIR:-out}"
+        --workflow-run-prompt "$${WORKFLOW_RUN_PROMPT:-}"
+    environment:
+      DBOS_SYSTEM_DATABASE_URL: sqlite:////workspace/brand-size-chart/.secret/dbos.sqlite
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    profiles:
+      - no-vpn
+    volumes:
+      - .:/workspace/brand-size-chart
+      - ../browser-vpn-runtime:/workspace/browser-vpn-runtime:ro
+
+  workflow-vpn:
+    build:
+      context: .
+      dockerfile: docker/workflow/Dockerfile
+    command:
+      - bash
+      - -lc
+      - >
+        rm -rf /tmp/browser-vpn-runtime-src /tmp/brand-size-chart-src
+        && cp -a /workspace/browser-vpn-runtime /tmp/browser-vpn-runtime-src
+        && cp -a /workspace/brand-size-chart /tmp/brand-size-chart-src
+        && python -m pip install --root-user-action=ignore --no-cache-dir /tmp/browser-vpn-runtime-src /tmp/brand-size-chart-src
+        && cd /workspace/brand-size-chart
+        && brand-size-chart-run
+        --workflow-run-id "$${WORKFLOW_RUN_ID:-local}"
+        --brand-list "$${BRAND_LIST:-brand_list.txt}"
+        --output-dir "$${OUTPUT_DIR:-out}"
+        --workflow-run-prompt "$${WORKFLOW_RUN_PROMPT:-}"
+    depends_on:
+      - openvpn
+    environment:
+      DBOS_SYSTEM_DATABASE_URL: sqlite:////workspace/brand-size-chart/.secret/dbos.sqlite
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    network_mode: service:openvpn
+    profiles:
+      - vpn
+    volumes:
+      - .:/workspace/brand-size-chart
+      - ../browser-vpn-runtime:/workspace/browser-vpn-runtime:ro
+
+volumes:
+  openvpn-runtime:
