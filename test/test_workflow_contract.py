@@ -105,6 +105,21 @@ def test_artifact_reference_validator_rejects_existing_absolute_artifact_path(tm
     assert "outside result_dir" in message
 
 
+def test_stage_validators_live_under_validator_package() -> None:
+    """Keep mechanical validation outside workflow orchestration."""
+    from brand_size_chart.validator.canonical_selection import CanonicalSelectionValidator
+    from brand_size_chart.validator.coverage_decision import CoverageDecisionValidator
+    from brand_size_chart.validator.prompt_scope import PromptScopeValidator
+    from brand_size_chart.validator.source_discovery import SourceDiscoveryValidator
+    from brand_size_chart.validator.table_extraction import TableExtractionValidator
+
+    assert PromptScopeValidator.__name__ == "PromptScopeValidator"
+    assert SourceDiscoveryValidator.__name__ == "SourceDiscoveryValidator"
+    assert TableExtractionValidator.__name__ == "TableExtractionValidator"
+    assert CoverageDecisionValidator.__name__ == "CoverageDecisionValidator"
+    assert CanonicalSelectionValidator.__name__ == "CanonicalSelectionValidator"
+
+
 def test_workflow_yaml_declares_required_cross_project_contract_keys() -> None:
     """Expose required input, output, and runtime keys in workflow metadata."""
     workflow = yaml.safe_load(Path("workflow.yaml").read_text(encoding="utf-8"))
@@ -276,6 +291,7 @@ def test_prompt_scope_owns_priority_country_code() -> None:
 def test_source_discovery_rejects_non_priority_country_when_priority_country_exists(tmp_path: Path) -> None:
     """Return only priority-country candidates when the source type found priority-country tables."""
     from brand_size_chart.artifact.layout import ArtifactLayout
+    from brand_size_chart.validator.source_discovery import SourceDiscoveryValidator
 
     evidence_path = (
         tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "source_type" / "official_brand_size_guide"
@@ -313,13 +329,11 @@ def test_source_discovery_rejects_non_priority_country_when_priority_country_exi
     )
 
     try:
-        workflow._source_discovery_result_validate(
+        SourceDiscoveryValidator(result_dir=tmp_path, stage_dir=evidence_path.parents[1]).validate(
             discovery_result=source_discovery_result,
             expected_source_priority=600,
             expected_source_type="official_brand_size_guide",
             prompt_scope=PromptScope(priority_country_code="TR"),
-            result_dir=tmp_path,
-            stage_dir=evidence_path.parents[1],
         )
     except RuntimeError as exc:
         message = str(exc)
@@ -332,6 +346,8 @@ def test_source_discovery_rejects_non_priority_country_when_priority_country_exi
 
 def test_canonical_selection_rejects_missing_verified_tables() -> None:
     """Do not let semantic canonical selection drop verified canonical tables."""
+    from brand_size_chart.validator.canonical_selection import CanonicalSelectionValidator
+
     table_extraction = TableExtraction(
         applicability_status="priority_country_official",
         chart=BrandSizeChart(description="Women upper", row_list=[]),
@@ -348,7 +364,7 @@ def test_canonical_selection_rejects_missing_verified_tables() -> None:
     )
 
     try:
-        workflow._canonical_selection_result_validate(
+        CanonicalSelectionValidator().validate(
             canonical_selection_result=canonical_selection_result,
             table_extraction_list=[table_extraction],
         )
@@ -546,8 +562,10 @@ def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch:
 
 def test_prompt_scope_rejects_product_type_values_in_shared_instruction() -> None:
     """Prevent product-type lists from leaking into stages through shared instruction text."""
+    from brand_size_chart.validator.prompt_scope import PromptScopeValidator
+
     try:
-        workflow._prompt_scope_validate(
+        PromptScopeValidator().validate(
             PromptScope(
                 product_type_request_list=["women dresses"],
                 shared_instruction="Search all source types. Product types: women dresses.",
@@ -584,15 +602,18 @@ def test_source_type_summary_records_failed_source_without_discovery_artifact(tm
 
 def test_prompt_scope_rejects_unknown_source_type_and_stage_key() -> None:
     """Reject unknown prompt-derived execution keys instead of silently dropping them."""
+    from brand_size_chart.validator.prompt_scope import PromptScopeValidator
+
+    validator = PromptScopeValidator()
     try:
-        workflow._prompt_scope_validate(PromptScope(source_type_allow_list=["unknown_source_type"]))
+        validator.validate(PromptScope(source_type_allow_list=["unknown_source_type"]))
     except RuntimeError as exc:
         source_type_message = str(exc)
     else:
         source_type_message = ""
 
     try:
-        workflow._prompt_scope_validate(
+        validator.validate(
             PromptScope(stage_instruction_list=[PromptStageInstruction(stage_key="unknown_stage", instruction="x")])
         )
     except RuntimeError as exc:
