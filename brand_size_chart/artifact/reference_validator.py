@@ -13,7 +13,7 @@ class ArtifactReferenceValidator:
             result_dir: Root result directory.
         """
 
-        self.result_dir = result_dir
+        self.result_dir = result_dir.resolve()
 
     def evidence_path_list_validate(self, *, evidence_path_list: list[str], stage_key: str) -> None:
         """Validate that evidence references point to existing run artifacts.
@@ -65,7 +65,7 @@ class ArtifactReferenceValidator:
             RuntimeError: If the artifact reference is invalid.
         """
 
-        artifact_path = self.result_dir / path_text
+        artifact_path = (self.result_dir / path_text).resolve()
         try:
             artifact_path.relative_to(self.result_dir)
         except ValueError as exc:

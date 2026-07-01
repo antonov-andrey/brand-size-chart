@@ -53,6 +53,49 @@ def test_artifact_layout_owns_current_paths(tmp_path: Path) -> None:
     )
 
 
+def test_artifact_reference_validator_rejects_existing_traversal_evidence_path(tmp_path: Path) -> None:
+    """Reject existing evidence references that traverse outside the result directory."""
+    from brand_size_chart.artifact.reference_validator import ArtifactReferenceValidator
+
+    result_dir = tmp_path / "result"
+    result_dir.mkdir()
+    (tmp_path / "outside.json").write_text("{}\n", encoding="utf-8")
+
+    try:
+        ArtifactReferenceValidator(result_dir).evidence_path_list_validate(
+            evidence_path_list=["../outside.json"],
+            stage_key="source_discovery",
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        message = ""
+
+    assert "outside result_dir" in message
+
+
+def test_artifact_reference_validator_rejects_existing_absolute_artifact_path(tmp_path: Path) -> None:
+    """Reject existing absolute artifact references outside the result directory."""
+    from brand_size_chart.artifact.reference_validator import ArtifactReferenceValidator
+
+    result_dir = tmp_path / "result"
+    result_dir.mkdir()
+    outside_path = tmp_path / "outside.json"
+    outside_path.write_text("{}\n", encoding="utf-8")
+
+    try:
+        ArtifactReferenceValidator(result_dir).path_list_validate(
+            path_list=[str(outside_path)],
+            stage_key="brand_result",
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        message = ""
+
+    assert "outside result_dir" in message
+
+
 def test_workflow_yaml_declares_required_cross_project_contract_keys() -> None:
     """Expose required input, output, and runtime keys in workflow metadata."""
     workflow = yaml.safe_load(Path("workflow.yaml").read_text(encoding="utf-8"))
