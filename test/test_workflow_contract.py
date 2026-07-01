@@ -614,7 +614,13 @@ def test_size_group_key_contract_is_prompt_and_design_owned() -> None:
 
     assert "{sex}_{product_group_or_type}" in size_group_prompt
     assert "{sex}_{sex_suffix}_{product_group_or_type}" in size_group_prompt
-    assert "Current approved `sex_suffix` terms" in size_group_prompt
+    assert "{min}_{max}_{month|year}" in size_group_prompt
+    assert "Approved non-age `sex_suffix` terms" in size_group_prompt
+    assert "Do not list or invent concrete approved age intervals" in size_group_prompt
+    assert "child_3_8" not in size_group_prompt
+    assert "youth_8_14" not in size_group_prompt
+    assert "child_3_8" not in design_text
+    assert "youth_8_14" not in design_text
     assert "Never use `size_chart`" in size_group_prompt
     assert "Semantic verification must reject alternative names" in design_text
     assert "women_size_chart" not in workflow_text

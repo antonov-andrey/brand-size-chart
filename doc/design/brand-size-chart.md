@@ -42,9 +42,9 @@ The root run result is written to `brand_size_chart_audit/run/result.json`. The 
 
 Real size-chart table keys use only `{sex}_{product_group_or_type}` or `{sex}_{sex_suffix}_{product_group_or_type}`. `sex` is limited to `women`, `men`, `girls`, `boys`, `unisex`, and `unisex_child`. A suffix is present only when source evidence shows a real chart-group qualifier; no default suffix exists.
 
-Current approved suffix terms are `plus`, `baby`, `child_3_8`, and `youth_8_14`. Current approved product group terms are `upper`, `lower`, `pants_skirts`, `belts`, `shoes`, `clothing`, `dresses`, `outerwear`, `underwear`, `swimwear`, `socks`, `hosiery`, `hats`, `gloves`, and `bras`.
+Approved non-age suffix terms are `plus` and `baby`. Age-range suffixes use only the template `{min}_{max}_{month|year}` and only when source evidence names the whole chart group by an age range. Concrete age intervals are never pre-approved in the prompt or design; the numbers come only from source evidence during extraction. Current approved product group terms are `upper`, `lower`, `pants_skirts`, `belts`, `shoes`, `clothing`, `dresses`, `outerwear`, `underwear`, `swimwear`, `socks`, `hosiery`, `hats`, `gloves`, and `bras`.
 
-The key must not include `size_chart`, `chart`, `product_measurement`, `product_measurements`, product ids, source-type names, brand names, coverage buckets, or diagnostic labels. Source row size values such as age labels, bra sizes, or alpha sizes are not chart-group suffixes. Semantic verification must reject alternative names for an already approved meaning and return feedback to the same main stage.
+The key must not include `size_chart`, `chart`, `product_measurement`, `product_measurements`, product ids, source-type names, brand names, coverage buckets, or diagnostic labels. Source row size values, including row-level age labels, bra sizes, or alpha sizes, are not chart-group suffixes. Semantic verification must reject alternative names for an already approved meaning and return feedback to the same main stage.
 
 ## Mechanical Guard Contract
 
