@@ -88,14 +88,13 @@
     "applicability_status": {
       "default": "unknown_blocked",
       "enum": [
-        "turkey_official",
+        "priority_country_official",
         "official_global",
         "official_eu_consensus",
         "official_cross_locale_consensus",
         "duplicate_exact",
         "duplicate_units_only",
         "market_conflict",
-        "comparison_only",
         "unknown_blocked"
       ],
       "title": "Applicability Status",

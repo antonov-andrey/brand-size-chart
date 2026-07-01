@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -11,23 +12,24 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from brand_size_chart.identifier import dbos_identifier_component
 
 APPLICABILITY_STATUS_CANONICAL_SET = {
-    "turkey_official",
+    "priority_country_official",
     "official_global",
     "official_eu_consensus",
     "official_cross_locale_consensus",
 }
 ApplicabilityStatus = Literal[
-    "turkey_official",
+    "priority_country_official",
     "official_global",
     "official_eu_consensus",
     "official_cross_locale_consensus",
     "duplicate_exact",
     "duplicate_units_only",
     "market_conflict",
-    "comparison_only",
     "unknown_blocked",
 ]
 StageStatus = Literal["success", "failed", "skipped"]
+COUNTRY_CODE_PATTERN = re.compile(r"^[A-Z]{2}$")
+SOURCE_COUNTRY_CODE_SPECIAL_SET = {"EU", "GLOBAL"}
 
 
 class StrictBaseModel(BaseModel):
@@ -73,11 +75,31 @@ class PromptStageInstruction(StrictBaseModel):
 class PromptScope(StrictBaseModel):
     """Parsed runtime prompt scope used by all stage prompts."""
 
+    priority_country_code: str = "TR"
     product_type_request_list: list[str] = Field(default_factory=list)
     scope_warning_list: list[str] = Field(default_factory=list)
     shared_instruction: str = ""
     source_type_allow_list: list[str] = Field(default_factory=list)
     stage_instruction_list: list[PromptStageInstruction] = Field(default_factory=list)
+
+    @field_validator("priority_country_code")
+    @classmethod
+    def priority_country_code_validate(cls, value: str) -> str:
+        """Validate the prompt-selected priority country code.
+
+        Args:
+            value: Prompt-selected priority country code.
+
+        Returns:
+            Normalized ISO 3166 alpha-2 country code.
+
+        Raises:
+            ValueError: If the value is not one uppercase or lower-case alpha-2 country code.
+        """
+        priority_country_code = value.strip().upper()
+        if not COUNTRY_CODE_PATTERN.match(priority_country_code):
+            raise ValueError("priority_country_code must be one ISO 3166 alpha-2 country code")
+        return priority_country_code
 
 
 class StageVerification(StrictBaseModel):
@@ -95,6 +117,7 @@ class SourceDiscovery(StrictBaseModel):
     """Discovered source candidate for one brand."""
 
     confidence: float = Field(ge=0.0, le=1.0)
+    country_code_list: list[str]
     evidence_path_list: list[str] = Field(default_factory=list)
     product_type_hint_list: list[str] = Field(default_factory=list)
     size_group_key: str
@@ -103,6 +126,30 @@ class SourceDiscovery(StrictBaseModel):
     source_title: str
     source_type: str
     source_url: str
+
+    @field_validator("country_code_list")
+    @classmethod
+    def country_code_list_validate(cls, value: list[str]) -> list[str]:
+        """Validate source-market country codes.
+
+        Args:
+            value: Candidate country code list.
+
+        Returns:
+            Normalized country code list.
+
+        Raises:
+            ValueError: If one code is neither alpha-2 nor a supported market-scope marker.
+        """
+        normalized_country_code_list = []
+        for country_code in value:
+            normalized_country_code = country_code.strip().upper()
+            if normalized_country_code not in SOURCE_COUNTRY_CODE_SPECIAL_SET and not COUNTRY_CODE_PATTERN.match(
+                normalized_country_code
+            ):
+                raise ValueError("country_code_list values must be alpha-2 country codes, GLOBAL, or EU")
+            normalized_country_code_list.append(normalized_country_code)
+        return normalized_country_code_list
 
     @field_validator("size_group_key", "source_type")
     @classmethod

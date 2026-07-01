@@ -9,66 +9,102 @@ services:
       - /dev/net/tun:/dev/net/tun
     profiles:
       - vpn
+    healthcheck:
+      interval: 10s
+      retries: 12
+      start_period: 10s
+      test:
+        - CMD-SHELL
+        - ip link show tun0 >/dev/null 2>&1
+      timeout: 5s
     volumes:
-      - ./.secret:/data-source:ro
+      - ./.secret:/input/.secret:ro
       - openvpn-runtime:/runtime
 
-  workflow-no-vpn:
+  playwright-mcp:
     build:
-      context: .
-      dockerfile: docker/workflow/Dockerfile
+      context: ../browser-vpn-runtime
+      dockerfile: docker/playwright/Dockerfile
+    entrypoint: []
     command:
       - bash
       - -lc
       - >
-        rm -rf /tmp/browser-vpn-runtime-src /tmp/brand-size-chart-src
-        && cp -a /workspace/browser-vpn-runtime /tmp/browser-vpn-runtime-src
-        && cp -a /workspace/brand-size-chart /tmp/brand-size-chart-src
-        && python -m pip install --root-user-action=ignore --no-cache-dir /tmp/browser-vpn-runtime-src /tmp/brand-size-chart-src
-        && cd /workspace/brand-size-chart
-        && brand-size-chart-run
-        --workflow-run-id "$${WORKFLOW_RUN_ID:-local}"
-        --brand-list "$${BRAND_LIST:-brand_list.txt}"
-        --output-dir "$${OUTPUT_DIR:-out}"
-        --workflow-run-prompt "$${WORKFLOW_RUN_PROMPT:-}"
-    environment:
-      DBOS_SYSTEM_DATABASE_URL: sqlite:////workspace/brand-size-chart/.secret/dbos.sqlite
-      PIP_DISABLE_PIP_VERSION_CHECK: "1"
-    profiles:
-      - no-vpn
-    volumes:
-      - .:/workspace/brand-size-chart
-      - ../browser-vpn-runtime:/workspace/browser-vpn-runtime:ro
-
-  workflow-vpn:
-    build:
-      context: .
-      dockerfile: docker/workflow/Dockerfile
-    command:
-      - bash
-      - -lc
-      - >
-        rm -rf /tmp/browser-vpn-runtime-src /tmp/brand-size-chart-src
-        && cp -a /workspace/browser-vpn-runtime /tmp/browser-vpn-runtime-src
-        && cp -a /workspace/brand-size-chart /tmp/brand-size-chart-src
-        && python -m pip install --root-user-action=ignore --no-cache-dir /tmp/browser-vpn-runtime-src /tmp/brand-size-chart-src
-        && cd /workspace/brand-size-chart
-        && brand-size-chart-run
-        --workflow-run-id "$${WORKFLOW_RUN_ID:-local}"
-        --brand-list "$${BRAND_LIST:-brand_list.txt}"
-        --output-dir "$${OUTPUT_DIR:-out}"
-        --workflow-run-prompt "$${WORKFLOW_RUN_PROMPT:-}"
+        cleanup() { chown -R "$${HOST_UID}:$${HOST_GID}" /output 2>/dev/null || true; };
+        trap cleanup EXIT;
+        browser-vpn-runtime-playwright-mcp
+        --allowed-hosts localhost,127.0.0.1,openvpn
+        --data-source-path /input/.secret
+        --persistent-profile-path "/output/brand_size_chart_audit/run/browser_vpn_runtime/playwright_profile"
+        --output-dir "/output/brand_size_chart_audit/run/browser_vpn_runtime/playwright_mcp"
+        --mcp-config-path "/output/brand_size_chart_audit/run/browser_vpn_runtime/playwright_mcp/config.json"
+        --host 0.0.0.0
+        --port 8931
+        --require-openvpn
     depends_on:
-      - openvpn
+      openvpn:
+        condition: service_healthy
     environment:
-      DBOS_SYSTEM_DATABASE_URL: sqlite:////workspace/brand-size-chart/.secret/dbos.sqlite
-      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      HOST_GID: ${HOST_GID:-1000}
+      HOST_UID: ${HOST_UID:-1000}
+      OUTPUT_DIR: ${OUTPUT_DIR:-./out}
+    healthcheck:
+      interval: 10s
+      retries: 12
+      start_period: 10s
+      test:
+        - CMD-SHELL
+        - python -c "import socket; socket.create_connection(('127.0.0.1', 8931), 2).close()"
+      timeout: 5s
     network_mode: service:openvpn
     profiles:
       - vpn
     volumes:
-      - .:/workspace/brand-size-chart
-      - ../browser-vpn-runtime:/workspace/browser-vpn-runtime:ro
+      - ./.secret:/input/.secret:ro
+      - ${OUTPUT_DIR:-./out}:/output
+
+  workflow:
+    build:
+      context: .
+      dockerfile: docker/workflow/Dockerfile
+    command:
+      - bash
+      - -lc
+      - >
+        cleanup() { chown -R "$${HOST_UID}:$${HOST_GID}" /output 2>/dev/null || true; };
+        trap cleanup EXIT;
+        mkdir -p /runtime
+        && cd /workspace/brand-size-chart
+        && brand-size-chart-run
+        --browser-runtime-mcp-url "$${BROWSER_RUNTIME_MCP_URL}"
+        --workflow-run-id "$${WORKFLOW_RUN_ID:-local}"
+        --brand-list /input/brand_list.txt
+        --input-secret /input/.secret
+        --secret /runtime/.secret
+        --output-dir /output
+        --workflow-run-prompt "$${WORKFLOW_RUN_PROMPT:-}"
+    depends_on:
+      playwright-mcp:
+        condition: service_healthy
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    environment:
+      BRAND_LIST: ${BRAND_LIST:-./brand_list.txt}
+      BROWSER_RUNTIME_MCP_URL: http://openvpn:8931/mcp
+      DBOS_SYSTEM_DATABASE_URL: sqlite:////runtime/dbos.sqlite
+      HOST_GID: ${HOST_GID:-1000}
+      HOST_UID: ${HOST_UID:-1000}
+      OUTPUT_DIR: ${OUTPUT_DIR:-./out}
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      WORKFLOW_RUN_ID: ${WORKFLOW_RUN_ID:-local}
+      WORKFLOW_RUN_PROMPT: ${WORKFLOW_RUN_PROMPT:-}
+    profiles:
+      - vpn
+    volumes:
+      - ./.secret:/input/.secret:ro
+      - ${BRAND_LIST:-./brand_list.txt}:/input/brand_list.txt:ro
+      - ${OUTPUT_DIR:-./out}:/output
 
 volumes:
   openvpn-runtime:

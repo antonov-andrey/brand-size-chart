@@ -170,6 +170,11 @@
       "additionalProperties": false,
       "description": "Parsed runtime prompt scope used by all stage prompts.",
       "properties": {
+        "priority_country_code": {
+          "default": "TR",
+          "title": "Priority Country Code",
+          "type": "string"
+        },
         "product_type_request_list": {
           "items": {
             "type": "string"

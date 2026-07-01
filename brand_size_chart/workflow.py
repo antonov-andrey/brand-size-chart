@@ -1,5 +1,7 @@
 """DBOS workflow for brand size-chart source collection."""
 
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import TypeVar
 
@@ -34,6 +36,12 @@ from brand_size_chart.source_type import (
 )
 
 MAX_STAGE_ATTEMPT_COUNT = 3
+SIZE_GROUP_KEY_PROMPT_NAME_SET = {
+    "discovery",
+    "extraction",
+    "selection",
+    "verification",
+}
 STAGE_KEY_SET = {
     "canonical_selection",
     "coverage_decision",
@@ -184,6 +192,32 @@ def _canonical_selection_result_get(table_extraction_list: list[TableExtraction]
     )
 
 
+def _canonical_selection_error_list_get(
+    *, canonical_selection_result: CanonicalSelectionResult, table_extraction_list: list[TableExtraction]
+) -> list[str]:
+    """Return canonical-selection structural errors.
+
+    Args:
+        canonical_selection_result: Candidate canonical-selection result.
+        table_extraction_list: Verified table extractions available for selection.
+
+    Returns:
+        Canonical-selection error list.
+    """
+    selected_size_group_key_set = {
+        selection.size_group_key for selection in canonical_selection_result.canonical_selection_list
+    }
+    eligible_size_group_key_set = {
+        table_extraction.size_group_key
+        for table_extraction in table_extraction_list
+        if table_extraction.applicability_status in APPLICABILITY_STATUS_CANONICAL_SET
+    }
+    missing_size_group_key_list = sorted(eligible_size_group_key_set - selected_size_group_key_set)
+    if not missing_size_group_key_list:
+        return []
+    return ["canonical_selection missing eligible size_group_key values: " + ", ".join(missing_size_group_key_list)]
+
+
 def _canonical_selection_result_validate(
     *, canonical_selection_result: CanonicalSelectionResult, table_extraction_list: list[TableExtraction]
 ) -> None:
@@ -196,6 +230,13 @@ def _canonical_selection_result_validate(
     Raises:
         RuntimeError: If selection points to missing or inconsistent table data.
     """
+    error_list = _canonical_selection_error_list_get(
+        canonical_selection_result=canonical_selection_result,
+        table_extraction_list=table_extraction_list,
+    )
+    if error_list:
+        raise RuntimeError("; ".join(error_list))
+
     table_extraction_by_size_group_key_map = {
         table_extraction.size_group_key: table_extraction for table_extraction in table_extraction_list
     }
@@ -295,6 +336,16 @@ def _coverage_decision_semantic_result_get(
     Returns:
         Verified coverage decision result.
     """
+    verified_table_summary_text = "\n".join(
+        (
+            f"- {table_extraction.size_group_key}: source_type={table_extraction.source_type}; "
+            f"source_title={table_extraction.source_title}; "
+            f"product_type_hint_list={table_extraction.product_type_hint_list}; "
+            f"applicability_description={table_extraction.applicability_description}; "
+            f"chart_description={table_extraction.chart.description}"
+        )
+        for table_extraction in table_extraction_list
+    )
     coverage_decision_result = _semantic_stage_run(
         draft_result=_coverage_decision_result_get(
             prompt_scope=prompt_scope,
@@ -310,7 +361,10 @@ def _coverage_decision_semantic_result_get(
             "A product type may be considered covered only when the table explicitly applies to it. If one table "
             "clearly covers multiple requested product types, mark all of those product types covered. Do not infer "
             "coverage from weak substring matches alone. Obviously irrelevant non-sized products may be ignored with "
-            "warnings.\n"
+            "warnings. Verified table summary is supplied below as stage input; do not report missing evidence when "
+            "this list is non-empty. Refine the draft coverage decision from these verified tables instead of "
+            "discarding it.\n"
+            f"Verified table summary:\n{verified_table_summary_text if verified_table_summary_text else '- none'}\n"
         ),
         prompt_scope=prompt_scope,
         prompt_name="selection",
@@ -334,7 +388,11 @@ def _prompt_file_text_get(prompt_name: str) -> str:
     Returns:
         Prompt text.
     """
-    return (Path(__file__).parent / "prompt" / f"{prompt_name}.md").read_text(encoding="utf-8")
+    prompt_dir = Path(__file__).parent / "prompt"
+    prompt_text = (prompt_dir / f"{prompt_name}.md").read_text(encoding="utf-8")
+    if prompt_name not in SIZE_GROUP_KEY_PROMPT_NAME_SET:
+        return prompt_text
+    return f"{(prompt_dir / 'size_group_key.md').read_text(encoding='utf-8')}\n\n{prompt_text}"
 
 
 def _prompt_scope_get(workflow_run_prompt: str) -> PromptScope:
@@ -373,6 +431,32 @@ def _prompt_scope_validate(prompt_scope: PromptScope) -> None:
     ]
     if unknown_stage_key_list:
         raise RuntimeError(f"Unknown stage_instruction stage_key values: {unknown_stage_key_list}")
+    leaked_product_type_list = [
+        product_type
+        for product_type in prompt_scope.product_type_request_list
+        if product_type.casefold() in prompt_scope.shared_instruction.casefold()
+    ]
+    if leaked_product_type_list:
+        raise RuntimeError(
+            "shared_instruction must not repeat product_type_request_list values: "
+            f"{sorted(leaked_product_type_list)}"
+        )
+
+
+def _prompt_scope_error_list_get(prompt_scope: PromptScope) -> list[str]:
+    """Return prompt-scope mechanical validation errors.
+
+    Args:
+        prompt_scope: Parsed prompt scope.
+
+    Returns:
+        Validation error list.
+    """
+    try:
+        _prompt_scope_validate(prompt_scope)
+    except RuntimeError as exc:
+        return [str(exc)]
+    return []
 
 
 def _prompt_scope_with_product_type_request_list_get(
@@ -388,11 +472,39 @@ def _prompt_scope_with_product_type_request_list_get(
         Prompt scope with the product type request list replaced.
     """
     return PromptScope(
+        priority_country_code=prompt_scope.priority_country_code,
         product_type_request_list=product_type_request_list,
         scope_warning_list=prompt_scope.scope_warning_list,
         shared_instruction=prompt_scope.shared_instruction,
         source_type_allow_list=prompt_scope.source_type_allow_list,
         stage_instruction_list=prompt_scope.stage_instruction_list,
+    )
+
+
+def _source_type_prompt_scope_get(
+    *,
+    prompt_scope: PromptScope,
+    remaining_product_type_list: list[str],
+    source_type: str,
+) -> PromptScope:
+    """Return prompt scope for one source type.
+
+    Args:
+        prompt_scope: Root prompt scope.
+        remaining_product_type_list: Product types still uncovered by earlier source types.
+        source_type: Source type being executed.
+
+    Returns:
+        Source-type-local prompt scope.
+    """
+    if source_type in PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET:
+        return _prompt_scope_with_product_type_request_list_get(
+            product_type_request_list=remaining_product_type_list,
+            prompt_scope=prompt_scope,
+        )
+    return _prompt_scope_with_product_type_request_list_get(
+        product_type_request_list=[],
+        prompt_scope=prompt_scope,
     )
 
 
@@ -421,7 +533,15 @@ def _prompt_scope_stage_get(*, result_dir: Path, workflow_run_prompt: str) -> Pr
             ),
         )
         return prompt_scope
+    allowed_source_type_text = "\n".join(f"- {source_type}" for source_type in sorted(SOURCE_TYPE_PRIORITY_BY_KEY_MAP))
     stage_context = (
+        "Allowed source_type keys are:\n"
+        f"{allowed_source_type_text}\n\n"
+        "If the workflow prompt asks for all supported source types, leave source_type_allow_list empty. "
+        "Use source_type_allow_list only when the prompt names exact allowed source_type keys from the list above.\n\n"
+        "Extract priority_country_code from the workflow prompt when the user names a priority country or market. "
+        "Normalize it to one ISO 3166 alpha-2 uppercase country code. Use TR when the workflow prompt does not "
+        "select another priority country.\n\n"
         f"Workflow run prompt:\n{workflow_run_prompt}\n\n"
         f"Draft prompt scope JSON:\n{prompt_scope.model_dump_json(indent=2)}\n"
     )
@@ -432,6 +552,7 @@ def _prompt_scope_stage_get(*, result_dir: Path, workflow_run_prompt: str) -> Pr
         prompt_scope=prompt_scope,
         prompt_name="apply",
         result_dir=result_dir,
+        result_error_list_get=_prompt_scope_error_list_get,
         stage_dir=stage_dir,
         stage_key="workflow_run_prompt_apply",
     )
@@ -442,12 +563,13 @@ def _prompt_scope_stage_get(*, result_dir: Path, workflow_run_prompt: str) -> Pr
 def _semantic_stage_run(
     *,
     browser_access: bool = False,
-    browser_runtime_data_source_path: Path | None = None,
+    browser_runtime_mcp_url: str = "",
     draft_result: _ResultModelT,
     model_class: type[_ResultModelT],
     prompt_context: str,
     prompt_scope: PromptScope | None,
     prompt_name: str,
+    result_error_list_get: Callable[[_ResultModelT], list[str]] | None = None,
     result_dir: Path,
     stage_dir: Path,
     stage_key: str,
@@ -456,12 +578,13 @@ def _semantic_stage_run(
 
     Args:
         browser_access: Whether Codex may use browser/MCP tools and write evidence artifacts.
-        browser_runtime_data_source_path: Browser/VPN runtime DataSource path for browser stages.
+        browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL for browser stages.
         draft_result: Deterministic draft result used as initial stage input.
         model_class: Pydantic result model.
         prompt_context: Stage-specific prompt context.
         prompt_scope: Parsed prompt scope relevant to this stage.
         prompt_name: Static prompt file name stem.
+        result_error_list_get: Optional mechanical validator for a semantically verified result.
         result_dir: Root result directory.
         stage_dir: Stage artifact directory.
         stage_key: Stable stage key.
@@ -472,30 +595,35 @@ def _semantic_stage_run(
         RuntimeError: If verification does not pass within the retry limit.
     """
     feedback_list: list[str] = []
+    draft_result_json_text = draft_result.model_dump_json(indent=2)
+    previous_result_json_text = ""
     stage_dir.mkdir(parents=True, exist_ok=True)
     for attempt_index in range(1, MAX_STAGE_ATTEMPT_COUNT + 1):
         result = codex_stage_run(
             allow_user_config=browser_access,
-            browser_runtime_data_source_path=browser_runtime_data_source_path,
+            browser_runtime_mcp_url=browser_runtime_mcp_url,
             model_class=model_class,
             prompt_text=_stage_prompt_text_get(
                 attempt_index=attempt_index,
+                draft_result_json_text=draft_result_json_text,
                 feedback_list=feedback_list,
                 prompt_context=prompt_context,
                 prompt_name=prompt_name,
                 prompt_scope=prompt_scope,
+                previous_result_json_text=previous_result_json_text,
                 stage_key=stage_key,
             ),
             result_dir=result_dir,
-            sandbox_mode="workspace-write" if browser_access else "read-only",
             stage_dir=stage_dir,
             stage_name=stage_key,
         )
 
         result_path = stage_dir / "result.json"
         json_artifact_write(result_path, result)
+        artifact_path_list = [_artifact_path(result_path, result_dir)]
+        previous_result_json_text = result.model_dump_json(indent=2)
         verification = _stage_verification_get(
-            artifact_path_list=[_artifact_path(result_path, result_dir)],
+            artifact_path_list=artifact_path_list,
             prompt_context=prompt_context,
             prompt_scope=prompt_scope,
             result=result,
@@ -503,14 +631,127 @@ def _semantic_stage_run(
             stage_dir=stage_dir,
             stage_key=stage_key,
             browser_access=browser_access,
-            browser_runtime_data_source_path=browser_runtime_data_source_path,
+            browser_runtime_mcp_url=browser_runtime_mcp_url,
         )
+        if verification.status == "success" and result_error_list_get:
+            result_error_list = result_error_list_get(result)
+            if result_error_list:
+                verification = _stage_guard_verification_get(
+                    artifact_path_list=artifact_path_list,
+                    error_list=result_error_list,
+                    stage_key=stage_key,
+                )
         json_artifact_write(stage_dir / "verification.json", verification)
         if verification.status == "success":
             return result
         feedback_list = verification.feedback_list or verification.error_list
 
+    feedback_text = "; ".join(feedback_list)
+    if feedback_text:
+        raise RuntimeError(
+            f"Stage {stage_key} did not pass verification after {MAX_STAGE_ATTEMPT_COUNT} attempts: {feedback_text}"
+        )
     raise RuntimeError(f"Stage {stage_key} did not pass verification after {MAX_STAGE_ATTEMPT_COUNT} attempts.")
+
+
+def _source_discovery_result_error_list_get(
+    discovery_result: SourceDiscoveryResult,
+    *,
+    expected_source_priority: int,
+    expected_source_type: str,
+    prompt_scope: PromptScope,
+    result_dir: Path,
+    stage_dir: Path,
+) -> list[str]:
+    """Return source-discovery mechanical validation errors.
+
+    Args:
+        discovery_result: Source discovery result to validate.
+        expected_source_priority: Registry priority for the source type being processed.
+        expected_source_type: Source type being processed.
+        prompt_scope: Current prompt scope.
+        result_dir: Root result directory.
+        stage_dir: Source-discovery stage artifact directory.
+
+    Returns:
+        Mechanical validation errors.
+    """
+    try:
+        _source_discovery_result_validate(
+            discovery_result=discovery_result,
+            expected_source_priority=expected_source_priority,
+            expected_source_type=expected_source_type,
+            prompt_scope=prompt_scope,
+            result_dir=result_dir,
+            stage_dir=stage_dir,
+        )
+    except RuntimeError as exc:
+        return [str(exc)]
+    return []
+
+
+def _source_discovery_country_selection_validate(
+    *, discovery_result: SourceDiscoveryResult, prompt_scope: PromptScope
+) -> None:
+    """Validate the source-discovery market selection ladder.
+
+    Args:
+        discovery_result: Verified source discovery result.
+        prompt_scope: Current prompt scope.
+
+    Raises:
+        RuntimeError: If `discovered_source_list` mixes lower-priority market scopes into a higher-priority result.
+    """
+    priority_country_code = prompt_scope.priority_country_code
+    priority_country_source_list = [
+        source_discovery
+        for source_discovery in discovery_result.discovered_source_list
+        if priority_country_code in source_discovery.country_code_list
+    ]
+    if priority_country_source_list:
+        non_priority_country_size_group_key_list = [
+            source_discovery.size_group_key
+            for source_discovery in discovery_result.discovered_source_list
+            if priority_country_code not in source_discovery.country_code_list
+        ]
+        if non_priority_country_size_group_key_list:
+            raise RuntimeError(
+                "source_discovery contains non-priority country candidates while priority country tables exist: "
+                f"priority_country_code={priority_country_code}; "
+                f"size_group_key_list={sorted(non_priority_country_size_group_key_list)}"
+            )
+        return
+
+    global_source_list = [
+        source_discovery
+        for source_discovery in discovery_result.discovered_source_list
+        if "GLOBAL" in source_discovery.country_code_list
+    ]
+    if global_source_list:
+        non_global_size_group_key_list = [
+            source_discovery.size_group_key
+            for source_discovery in discovery_result.discovered_source_list
+            if "GLOBAL" not in source_discovery.country_code_list
+        ]
+        if non_global_size_group_key_list:
+            raise RuntimeError(
+                "source_discovery contains non-global candidates while global tables exist: "
+                f"priority_country_code={priority_country_code}; "
+                f"size_group_key_list={sorted(non_global_size_group_key_list)}"
+            )
+        return
+
+    non_europe_size_group_key_list = [
+        source_discovery.size_group_key
+        for source_discovery in discovery_result.discovered_source_list
+        if "EU" not in source_discovery.country_code_list
+    ]
+    if non_europe_size_group_key_list:
+        raise RuntimeError(
+            "source_discovery contains candidates that are neither priority-country, global, nor verified European "
+            f"consensus tables: priority_country_code={priority_country_code}; "
+            f"size_group_key_list={sorted(non_europe_size_group_key_list)}"
+        )
 
 
 def _source_discovery_result_validate(
@@ -520,6 +761,7 @@ def _source_discovery_result_validate(
     expected_source_type: str,
     prompt_scope: PromptScope,
     result_dir: Path,
+    stage_dir: Path,
 ) -> None:
     """Validate source-discovery structural consistency after semantic verification.
 
@@ -529,18 +771,32 @@ def _source_discovery_result_validate(
         expected_source_type: Source type being processed.
         prompt_scope: Current prompt scope.
         result_dir: Root result directory.
+        stage_dir: Source-discovery stage artifact directory.
 
     Raises:
         RuntimeError: If discovery is structurally inconsistent.
     """
-    if discovery_result.status != "success":
-        raise RuntimeError(f"source_discovery status must be success, got {discovery_result.status}")
     if discovery_result.source_type != expected_source_type:
         raise RuntimeError(
             f"source_discovery source_type mismatch: {discovery_result.source_type} != {expected_source_type}"
         )
+    if discovery_result.status == "failed":
+        if discovery_result.discovered_source_list:
+            raise RuntimeError("failed source_discovery must not return discovered_source_list items")
+        if not discovery_result.error_list:
+            raise RuntimeError("failed source_discovery must include concrete error_list blockers")
+        inventory_path = stage_dir / "evidence" / "source_surface_inventory.json"
+        if not inventory_path.is_file():
+            raise RuntimeError("failed source_discovery must write canonical evidence/source_surface_inventory.json")
+        return
+    if discovery_result.status != "success":
+        raise RuntimeError(f"source_discovery status must be success or failed, got {discovery_result.status}")
     if not discovery_result.discovered_source_list:
         raise RuntimeError("source_discovery returned no discovered_source_list items")
+    _source_discovery_country_selection_validate(
+        discovery_result=discovery_result,
+        prompt_scope=prompt_scope,
+    )
     size_group_key_set: set[str] = set()
     requested_product_type_set = set(prompt_scope.product_type_request_list)
     for source_discovery in discovery_result.discovered_source_list:
@@ -579,6 +835,7 @@ def _source_discovery_result_validate(
 def _source_discovery_result_get(
     *,
     brand_input: BrandInput,
+    browser_runtime_mcp_url: str,
     prompt_scope: PromptScope,
     result_dir: Path,
     secret_path: Path,
@@ -590,6 +847,7 @@ def _source_discovery_result_get(
 
     Args:
         brand_input: Parsed brand input.
+        browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
         prompt_scope: Parsed prompt scope for source discovery.
         result_dir: Result root directory.
         secret_path: Secret DataSource path.
@@ -615,6 +873,7 @@ def _source_discovery_result_get(
         f"Brand: {brand_input.parsed_brand_name}\n"
         f"Source type: {source_type}\n"
         f"Source priority: {source_priority}\n"
+        f"Priority country code: {prompt_scope.priority_country_code}\n"
         f"Requested product types:\n{requested_product_type_text}\n"
         f"Source type instruction: {SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP[source_type]}\n"
         f"Evidence directory: {_artifact_path(evidence_dir, result_dir)}\n"
@@ -622,27 +881,71 @@ def _source_discovery_result_get(
         "All source-page and source-data loading must go through the configured browser. "
         "Do not use non-browser loading mechanisms; direct HTTP, curl, requests, wget, and Python scraping are "
         "examples of forbidden replacements, not an exhaustive list. "
-        "Treat source discovery as a bounded workflow, not a best-effort search. First build a browser-backed "
-        "source-surface inventory for this source type: discovery queries, candidate URLs, opened URLs, accepted "
-        "tables, rejected URLs, rejection reasons, and blocking browser errors must be represented in evidence "
-        "artifacts under the evidence directory. "
+        "Treat source discovery as a bounded workflow, not a best-effort search. First build one canonical "
+        "browser-backed source-surface inventory artifact named source_surface_inventory.json for this source type "
+        "under the evidence directory. "
+        "The canonical inventory must include discovery queries, candidate URLs, opened URLs, accepted tables, "
+        "rejected URLs, rejection reasons, blocking browser errors, and evidence paths. Update that canonical "
+        "inventory on every retry before handoff; attempt-only inventory artifacts are allowed only as extra "
+        "diagnostics and must not replace the canonical inventory verified by the workflow. "
+        "In the canonical inventory, candidate_urls must contain only concrete source candidates that may directly "
+        "hold size-chart data for this source type. Search pages, navigation pages, home pages, sitemap pages, FAQ "
+        "index pages, help index pages, and other helper surfaces are discovery surfaces, not candidate URLs. Record "
+        "helper surfaces in opened or rejected inventory entries with evidence and reasons, but do not list them as "
+        "candidate URLs unless that exact opened URL itself contains a concrete size-chart table candidate. Do not "
+        "put broad search-result or category product URL inventories in candidate_urls; if you collect broad product "
+        "URL lists for sampling or coverage, store them separately as evidence fields such as search_result_url_list, "
+        "category_product_url_list, or another clearly named non-candidate list, and record the sampling or rejection "
+        "rule that selected the concrete candidate URLs. "
+        "When this source type uses official brand sources, identify browser-visible official host variants before "
+        "concluding that the source type has no tables. Host variants include global brand domains, country-code "
+        "brand domains, and locale paths that browser evidence shows as brand-owned. Open relevant official host "
+        "roots and inspect visible navigation, footer, search, help, FAQ, sitemap, and static-page links. Do not "
+        "stop after one official domain variant fails when another brand-owned host variant is visible or inferable "
+        "from browser-visible evidence. "
+        "For each discovered official host, infer the browser-visible language and market from the opened page "
+        "itself, then search for size-chart concepts in that language and market. Use the site's own search, "
+        "visible navigation, footer/help pages, sitemap pages, and browser-opened public search results when they "
+        "are available. Localized terms such as Turkish `beden rehberi` and `beden tablosu` are search terms, not "
+        "URL templates. Record the localized queries and the opened or rejected results in the canonical inventory. "
+        "Do not conclude that an official host has no size guide until localized size-chart term searches for that "
+        "host are represented in the canonical inventory. "
+        "Apply one market-selection ladder for discovered_source_list. First search for the priority country code "
+        "from PromptScope. If priority country tables exist for this source type, discovered_source_list must "
+        "contain only items whose country_code_list contains that priority country code. If no priority "
+        "country table exists, return global tables only when global tables exist and mark them with "
+        "country_code_list=['GLOBAL']. If neither priority country nor global tables exist, return European country "
+        "tables only after verifying that the relevant official European country tables do not differ; mark such "
+        "verified consensus candidates with country_code_list=['EU']. If European country tables differ, return "
+        "status='failed' with exact conflicting country codes, URLs, and size_group_key values instead of picking "
+        "one locale. "
         "Write each relevant browser evidence artifact under the evidence directory and reference those paths in "
-        "evidence_path_list. Return every size-chart source candidate backed by evidence files unless the workflow "
-        "run shared instruction explicitly narrows the stage scope. "
+        "evidence_path_list. Return every unique size-chart source candidate backed by evidence files. "
         "One SourceDiscovery item represents one concrete size chart table, not one page. "
-        "If one page contains multiple size chart tables, return one discovered_source_list item per table. "
-        "The size_group_key must identify that concrete table, such as women_size_chart or men_shoes_size_chart; "
-        "page-level or aggregate keys such as all, guide, page, or brand-wide bundle keys are forbidden. "
+        "If one page contains multiple size chart tables with different size_group_key values, return one "
+        "discovered_source_list item per table. Inside one source type, return at most one discovered_source_list item "
+        "for one size_group_key; when another page, locale, or asset exposes an equivalent table for the same "
+        "size_group_key, record that duplicate or equivalent table in inventory evidence and source notes, but do not "
+        "return a second candidate with the same size_group_key. "
+        "The size_group_key must follow the Size Group Key Contract from the static prompt. Page-level or aggregate "
+        "keys such as all, guide, page, or brand-wide bundle keys are forbidden. "
+        "Requested product types are coverage targets only; they must not filter or narrow discovered_source_list, "
+        "accepted_tables, or table extraction scope. When an opened source page contains concrete tables that are "
+        "outside the requested product types, still return those tables and leave product_type_hint_list empty unless "
+        "the evidence explicitly covers one requested product type. "
         "If requested product types are present, search for every requested product type in this source type. "
         "If one discovered table clearly applies to multiple requested product types, return one candidate and set "
         "product_type_hint_list to exactly the requested product types that are explicitly covered by the evidence. "
         "Do not include weakly inferred product types in product_type_hint_list. "
+        "If at least one concrete table candidate is evidence-backed, return status='success' even when some "
+        "requested product types remain uncovered; record missing requested product types in error_list with "
+        "browser-backed reasons and keep accepted candidates in discovered_source_list. "
         "Respect the source type boundary exactly; do not return product-page measurement sections for "
         "official_brand_size_guide. "
         "Do not return status='skipped'. Empty discovered_source_list is forbidden in real discovery. "
         "If no concrete table can be returned after browser-backed inventory, return status='failed' "
-        "with detailed blocker errors and evidence references; the stage must fail after retry limit instead of "
-        "silently doing nothing. Do not invent candidates.\n\n"
+        "with detailed blocker errors and canonical inventory evidence so this source type is recorded as failed "
+        "and the workflow can continue to the next source type. Do not invent candidates.\n\n"
         f"Draft source_discovery JSON:\n{draft_result.model_dump_json(indent=2)}\n"
     )
 
@@ -653,17 +956,18 @@ def _source_discovery_result_get(
         prompt_context=prompt_context,
         prompt_scope=prompt_scope,
         prompt_name="discovery",
+        result_error_list_get=partial(
+            _source_discovery_result_error_list_get,
+            expected_source_priority=source_priority,
+            expected_source_type=source_type,
+            prompt_scope=prompt_scope,
+            result_dir=result_dir,
+            stage_dir=source_type_dir / "source_discovery",
+        ),
         result_dir=result_dir,
         stage_dir=source_type_dir / "source_discovery",
         stage_key="source_discovery",
-        browser_runtime_data_source_path=secret_path,
-    )
-    _source_discovery_result_validate(
-        discovery_result=discovery_result,
-        expected_source_priority=source_priority,
-        expected_source_type=source_type,
-        prompt_scope=prompt_scope,
-        result_dir=result_dir,
+        browser_runtime_mcp_url=browser_runtime_mcp_url,
     )
     return discovery_result
 
@@ -729,9 +1033,34 @@ def _table_extraction_validate(
                 )
 
 
+def _table_extraction_error_list_get(
+    table_extraction: TableExtraction, *, result_dir: Path, source_discovery: SourceDiscovery
+) -> list[str]:
+    """Return table-extraction mechanical validation errors.
+
+    Args:
+        table_extraction: Table extraction result to validate.
+        result_dir: Root result directory.
+        source_discovery: Source discovery that owns the table identity.
+
+    Returns:
+        Mechanical validation errors.
+    """
+    try:
+        _table_extraction_validate(
+            result_dir=result_dir,
+            source_discovery=source_discovery,
+            table_extraction=table_extraction,
+        )
+    except RuntimeError as exc:
+        return [str(exc)]
+    return []
+
+
 def _table_stage_run(
     *,
     brand_input: BrandInput,
+    browser_runtime_mcp_url: str,
     prompt_scope: PromptScope,
     result_dir: Path,
     secret_path: Path,
@@ -743,6 +1072,7 @@ def _table_stage_run(
 
     Args:
         brand_input: Parsed brand input.
+        browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
         prompt_scope: Parsed prompt scope.
         result_dir: Result root directory.
         secret_path: Secret DataSource path.
@@ -771,7 +1101,13 @@ def _table_stage_run(
         "discovery evidence. Do not use non-browser loading mechanisms; direct HTTP, curl, requests, wget, and Python "
         "scraping are examples of forbidden replacements, not an exhaustive list. Write browser evidence under the "
         "evidence directory and reference those paths in evidence_path_list. Extract the table exactly from "
-        "browser-visible evidence and preserve all source columns that belong to the size chart.\n\n"
+        "browser-visible evidence and preserve all source columns that belong to the size chart when that column has "
+        "a value in the source row. Do not emit measurement entries for blank source cells; describe systematic blank "
+        "cells in the chart description when needed. For size-system or label-equivalence columns such as US/UK, IT, "
+        "EU, TR/EU, alpha size, numeric size, or age labels, keep the column as a measurement and use unit='size' "
+        "unless the source gives a more specific physical unit. Height, length, weight, body, and garment measurements "
+        "must keep their physical source unit such as cm, inch, kg, or lb even when the source label is a generic word "
+        "like size or taille.\n\n"
         f"Draft table_extraction JSON:\n{table_extraction.model_dump_json(indent=2)}\n"
     )
     table_result = _semantic_stage_run(
@@ -781,15 +1117,15 @@ def _table_stage_run(
         prompt_context=prompt_context,
         prompt_scope=prompt_scope,
         prompt_name="extraction",
+        result_error_list_get=partial(
+            _table_extraction_error_list_get,
+            result_dir=result_dir,
+            source_discovery=source_discovery,
+        ),
         result_dir=result_dir,
         stage_dir=table_stage_dir,
         stage_key="table_extraction",
-        browser_runtime_data_source_path=secret_path,
-    )
-    _table_extraction_validate(
-        result_dir=result_dir,
-        source_discovery=source_discovery,
-        table_extraction=table_result,
+        browser_runtime_mcp_url=browser_runtime_mcp_url,
     )
     return table_result
 
@@ -829,20 +1165,24 @@ def _source_discovery_draft_result_get(
 def _stage_prompt_text_get(
     *,
     attempt_index: int,
+    draft_result_json_text: str,
     feedback_list: list[str],
     prompt_context: str,
     prompt_name: str,
     prompt_scope: PromptScope | None,
+    previous_result_json_text: str,
     stage_key: str,
 ) -> str:
     """Build one Codex stage prompt from a static prompt file.
 
     Args:
         attempt_index: Stage attempt index.
+        draft_result_json_text: Deterministic draft result JSON.
         feedback_list: Verification feedback from previous attempts.
         prompt_context: Stage-specific context.
         prompt_name: Static prompt file name stem.
         prompt_scope: Parsed workflow-run prompt scope.
+        previous_result_json_text: Previous attempt result JSON, when present.
         stage_key: Stable stage key.
 
     Returns:
@@ -863,7 +1203,32 @@ def _stage_prompt_text_get(
         f"Workflow run shared instruction:\n{shared_instruction if shared_instruction else '- none'}\n\n"
         f"Stage-specific instruction:\n{stage_instruction_text if stage_instruction_text else '- none'}\n\n"
         f"{prompt_context}\n\n"
+        f"Draft stage result JSON:\n{draft_result_json_text}\n\n"
+        f"Previous stage result JSON:\n{previous_result_json_text if previous_result_json_text else '- none'}\n\n"
         f"Verification feedback from previous attempt:\n{feedback_text if feedback_text else '- none'}\n"
+    )
+
+
+def _stage_guard_verification_get(
+    *, artifact_path_list: list[str], error_list: list[str], stage_key: str
+) -> StageVerification:
+    """Return failed verification for mechanical stage-result validation.
+
+    Args:
+        artifact_path_list: Artifact paths produced by the main stage.
+        error_list: Mechanical validation errors.
+        stage_key: Stable stage key.
+
+    Returns:
+        Failed stage verification.
+    """
+    return StageVerification(
+        artifact_path_list=artifact_path_list,
+        error_list=error_list,
+        feedback_list=error_list,
+        message="Stage mechanical validation failed.",
+        stage_key=stage_key,
+        status="failed",
     )
 
 
@@ -871,7 +1236,7 @@ def _stage_verification_get(
     *,
     artifact_path_list: list[str],
     browser_access: bool,
-    browser_runtime_data_source_path: Path | None,
+    browser_runtime_mcp_url: str,
     prompt_context: str,
     prompt_scope: PromptScope | None,
     result: BaseModel,
@@ -884,7 +1249,7 @@ def _stage_verification_get(
     Args:
         artifact_path_list: Artifact paths produced by the main stage.
         browser_access: Whether Codex verification may use configured browser/MCP tools.
-        browser_runtime_data_source_path: Browser/VPN runtime DataSource path for browser verification.
+        browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL for browser verification.
         prompt_context: Stage prompt context.
         prompt_scope: Parsed prompt scope relevant to this stage.
         result: Main stage result.
@@ -913,11 +1278,10 @@ def _stage_verification_get(
     )
     return codex_stage_run(
         allow_user_config=browser_access,
-        browser_runtime_data_source_path=browser_runtime_data_source_path,
+        browser_runtime_mcp_url=browser_runtime_mcp_url,
         model_class=StageVerification,
         prompt_text=verification_prompt,
         result_dir=result_dir,
-        sandbox_mode="workspace-write" if browser_access else "read-only",
         stage_dir=stage_dir,
         stage_name=f"{stage_key}_verification",
     )
@@ -953,6 +1317,12 @@ def brand_selection_write_step(
         SourceTypeSummary.model_validate(source_type_summary_payload)
         for source_type_summary_payload in source_type_summary_payload_list
     ]
+    source_type_error_list = [
+        f"{source_type_summary.source_type}: {blocker}"
+        for source_type_summary in source_type_summary_list
+        if source_type_summary.state in {"failed", "blocked"}
+        for blocker in source_type_summary.blocker_list
+    ]
     coverage_result = _coverage_decision_semantic_result_get(
         brand_input=brand_input,
         prompt_scope=prompt_scope,
@@ -970,6 +1340,10 @@ def brand_selection_write_step(
         ),
         prompt_scope=prompt_scope,
         prompt_name="selection",
+        result_error_list_get=lambda result: _canonical_selection_error_list_get(
+            canonical_selection_result=result,
+            table_extraction_list=table_extraction_list,
+        ),
         result_dir=Path(result_dir),
         stage_dir=_brand_audit_dir(Path(result_dir), brand_input) / "canonical_selection",
         stage_key="canonical_selection",
@@ -991,20 +1365,29 @@ def brand_selection_write_step(
         chart_path_list.append(_artifact_path(chart_path, Path(result_dir)))
 
     brand_result_path = _brand_audit_dir(Path(result_dir), brand_input) / "brand_result" / "result.json"
+    brand_error_list = [*source_type_error_list, *coverage_result.uncovered_product_type_list]
     brand_result = BrandResult(
         audit_artifact_path_list=[_artifact_path(brand_result_path, Path(result_dir))],
         canonical_selection_list=canonical_selection_result.canonical_selection_list,
-        error_list=coverage_result.uncovered_product_type_list,
+        error_list=brand_error_list,
         message=(
-            "Canonical tables selected."
-            if canonical_selection_result.canonical_selection_list
-            else "No verified canonical source tables found."
+            "One or more source types failed."
+            if source_type_error_list
+            else (
+                "Canonical tables selected."
+                if canonical_selection_result.canonical_selection_list
+                else "No verified canonical source tables found."
+            )
         ),
         parsed_brand_key=brand_input.parsed_brand_key,
         parsed_brand_name=brand_input.parsed_brand_name,
         size_chart_path_list=chart_path_list,
         source_type_summary_list=source_type_summary_list,
-        status="success" if canonical_selection_result.canonical_selection_list else "skipped",
+        status=(
+            "failed"
+            if source_type_error_list
+            else ("success" if canonical_selection_result.canonical_selection_list else "skipped")
+        ),
     )
     json_artifact_write(_brand_output_dir(Path(result_dir), brand_input) / "manifest.json", brand_result)
     json_artifact_write(brand_result_path, brand_result)
@@ -1064,6 +1447,7 @@ def coverage_decision_write_step(
 def brand_size_chart_brand(
     workflow_run_id: str,
     brand_input_payload: dict[str, object],
+    browser_runtime_mcp_url: str,
     prompt_scope_payload: dict[str, object],
     result_dir: str,
     secret_ref: str,
@@ -1073,6 +1457,7 @@ def brand_size_chart_brand(
     Args:
         workflow_run_id: Stable workflow run identifier.
         brand_input_payload: Serialized brand input.
+        browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
         prompt_scope_payload: Serialized prompt scope.
         result_dir: Root result directory string.
         secret_ref: Secret DataSource path string.
@@ -1088,20 +1473,21 @@ def brand_size_chart_brand(
     table_extraction_payload_list: list[dict[str, object]] = []
     queue_name = dbos_identifier("queue", workflow_run_id)
     for source_type in source_type_list:
-        source_type_prompt_scope = prompt_scope
-        if prompt_scope.product_type_request_list:
+        if source_type in PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET and prompt_scope.product_type_request_list:
             if not remaining_product_type_list:
                 break
-            source_type_prompt_scope = _prompt_scope_with_product_type_request_list_get(
-                product_type_request_list=remaining_product_type_list,
-                prompt_scope=prompt_scope,
-            )
+        source_type_prompt_scope = _source_type_prompt_scope_get(
+            prompt_scope=prompt_scope,
+            remaining_product_type_list=remaining_product_type_list,
+            source_type=source_type,
+        )
         with SetWorkflowID(dbos_identifier("workflow", workflow_run_id, brand_input.parsed_brand_name, source_type)):
             source_type_handle = DBOS.enqueue_workflow(
                 queue_name,
                 brand_size_chart_source_type,
                 workflow_run_id,
                 brand_input.model_dump(mode="json"),
+                browser_runtime_mcp_url,
                 source_type_prompt_scope.model_dump(mode="json"),
                 result_dir,
                 secret_ref,
@@ -1113,17 +1499,19 @@ def brand_size_chart_brand(
         if not prompt_scope.product_type_request_list and source_type_result["table_extraction_list"]:
             break
         if prompt_scope.product_type_request_list and table_extraction_payload_list:
+            coverage_prompt_scope = _prompt_scope_with_product_type_request_list_get(
+                product_type_request_list=remaining_product_type_list,
+                prompt_scope=prompt_scope,
+            )
             coverage_check_payload = coverage_decision_write_step(
                 brand_input.model_dump(mode="json"),
-                source_type_prompt_scope.model_dump(mode="json"),
+                coverage_prompt_scope.model_dump(mode="json"),
                 result_dir,
                 source_type,
                 table_extraction_payload_list,
             )
             coverage_check = CoverageDecisionResult.model_validate(coverage_check_payload)
             remaining_product_type_list = coverage_check.uncovered_product_type_list
-            if not remaining_product_type_list:
-                break
 
     return brand_selection_write_step(
         brand_input.model_dump(mode="json"),
@@ -1136,7 +1524,12 @@ def brand_size_chart_brand(
 
 @DBOS.workflow()
 def brand_size_chart_run(
-    workflow_run_id: str, brand_list_text: str, secret_ref: str, result_dir: str, workflow_run_prompt: str
+    workflow_run_id: str,
+    brand_list_text: str,
+    secret_ref: str,
+    result_dir: str,
+    workflow_run_prompt: str,
+    browser_runtime_mcp_url: str,
 ) -> dict[str, object]:
     """Run root workflow orchestration for one brand list.
 
@@ -1146,6 +1539,7 @@ def brand_size_chart_run(
         secret_ref: Secret DataSource path string.
         result_dir: Root result directory string.
         workflow_run_prompt: User-supplied prompt text.
+        browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
 
     Returns:
         Serialized `RunResult` payload.
@@ -1161,6 +1555,7 @@ def brand_size_chart_run(
                 brand_size_chart_brand,
                 workflow_run_id,
                 brand_input.model_dump(mode="json"),
+                browser_runtime_mcp_url,
                 prompt_scope,
                 result_dir,
                 secret_ref,
@@ -1179,6 +1574,7 @@ def brand_size_chart_run(
 def brand_size_chart_source_type(
     workflow_run_id: str,
     brand_input_payload: dict[str, object],
+    browser_runtime_mcp_url: str,
     prompt_scope_payload: dict[str, object],
     result_dir: str,
     secret_ref: str,
@@ -1189,6 +1585,7 @@ def brand_size_chart_source_type(
     Args:
         workflow_run_id: Stable workflow run identifier.
         brand_input_payload: Serialized brand input.
+        browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
         prompt_scope_payload: Serialized prompt scope.
         result_dir: Root result directory string.
         secret_ref: Secret DataSource path string.
@@ -1199,42 +1596,52 @@ def brand_size_chart_source_type(
     """
     brand_input = BrandInput.model_validate(brand_input_payload)
     prompt_scope = PromptScope.model_validate(prompt_scope_payload)
-    discovery_result_payload = source_discovery_write_step(
-        brand_input.model_dump(mode="json"),
-        prompt_scope.model_dump(mode="json"),
-        result_dir,
-        secret_ref,
-        source_type,
-    )
-    discovery_result = SourceDiscoveryResult.model_validate(discovery_result_payload)
     verified_table_extraction_payload_list: list[dict[str, object]] = []
-    queue_name = dbos_identifier("queue", workflow_run_id)
-    for source_discovery in discovery_result.discovered_source_list:
-        with SetWorkflowID(
-            dbos_identifier(
-                "workflow",
-                workflow_run_id,
-                brand_input.parsed_brand_name,
-                source_type,
-                source_discovery.size_group_key,
-            )
-        ):
-            table_handle = DBOS.enqueue_workflow(
-                queue_name,
-                brand_size_chart_table,
-                brand_input.model_dump(mode="json"),
-                prompt_scope.model_dump(mode="json"),
-                result_dir,
-                secret_ref,
-                source_type,
-                source_discovery.model_dump(mode="json"),
-            )
-        verified_table_extraction_payload_list.append(table_handle.get_result())
+    blocker_list: list[str] = []
+    try:
+        discovery_result_payload = source_discovery_write_step(
+            brand_input.model_dump(mode="json"),
+            browser_runtime_mcp_url,
+            prompt_scope.model_dump(mode="json"),
+            result_dir,
+            secret_ref,
+            source_type,
+        )
+        discovery_result = SourceDiscoveryResult.model_validate(discovery_result_payload)
+        if discovery_result.status == "failed":
+            blocker_list.extend(discovery_result.error_list or [discovery_result.message])
+        else:
+            queue_name = dbos_identifier("queue", workflow_run_id)
+            for source_discovery in discovery_result.discovered_source_list:
+                with SetWorkflowID(
+                    dbos_identifier(
+                        "workflow",
+                        workflow_run_id,
+                        brand_input.parsed_brand_name,
+                        source_type,
+                        source_discovery.size_group_key,
+                    )
+                ):
+                    table_handle = DBOS.enqueue_workflow(
+                        queue_name,
+                        brand_size_chart_table,
+                        brand_input.model_dump(mode="json"),
+                        browser_runtime_mcp_url,
+                        prompt_scope.model_dump(mode="json"),
+                        result_dir,
+                        secret_ref,
+                        source_type,
+                        source_discovery.model_dump(mode="json"),
+                    )
+                verified_table_extraction_payload_list.append(table_handle.get_result())
+    except RuntimeError as exc:
+        blocker_list.append(f"{type(exc).__name__}: {exc}")
     source_type_summary_payload = source_type_summary_write_step(
         brand_input.model_dump(mode="json"),
         result_dir,
         source_type,
         verified_table_extraction_payload_list,
+        blocker_list,
     )
     return {
         "source_type_summary": source_type_summary_payload,
@@ -1245,6 +1652,7 @@ def brand_size_chart_source_type(
 @DBOS.workflow()
 def brand_size_chart_table(
     brand_input_payload: dict[str, object],
+    browser_runtime_mcp_url: str,
     prompt_scope_payload: dict[str, object],
     result_dir: str,
     secret_ref: str,
@@ -1255,6 +1663,7 @@ def brand_size_chart_table(
 
     Args:
         brand_input_payload: Serialized brand input.
+        browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
         prompt_scope_payload: Serialized prompt scope.
         result_dir: Root result directory string.
         secret_ref: Secret DataSource path string.
@@ -1266,6 +1675,7 @@ def brand_size_chart_table(
     """
     return table_stage_write_step(
         brand_input_payload,
+        browser_runtime_mcp_url,
         prompt_scope_payload,
         result_dir,
         secret_ref,
@@ -1315,12 +1725,20 @@ def run_result_write_step(
     Returns:
         Serialized run result.
     """
+    brand_result_list = [BrandResult.model_validate(payload) for payload in brand_result_payload_list]
+    failed_brand_result_list = [brand_result for brand_result in brand_result_list if brand_result.status == "failed"]
+    run_error_list = [
+        f"{brand_result.parsed_brand_name}: {error}"
+        for brand_result in failed_brand_result_list
+        for error in brand_result.error_list
+    ]
     run_result = RunResult(
-        brand_result_list=[BrandResult.model_validate(payload) for payload in brand_result_payload_list],
-        message="Workflow run completed.",
+        brand_result_list=brand_result_list,
+        error_list=run_error_list,
+        message="Workflow run completed with failed brands." if failed_brand_result_list else "Workflow run completed.",
         prompt_scope=PromptScope.model_validate(prompt_scope_payload),
         result_dir=result_dir,
-        status="success",
+        status="failed" if failed_brand_result_list else "success",
         warning_list=[BrandListParseWarning.model_validate(payload) for payload in warning_payload_list],
         workflow_run_id=workflow_run_id,
     )
@@ -1364,6 +1782,7 @@ def run_failure_result_write(
 @DBOS.step()
 def source_discovery_write_step(
     brand_input_payload: dict[str, object],
+    browser_runtime_mcp_url: str,
     prompt_scope_payload: dict[str, object],
     result_dir: str,
     secret_ref: str,
@@ -1373,6 +1792,7 @@ def source_discovery_write_step(
 
     Args:
         brand_input_payload: Serialized brand input.
+        browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
         prompt_scope_payload: Serialized prompt scope.
         result_dir: Root result directory string.
         secret_ref: Secret DataSource path string.
@@ -1386,6 +1806,7 @@ def source_discovery_write_step(
     source_type_dir = _brand_audit_dir(Path(result_dir), brand_input) / "source_type" / source_type
     discovery_result = _source_discovery_result_get(
         brand_input=brand_input,
+        browser_runtime_mcp_url=browser_runtime_mcp_url,
         prompt_scope=prompt_scope,
         result_dir=Path(result_dir),
         secret_path=Path(secret_ref),
@@ -1402,6 +1823,7 @@ def source_type_summary_write_step(
     result_dir: str,
     source_type: str,
     table_extraction_payload_list: list[dict[str, object]],
+    blocker_list: list[str],
 ) -> dict[str, object]:
     """Write source-type summary.
 
@@ -1410,6 +1832,7 @@ def source_type_summary_write_step(
         result_dir: Root result directory string.
         source_type: Source type key.
         table_extraction_payload_list: Serialized verified table extractions.
+        blocker_list: Source-type blocker messages collected during discovery or extraction.
 
     Returns:
         Serialized source-type summary.
@@ -1427,13 +1850,20 @@ def source_type_summary_write_step(
         )
         for table_extraction in table_extraction_list
     }
+    evidence_manifest_path_list = [
+        _artifact_path(artifact_path, Path(result_dir))
+        for artifact_path in [
+            source_type_dir / "source_discovery" / "result.json",
+            source_type_dir / "source_discovery" / "verification.json",
+        ]
+        if artifact_path.is_file()
+    ]
     summary = SourceTypeSummary(
-        evidence_manifest_path_list=[
-            _artifact_path(source_type_dir / "source_discovery" / "result.json", Path(result_dir))
-        ],
+        blocker_list=blocker_list,
+        evidence_manifest_path_list=evidence_manifest_path_list,
         source_priority=SOURCE_TYPE_PRIORITY_BY_KEY_MAP[source_type],
         source_type=source_type,
-        state="passed" if table_extraction_list else "skipped",
+        state="failed" if blocker_list else ("passed" if table_extraction_list else "skipped"),
         table_result_path_by_size_group_key_map=table_result_path_by_size_group_key_map,
         verified_size_group_key_list=list(table_result_path_by_size_group_key_map),
     )
@@ -1456,6 +1886,7 @@ def source_type_summary_write_step(
 @DBOS.step()
 def table_stage_write_step(
     brand_input_payload: dict[str, object],
+    browser_runtime_mcp_url: str,
     prompt_scope_payload: dict[str, object],
     result_dir: str,
     secret_ref: str,
@@ -1466,6 +1897,7 @@ def table_stage_write_step(
 
     Args:
         brand_input_payload: Serialized brand input.
+        browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
         prompt_scope_payload: Serialized prompt scope.
         result_dir: Root result directory string.
         secret_ref: Secret DataSource path string.
@@ -1480,6 +1912,7 @@ def table_stage_write_step(
     source_type_dir = _brand_audit_dir(Path(result_dir), brand_input) / "source_type" / source_type
     table_extraction = _table_stage_run(
         brand_input=brand_input,
+        browser_runtime_mcp_url=browser_runtime_mcp_url,
         prompt_scope=prompt_scope,
         result_dir=Path(result_dir),
         secret_path=Path(secret_ref),

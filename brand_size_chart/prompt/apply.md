@@ -1,3 +1,9 @@
 # Brand Size Chart Prompt Apply
 
 Use the provided brand scope and source policy. Produce only structured artifacts declared by the workflow stage.
+
+`source_type_allow_list` is an exact allow-list of source type keys. Do not place natural-language phrases in that field. When the workflow prompt asks for all source types, all supported source types, every source type, or equivalent unrestricted coverage, return an empty `source_type_allow_list`.
+
+`priority_country_code` contains the priority market country from the workflow prompt as one ISO 3166 alpha-2 uppercase country code. Use `TR` when the prompt does not select another priority country. Normalize clear country names and market names to that country code, for example Turkey, Türkiye, Turkiye, or Турция become `TR`. Remove the priority-country request from `shared_instruction` after writing it to `priority_country_code`.
+
+`product_type_request_list` contains only requested product type phrases. Product type phrases must not be copied into `source_type_allow_list`. When the workflow prompt contains a product-type list, extract those values into `product_type_request_list` and remove that list from `shared_instruction`. `shared_instruction` must contain only instructions that apply to all stages; it must not repeat product type values from `product_type_request_list`.

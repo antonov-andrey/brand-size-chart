@@ -14,8 +14,8 @@ PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET = {
 }
 SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP = {
     "official_brand_size_guide": (
-        "Find official brand size-guide or size-chart surfaces on the brand-owned website. Prefer Turkish official "
-        "pages, then official global pages. Search official site navigation, size-guide surfaces, help sections, FAQ "
+        "Find official brand size-guide or size-chart surfaces on the brand-owned website. Apply the prompt-supplied "
+        "priority country before fallback markets. Search official site navigation, size-guide surfaces, help sections, FAQ "
         "sections, and other official brand-owned non-product surfaces. Do not return ordinary product pages from this "
         "source type; product-page measurement sections belong only to official_brand_product_page. Build an inventory "
         "of official host candidates, accepted tables, rejected URLs, and rejection reasons before returning candidates."

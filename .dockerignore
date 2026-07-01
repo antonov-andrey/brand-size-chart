@@ -1,0 +1,8 @@
+.git/
+.pytest_cache/
+.secret/
+.venv/
+__pycache__/
+out/
+tmp/
+*.pyc

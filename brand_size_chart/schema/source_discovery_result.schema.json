@@ -10,6 +10,13 @@
           "title": "Confidence",
           "type": "number"
         },
+        "country_code_list": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Country Code List",
+          "type": "array"
+        },
         "evidence_path_list": {
           "items": {
             "type": "string"
@@ -55,6 +62,7 @@
       },
       "required": [
         "confidence",
+        "country_code_list",
         "size_group_key",
         "source_priority",
         "source_title",

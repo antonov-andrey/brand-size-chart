@@ -126,6 +126,8 @@ def test_entrypoint_bootstraps_dbos_with_stable_ids_and_worker_concurrency(monke
         "args_parse",
         lambda: entrypoint.argparse.Namespace(
             brand_list=brand_list_path,
+            browser_runtime_mcp_url="http://browser-runtime:8931/mcp",
+            input_secret=None,
             output_dir=output_dir,
             secret=str(secret_dir),
             workflow_git_url="git@github.com:antonov-andrey/brand-size-chart.git",
@@ -154,7 +156,14 @@ def test_entrypoint_bootstraps_dbos_with_stable_ids_and_worker_concurrency(monke
             "enqueue_workflow",
             (
                 "queue/run_01",
-                ("Run 01", "Mavi\n", str(secret_dir), str(output_dir), "official_brand_size_guide only"),
+                (
+                    "Run 01",
+                    "Mavi\n",
+                    str(secret_dir),
+                    str(output_dir),
+                    "official_brand_size_guide only",
+                    "http://browser-runtime:8931/mcp",
+                ),
             ),
         ),
         ("workflow_id_exit", "workflow/run_01"),
@@ -181,6 +190,8 @@ def test_entrypoint_rejects_hidden_sqlite_system_database_fallback(monkeypatch: 
         "args_parse",
         lambda: entrypoint.argparse.Namespace(
             brand_list=brand_list_path,
+            browser_runtime_mcp_url="http://browser-runtime:8931/mcp",
+            input_secret=None,
             output_dir=output_dir,
             secret=str(secret_dir),
             workflow_git_url="git@github.com:antonov-andrey/brand-size-chart.git",
@@ -190,6 +201,29 @@ def test_entrypoint_rejects_hidden_sqlite_system_database_fallback(monkeypatch: 
     )
 
     with pytest.raises(RuntimeError, match="DBOS_SYSTEM_DATABASE_URL"):
+        entrypoint.main()
+
+
+def test_entrypoint_rejects_missing_browser_runtime_mcp_url(monkeypatch: object, tmp_path: Path) -> None:
+    """Require an externally managed browser runtime MCP URL."""
+    brand_list_path = tmp_path / "brand_list.txt"
+    brand_list_path.write_text("Mavi\n", encoding="utf-8")
+    monkeypatch.setattr(
+        entrypoint,
+        "args_parse",
+        lambda: entrypoint.argparse.Namespace(
+            brand_list=brand_list_path,
+            browser_runtime_mcp_url="",
+            input_secret=None,
+            output_dir=tmp_path / "out",
+            secret=str(tmp_path / "secret"),
+            workflow_git_url="git@github.com:antonov-andrey/brand-size-chart.git",
+            workflow_run_id="Run 01",
+            workflow_run_prompt="",
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="BROWSER_RUNTIME_MCP_URL"):
         entrypoint.main()
 
 
@@ -223,3 +257,59 @@ def test_entrypoint_parser_uses_project_secret_by_default(monkeypatch: object, t
     args = entrypoint.args_parse()
 
     assert args.secret == Path(".secret")
+
+
+def test_entrypoint_materializes_input_secret_before_workflow_start(
+    monkeypatch: object,
+    tmp_path: Path,
+) -> None:
+    """Copy read-only input secret into pod-local runtime secret before DBOS starts."""
+    brand_list_path = tmp_path / "brand_list.txt"
+    brand_list_path.write_text("Mavi\n", encoding="utf-8")
+    input_secret_path = tmp_path / "input" / ".secret"
+    input_codex_profile_path = input_secret_path / "codex_profile"
+    input_codex_profile_path.mkdir(parents=True)
+    (input_codex_profile_path / "auth.json").write_text('{"tokens": {"access_token": "token"}}\n', encoding="utf-8")
+    runtime_secret_path = tmp_path / "runtime" / ".secret"
+    event_list: list[tuple[str, object]] = []
+    _FakeDBOS.event_list = event_list
+    _FakeSetWorkflowID.event_list = event_list
+
+    monkeypatch.setattr(entrypoint, "DBOS", _FakeDBOS)
+    monkeypatch.setattr(entrypoint, "SetWorkflowID", _FakeSetWorkflowID)
+    monkeypatch.setattr(
+        entrypoint,
+        "args_parse",
+        lambda: entrypoint.argparse.Namespace(
+            brand_list=brand_list_path,
+            browser_runtime_mcp_url="http://browser-runtime:8931/mcp",
+            input_secret=input_secret_path,
+            output_dir=tmp_path / "out",
+            secret=runtime_secret_path,
+            workflow_git_url="git@github.com:antonov-andrey/brand-size-chart.git",
+            workflow_run_id="Run 01",
+            workflow_run_prompt="",
+        ),
+    )
+    monkeypatch.setenv("DBOS_SYSTEM_DATABASE_URL", "sqlite:////runtime/dbos.sqlite")
+
+    entrypoint.main()
+
+    assert (runtime_secret_path / "codex_profile" / "auth.json").read_text(encoding="utf-8") == (
+        input_codex_profile_path / "auth.json"
+    ).read_text(encoding="utf-8")
+    assert entrypoint.os.environ["CODEX_HOME"] == str(runtime_secret_path / "codex_profile")
+    assert event_list[5] == (
+        "enqueue_workflow",
+        (
+            "queue/run_01",
+            (
+                "Run 01",
+                "Mavi\n",
+                str(runtime_secret_path),
+                str(tmp_path / "out"),
+                "",
+                "http://browser-runtime:8931/mcp",
+            ),
+        ),
+    )
