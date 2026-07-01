@@ -25,11 +25,42 @@ from brand_size_chart.source_type import (
 )
 
 
+def _workflow_package_source_text_get() -> str:
+    """Return the combined workflow package source text for source-shape contract tests.
+
+    Returns:
+        Concatenated workflow package source.
+    """
+    return "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(Path("brand_size_chart/workflow").glob("*.py"))
+    )
+
+
 def test_model_is_package_not_monolithic_module() -> None:
     """Replace the broad model module with focused model package modules."""
     assert Path("brand_size_chart/model.py").exists() is False
     assert Path("brand_size_chart/model/__init__.py").exists()
     assert Path("brand_size_chart/model/schema_registry.py").exists()
+
+
+def test_workflow_is_package_not_monolithic_module() -> None:
+    """Replace the broad workflow module with workflow owner package modules."""
+    assert Path("brand_size_chart/workflow.py").exists() is False
+    assert Path("brand_size_chart/workflow/__init__.py").exists()
+    assert Path("brand_size_chart/workflow/root.py").exists()
+
+
+def test_dbos_workflow_classes_are_class_owned() -> None:
+    """Ensure DBOS workflows are owned by class instance methods."""
+    from brand_size_chart.workflow.brand import BrandSizeChartBrandWorkflow
+    from brand_size_chart.workflow.root import BrandSizeChartRunWorkflow
+    from brand_size_chart.workflow.source_type import BrandSizeChartSourceTypeWorkflow
+    from brand_size_chart.workflow.table import BrandSizeChartTableWorkflow
+
+    assert BrandSizeChartRunWorkflow.__name__ == "BrandSizeChartRunWorkflow"
+    assert BrandSizeChartBrandWorkflow.__name__ == "BrandSizeChartBrandWorkflow"
+    assert BrandSizeChartSourceTypeWorkflow.__name__ == "BrandSizeChartSourceTypeWorkflow"
+    assert BrandSizeChartTableWorkflow.__name__ == "BrandSizeChartTableWorkflow"
 
 
 def test_codex_stage_py_is_compatibility_surface_only() -> None:
@@ -343,7 +374,7 @@ def test_local_compose_declares_vpn_profile() -> None:
 
 def test_workflow_imports_dbos_eagerly_without_noop_decorator_fallback() -> None:
     """Keep workflow functions real DBOS workflow and step functions."""
-    workflow_source = Path("brand_size_chart/workflow.py").read_text(encoding="utf-8")
+    workflow_source = _workflow_package_source_text_get()
 
     assert "except ModuleNotFoundError" not in workflow_source
     assert "DBOS = None" not in workflow_source
@@ -687,12 +718,23 @@ def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch:
         _ = source_type_summary_payload_list
         return {"enqueued_source_type_list": list(enqueued_source_type_list)}
 
+    from brand_size_chart.workflow import brand as brand_workflow_module
+
     monkeypatch.setattr(workflow.DBOS, "enqueue_workflow", fake_enqueue_workflow)
-    monkeypatch.setattr(workflow, "SetWorkflowID", lambda _workflow_id: nullcontext())
-    monkeypatch.setattr(workflow, "brand_selection_write_step", fake_brand_selection_write_step)
-    monkeypatch.setattr(workflow, "coverage_decision_write_step", fake_coverage_decision_write_step)
+    monkeypatch.setattr(brand_workflow_module, "SetWorkflowID", lambda _workflow_id: nullcontext())
+    monkeypatch.setattr(
+        workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW,
+        "selection_write_step",
+        fake_brand_selection_write_step,
+    )
+    monkeypatch.setattr(
+        workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW,
+        "coverage_decision_write_step",
+        fake_coverage_decision_write_step,
+    )
 
     result_payload = workflow.brand_size_chart_brand.__wrapped__(
+        workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW,
         "run1",
         {
             "parsed_brand_key": "defacto",
@@ -734,6 +776,7 @@ def test_prompt_scope_rejects_product_type_values_in_shared_instruction() -> Non
 def test_source_type_summary_records_failed_source_without_discovery_artifact(tmp_path: Path) -> None:
     """Write failed source-type summaries without requiring a successful discovery artifact."""
     summary_payload = workflow.source_type_summary_write_step.__wrapped__(
+        workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW,
         {
             "parsed_brand_key": "defacto",
             "parsed_brand_name": "Defacto",
@@ -870,7 +913,7 @@ def test_size_group_key_contract_is_prompt_and_design_owned() -> None:
     """Keep size-group naming as a semantic prompt/design contract."""
     size_group_prompt = Path("brand_size_chart/prompt/size_group_key.md").read_text(encoding="utf-8")
     design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-    workflow_text = Path("brand_size_chart/workflow.py").read_text(encoding="utf-8")
+    workflow_text = _workflow_package_source_text_get()
 
     assert "{sex}_{product_group_or_type}" in size_group_prompt
     assert "{sex}_{sex_suffix}_{product_group_or_type}" in size_group_prompt
