@@ -8,7 +8,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from brand_size_chart.io import json_artifact_write
+from brand_size_chart.artifact.writer import json_artifact_write
 
 CODEX_EXEC_INACTIVITY_TIMEOUT_SECONDS = 900
 CODEX_EXEC_POLL_SECONDS = 5

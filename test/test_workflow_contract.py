@@ -28,6 +28,31 @@ def test_model_is_package_not_monolithic_module() -> None:
     assert Path("brand_size_chart/model/schema_registry.py").exists()
 
 
+def test_artifact_layout_owns_current_paths(tmp_path: Path) -> None:
+    """Centralize deterministic artifact paths in ArtifactLayout."""
+    from brand_size_chart.artifact.layout import ArtifactLayout
+    from brand_size_chart.model import BrandInput
+
+    layout = ArtifactLayout(result_dir=tmp_path)
+    brand_input = BrandInput(
+        parsed_brand_key="defacto",
+        parsed_brand_name="Defacto",
+        raw_brand_name="Defacto",
+        source_line_number=1,
+    )
+
+    assert layout.brand_output_dir(brand_input).relative_to(tmp_path).as_posix() == "brand_size_chart/brand/defacto"
+    assert (
+        layout.brand_audit_dir(brand_input).relative_to(tmp_path).as_posix() == "brand_size_chart_audit/brand/defacto"
+    )
+    assert (
+        layout.table_extraction_dir(brand_input, "official_brand_size_guide", "women_upper")
+        .relative_to(tmp_path)
+        .as_posix()
+        == "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/size_chart/women_upper/table_extraction"
+    )
+
+
 def test_workflow_yaml_declares_required_cross_project_contract_keys() -> None:
     """Expose required input, output, and runtime keys in workflow metadata."""
     workflow = yaml.safe_load(Path("workflow.yaml").read_text(encoding="utf-8"))
@@ -198,18 +223,21 @@ def test_prompt_scope_owns_priority_country_code() -> None:
 
 def test_source_discovery_rejects_non_priority_country_when_priority_country_exists(tmp_path: Path) -> None:
     """Return only priority-country candidates when the source type found priority-country tables."""
+    from brand_size_chart.artifact.layout import ArtifactLayout
+
     evidence_path = (
         tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "source_type" / "official_brand_size_guide"
     )
     evidence_path = evidence_path / "source_discovery" / "evidence" / "source_surface_inventory.json"
     evidence_path.parent.mkdir(parents=True)
     evidence_path.write_text("{}", encoding="utf-8")
+    artifact_layout = ArtifactLayout(tmp_path)
     source_discovery_result = SourceDiscoveryResult(
         discovered_source_list=[
             SourceDiscovery(
                 confidence=0.9,
                 country_code_list=["TR"],
-                evidence_path_list=[workflow._artifact_path(evidence_path, tmp_path)],
+                evidence_path_list=[artifact_layout.artifact_path(evidence_path)],
                 size_group_key="women_upper",
                 source_priority=600,
                 source_title="Defacto TR size guide",
@@ -219,7 +247,7 @@ def test_source_discovery_rejects_non_priority_country_when_priority_country_exi
             SourceDiscovery(
                 confidence=0.9,
                 country_code_list=["MA"],
-                evidence_path_list=[workflow._artifact_path(evidence_path, tmp_path)],
+                evidence_path_list=[artifact_layout.artifact_path(evidence_path)],
                 size_group_key="women_bras",
                 source_priority=600,
                 source_title="Defacto Morocco size guide",

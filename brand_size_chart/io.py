@@ -1,10 +1,6 @@
 """Filesystem and input boundaries for brand size-chart workflow artifacts."""
 
-import json
 import re
-from pathlib import Path
-
-from pydantic import BaseModel
 
 from brand_size_chart.identifier import dbos_identifier_component
 from brand_size_chart.model import BrandInput, BrandListParseResult, BrandListParseWarning
@@ -73,18 +69,3 @@ def brand_list_parse(brand_list_text: str) -> BrandListParseResult:
         )
 
     return BrandListParseResult(brand_list=list(brand_by_key_map.values()), warning_list=warning_list)
-
-
-def json_artifact_write(path: Path, payload: BaseModel | dict[str, object]) -> None:
-    """Write one JSON artifact with deterministic formatting.
-
-    Args:
-        path: Artifact path to write.
-        payload: Pydantic model or JSON-compatible dictionary payload.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if isinstance(payload, BaseModel):
-        json_payload = payload.model_dump(mode="json")
-    else:
-        json_payload = payload
-    path.write_text(json.dumps(json_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")

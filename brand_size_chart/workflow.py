@@ -8,9 +8,10 @@ from typing import TypeVar
 from dbos import DBOS, SetWorkflowID
 from pydantic import BaseModel
 
+from brand_size_chart.artifact import ArtifactLayout, ArtifactReferenceValidator, JsonArtifactWriter
 from brand_size_chart.codex_stage import codex_stage_run
 from brand_size_chart.identifier import dbos_identifier
-from brand_size_chart.io import brand_list_parse, json_artifact_write
+from brand_size_chart.io import brand_list_parse
 from brand_size_chart.model import (
     APPLICABILITY_STATUS_CANONICAL_SET,
     BrandInput,
@@ -49,90 +50,8 @@ STAGE_KEY_SET = {
     "table_extraction",
     "workflow_run_prompt_apply",
 }
+ARTIFACT_WRITER = JsonArtifactWriter()
 _ResultModelT = TypeVar("_ResultModelT", bound=BaseModel)
-
-
-def _artifact_path(path: Path, result_dir: Path) -> str:
-    """Return one result-dir-relative artifact path.
-
-    Args:
-        path: Artifact path.
-        result_dir: Result root directory.
-
-    Returns:
-        Relative artifact path as POSIX text.
-    """
-    return path.relative_to(result_dir).as_posix()
-
-
-def _artifact_reference_list_validate(*, evidence_path_list: list[str], result_dir: Path, stage_key: str) -> None:
-    """Validate that stage evidence references point to existing run artifacts.
-
-    Args:
-        evidence_path_list: Result-dir-relative artifact references.
-        result_dir: Root result directory.
-        stage_key: Stable stage key for diagnostics.
-
-    Raises:
-        RuntimeError: If one evidence reference is absent or points outside the run directory.
-    """
-    if not evidence_path_list:
-        raise RuntimeError(f"Stage {stage_key} returned no evidence_path_list.")
-    for evidence_path_text in evidence_path_list:
-        evidence_path = result_dir / evidence_path_text
-        try:
-            evidence_path.relative_to(result_dir)
-        except ValueError as exc:
-            raise RuntimeError(f"Stage {stage_key} returned evidence outside result_dir: {evidence_path_text}") from exc
-        if not evidence_path.exists():
-            raise RuntimeError(f"Stage {stage_key} returned missing evidence artifact: {evidence_path_text}")
-
-
-def _artifact_path_list_validate(*, path_list: list[str], result_dir: Path, stage_key: str) -> None:
-    """Validate that output artifact references point to existing run artifacts.
-
-    Args:
-        path_list: Result-dir-relative artifact references.
-        result_dir: Root result directory.
-        stage_key: Stable stage key for diagnostics.
-
-    Raises:
-        RuntimeError: If one artifact reference is absent or points outside the run directory.
-    """
-    for path_text in path_list:
-        artifact_path = result_dir / path_text
-        try:
-            artifact_path.relative_to(result_dir)
-        except ValueError as exc:
-            raise RuntimeError(f"Stage {stage_key} returned artifact outside result_dir: {path_text}") from exc
-        if not artifact_path.exists():
-            raise RuntimeError(f"Stage {stage_key} returned missing artifact: {path_text}")
-
-
-def _brand_audit_dir(result_dir: Path, brand_input: BrandInput) -> Path:
-    """Return audit directory for one brand.
-
-    Args:
-        result_dir: Result root directory.
-        brand_input: Parsed brand input.
-
-    Returns:
-        Brand audit directory.
-    """
-    return result_dir / "brand_size_chart_audit" / "brand" / brand_input.parsed_brand_key
-
-
-def _brand_output_dir(result_dir: Path, brand_input: BrandInput) -> Path:
-    """Return canonical output directory for one brand.
-
-    Args:
-        result_dir: Result root directory.
-        brand_input: Parsed brand input.
-
-    Returns:
-        Brand output directory.
-    """
-    return result_dir / "brand_size_chart" / "brand" / brand_input.parsed_brand_key
 
 
 def _canonical_selection_result_get(table_extraction_list: list[TableExtraction]) -> CanonicalSelectionResult:
@@ -519,14 +438,16 @@ def _prompt_scope_stage_get(*, result_dir: Path, workflow_run_prompt: str) -> Pr
         Parsed prompt scope.
     """
     prompt_scope = _prompt_scope_get(workflow_run_prompt)
-    stage_dir = result_dir / "brand_size_chart_audit" / "run" / "workflow_run_prompt_apply"
+    artifact_layout = ArtifactLayout(result_dir)
+    stage_dir = artifact_layout.workflow_run_prompt_apply_dir()
     if not workflow_run_prompt.strip():
         _prompt_scope_validate(prompt_scope)
-        json_artifact_write(stage_dir / "result.json", prompt_scope)
-        json_artifact_write(
-            stage_dir / "verification.json",
+        result_path = artifact_layout.stage_result_path(stage_dir)
+        ARTIFACT_WRITER.write(result_path, prompt_scope)
+        ARTIFACT_WRITER.write(
+            artifact_layout.stage_verification_path(stage_dir),
             StageVerification(
-                artifact_path_list=[_artifact_path(stage_dir / "result.json", result_dir)],
+                artifact_path_list=[artifact_layout.artifact_path(result_path)],
                 message="Empty workflow prompt requires no rewrite.",
                 stage_key="workflow_run_prompt_apply",
                 status="success",
@@ -595,6 +516,7 @@ def _semantic_stage_run(
         RuntimeError: If verification does not pass within the retry limit.
     """
     feedback_list: list[str] = []
+    artifact_layout = ArtifactLayout(result_dir)
     draft_result_json_text = draft_result.model_dump_json(indent=2)
     previous_result_json_text = ""
     stage_dir.mkdir(parents=True, exist_ok=True)
@@ -618,9 +540,9 @@ def _semantic_stage_run(
             stage_name=stage_key,
         )
 
-        result_path = stage_dir / "result.json"
-        json_artifact_write(result_path, result)
-        artifact_path_list = [_artifact_path(result_path, result_dir)]
+        result_path = artifact_layout.stage_result_path(stage_dir)
+        ARTIFACT_WRITER.write(result_path, result)
+        artifact_path_list = [artifact_layout.artifact_path(result_path)]
         previous_result_json_text = result.model_dump_json(indent=2)
         verification = _stage_verification_get(
             artifact_path_list=artifact_path_list,
@@ -641,7 +563,7 @@ def _semantic_stage_run(
                     error_list=result_error_list,
                     stage_key=stage_key,
                 )
-        json_artifact_write(stage_dir / "verification.json", verification)
+        ARTIFACT_WRITER.write(artifact_layout.stage_verification_path(stage_dir), verification)
         if verification.status == "success":
             return result
         feedback_list = verification.feedback_list or verification.error_list
@@ -797,6 +719,7 @@ def _source_discovery_result_validate(
         discovery_result=discovery_result,
         prompt_scope=prompt_scope,
     )
+    artifact_reference_validator = ArtifactReferenceValidator(result_dir)
     size_group_key_set: set[str] = set()
     requested_product_type_set = set(prompt_scope.product_type_request_list)
     for source_discovery in discovery_result.discovered_source_list:
@@ -825,9 +748,8 @@ def _source_discovery_result_validate(
                     f"source_discovery returned unexpected product_type_hint_list for "
                     f"{source_discovery.size_group_key}: {unexpected_product_type_list}"
                 )
-        _artifact_reference_list_validate(
+        artifact_reference_validator.evidence_path_list_validate(
             evidence_path_list=source_discovery.evidence_path_list,
-            result_dir=result_dir,
             stage_key="source_discovery",
         )
 
@@ -865,7 +787,8 @@ def _source_discovery_result_get(
         source_type=source_type,
         source_type_dir=source_type_dir,
     )
-    evidence_dir = source_type_dir / "source_discovery" / "evidence"
+    artifact_layout = ArtifactLayout(result_dir)
+    evidence_dir = artifact_layout.source_discovery_evidence_dir(brand_input, source_type)
     requested_product_type_text = (
         "\n".join(f"- {product_type}" for product_type in prompt_scope.product_type_request_list) or "- none"
     )
@@ -876,7 +799,7 @@ def _source_discovery_result_get(
         f"Priority country code: {prompt_scope.priority_country_code}\n"
         f"Requested product types:\n{requested_product_type_text}\n"
         f"Source type instruction: {SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP[source_type]}\n"
-        f"Evidence directory: {_artifact_path(evidence_dir, result_dir)}\n"
+        f"Evidence directory: {artifact_layout.artifact_path(evidence_dir)}\n"
         "Use the configured browser to search, open, and interact with source pages. "
         "All source-page and source-data loading must go through the configured browser. "
         "Do not use non-browser loading mechanisms; direct HTTP, curl, requests, wget, and Python scraping are "
@@ -1000,9 +923,8 @@ def _table_extraction_validate(
             f"table_extraction size_group_key mismatch: "
             f"{table_extraction.size_group_key} != {source_discovery.size_group_key}"
         )
-    _artifact_reference_list_validate(
+    ArtifactReferenceValidator(result_dir).evidence_path_list_validate(
         evidence_path_list=table_extraction.evidence_path_list,
-        result_dir=result_dir,
         stage_key="table_extraction",
     )
     if not table_extraction.chart.row_list:
@@ -1087,14 +1009,17 @@ def _table_stage_run(
         result_dir=result_dir,
         source_discovery=source_discovery,
     )
-    table_stage_dir = source_type_dir / "size_chart" / table_extraction.size_group_key / "table_extraction"
-    evidence_dir = table_stage_dir / "evidence"
+    artifact_layout = ArtifactLayout(result_dir)
+    table_stage_dir = artifact_layout.table_extraction_dir(brand_input, source_type, table_extraction.size_group_key)
+    evidence_dir = artifact_layout.table_extraction_evidence_dir(
+        brand_input, source_type, table_extraction.size_group_key
+    )
     prompt_context = (
         f"Brand: {brand_input.parsed_brand_name}\n"
         f"Source type: {source_type}\n"
         f"Source title: {table_extraction.source_title}\n"
         f"Source URL: {table_extraction.source_url}\n"
-        f"Evidence directory: {_artifact_path(evidence_dir, result_dir)}\n"
+        f"Evidence directory: {artifact_layout.artifact_path(evidence_dir)}\n"
         f"Source discovery evidence paths: {source_discovery.evidence_path_list}\n"
         "All source-page and source-data loading must go through the configured browser. "
         "Use browser screenshots, DOM extracts, rendered table text, downloaded browser-visible assets, and existing "
@@ -1307,6 +1232,9 @@ def brand_selection_write_step(
     Returns:
         Serialized brand result.
     """
+    result_dir_path = Path(result_dir)
+    artifact_layout = ArtifactLayout(result_dir_path)
+    artifact_reference_validator = ArtifactReferenceValidator(result_dir_path)
     brand_input = BrandInput.model_validate(brand_input_payload)
     prompt_scope = PromptScope.model_validate(prompt_scope_payload)
     table_extraction_list = [
@@ -1326,9 +1254,9 @@ def brand_selection_write_step(
     coverage_result = _coverage_decision_semantic_result_get(
         brand_input=brand_input,
         prompt_scope=prompt_scope,
-        result_dir=Path(result_dir),
+        result_dir=result_dir_path,
         source_type="final_selection",
-        stage_dir=_brand_audit_dir(Path(result_dir), brand_input) / "coverage_decision",
+        stage_dir=artifact_layout.brand_coverage_decision_dir(brand_input),
         table_extraction_list=table_extraction_list,
     )
     canonical_selection_result = _semantic_stage_run(
@@ -1344,8 +1272,8 @@ def brand_selection_write_step(
             canonical_selection_result=result,
             table_extraction_list=table_extraction_list,
         ),
-        result_dir=Path(result_dir),
-        stage_dir=_brand_audit_dir(Path(result_dir), brand_input) / "canonical_selection",
+        result_dir=result_dir_path,
+        stage_dir=artifact_layout.canonical_selection_dir(brand_input),
         stage_key="canonical_selection",
     )
     _canonical_selection_result_validate(
@@ -1358,16 +1286,14 @@ def brand_selection_write_step(
     chart_path_list: list[str] = []
     for selection in canonical_selection_result.canonical_selection_list:
         table_extraction = table_extraction_by_size_group_key_map[selection.size_group_key]
-        chart_path = (
-            _brand_output_dir(Path(result_dir), brand_input) / "size_chart" / f"{selection.size_group_key}.json"
-        )
-        json_artifact_write(chart_path, table_extraction.chart)
-        chart_path_list.append(_artifact_path(chart_path, Path(result_dir)))
+        chart_path = artifact_layout.brand_size_chart_path(brand_input, selection.size_group_key)
+        ARTIFACT_WRITER.write(chart_path, table_extraction.chart)
+        chart_path_list.append(artifact_layout.artifact_path(chart_path))
 
-    brand_result_path = _brand_audit_dir(Path(result_dir), brand_input) / "brand_result" / "result.json"
+    brand_result_path = artifact_layout.brand_result_path(brand_input)
     brand_error_list = [*source_type_error_list, *coverage_result.uncovered_product_type_list]
     brand_result = BrandResult(
-        audit_artifact_path_list=[_artifact_path(brand_result_path, Path(result_dir))],
+        audit_artifact_path_list=[artifact_layout.artifact_path(brand_result_path)],
         canonical_selection_list=canonical_selection_result.canonical_selection_list,
         error_list=brand_error_list,
         message=(
@@ -1389,18 +1315,15 @@ def brand_selection_write_step(
             else ("success" if canonical_selection_result.canonical_selection_list else "skipped")
         ),
     )
-    json_artifact_write(_brand_output_dir(Path(result_dir), brand_input) / "manifest.json", brand_result)
-    json_artifact_write(brand_result_path, brand_result)
-    _artifact_path_list_validate(
+    manifest_path = artifact_layout.brand_manifest_path(brand_input)
+    ARTIFACT_WRITER.write(manifest_path, brand_result)
+    ARTIFACT_WRITER.write(brand_result_path, brand_result)
+    artifact_reference_validator.path_list_validate(
         path_list=brand_result.size_chart_path_list,
-        result_dir=Path(result_dir),
         stage_key="brand_result",
     )
-    _artifact_path_list_validate(
-        path_list=[
-            _artifact_path(_brand_output_dir(Path(result_dir), brand_input) / "manifest.json", Path(result_dir))
-        ],
-        result_dir=Path(result_dir),
+    artifact_reference_validator.path_list_validate(
+        path_list=[artifact_layout.artifact_path(manifest_path)],
         stage_key="brand_result",
     )
     return brand_result.model_dump(mode="json")
@@ -1428,6 +1351,8 @@ def coverage_decision_write_step(
     """
     brand_input = BrandInput.model_validate(brand_input_payload)
     prompt_scope = PromptScope.model_validate(prompt_scope_payload)
+    result_dir_path = Path(result_dir)
+    artifact_layout = ArtifactLayout(result_dir_path)
     table_extraction_list = [
         TableExtraction.model_validate(table_extraction_payload)
         for table_extraction_payload in table_extraction_payload_list
@@ -1435,9 +1360,9 @@ def coverage_decision_write_step(
     coverage_result = _coverage_decision_semantic_result_get(
         brand_input=brand_input,
         prompt_scope=prompt_scope,
-        result_dir=Path(result_dir),
+        result_dir=result_dir_path,
         source_type=source_type,
-        stage_dir=_brand_audit_dir(Path(result_dir), brand_input) / "source_type" / source_type / "coverage_decision",
+        stage_dir=artifact_layout.coverage_decision_dir(brand_input, source_type),
         table_extraction_list=table_extraction_list,
     )
     return coverage_result.model_dump(mode="json")
@@ -1742,7 +1667,7 @@ def run_result_write_step(
         warning_list=[BrandListParseWarning.model_validate(payload) for payload in warning_payload_list],
         workflow_run_id=workflow_run_id,
     )
-    json_artifact_write(Path(result_dir) / "brand_size_chart_audit" / "run" / "result.json", run_result)
+    ARTIFACT_WRITER.write(ArtifactLayout(Path(result_dir)).run_result_path(), run_result)
     return run_result.model_dump(mode="json")
 
 
@@ -1775,7 +1700,7 @@ def run_failure_result_write(
         warning_list=[],
         workflow_run_id=workflow_run_id,
     )
-    json_artifact_write(result_dir / "brand_size_chart_audit" / "run" / "result.json", run_result)
+    ARTIFACT_WRITER.write(ArtifactLayout(result_dir).run_result_path(), run_result)
     return run_result
 
 
@@ -1803,12 +1728,14 @@ def source_discovery_write_step(
     """
     brand_input = BrandInput.model_validate(brand_input_payload)
     prompt_scope = PromptScope.model_validate(prompt_scope_payload)
-    source_type_dir = _brand_audit_dir(Path(result_dir), brand_input) / "source_type" / source_type
+    result_dir_path = Path(result_dir)
+    artifact_layout = ArtifactLayout(result_dir_path)
+    source_type_dir = artifact_layout.source_type_dir(brand_input, source_type)
     discovery_result = _source_discovery_result_get(
         brand_input=brand_input,
         browser_runtime_mcp_url=browser_runtime_mcp_url,
         prompt_scope=prompt_scope,
-        result_dir=Path(result_dir),
+        result_dir=result_dir_path,
         secret_path=Path(secret_ref),
         source_priority=SOURCE_TYPE_PRIORITY_BY_KEY_MAP[source_type],
         source_type=source_type,
@@ -1838,23 +1765,28 @@ def source_type_summary_write_step(
         Serialized source-type summary.
     """
     brand_input = BrandInput.model_validate(brand_input_payload)
+    result_dir_path = Path(result_dir)
+    artifact_layout = ArtifactLayout(result_dir_path)
+    artifact_reference_validator = ArtifactReferenceValidator(result_dir_path)
     table_extraction_list = [
         TableExtraction.model_validate(table_extraction_payload)
         for table_extraction_payload in table_extraction_payload_list
     ]
-    source_type_dir = _brand_audit_dir(Path(result_dir), brand_input) / "source_type" / source_type
     table_result_path_by_size_group_key_map = {
-        table_extraction.size_group_key: _artifact_path(
-            source_type_dir / "size_chart" / table_extraction.size_group_key / "table_extraction" / "result.json",
-            Path(result_dir),
+        table_extraction.size_group_key: artifact_layout.artifact_path(
+            artifact_layout.table_extraction_result_path(
+                brand_input,
+                source_type,
+                table_extraction.size_group_key,
+            )
         )
         for table_extraction in table_extraction_list
     }
     evidence_manifest_path_list = [
-        _artifact_path(artifact_path, Path(result_dir))
+        artifact_layout.artifact_path(artifact_path)
         for artifact_path in [
-            source_type_dir / "source_discovery" / "result.json",
-            source_type_dir / "source_discovery" / "verification.json",
+            artifact_layout.stage_result_path(artifact_layout.source_discovery_dir(brand_input, source_type)),
+            artifact_layout.stage_verification_path(artifact_layout.source_discovery_dir(brand_input, source_type)),
         ]
         if artifact_path.is_file()
     ]
@@ -1869,17 +1801,15 @@ def source_type_summary_write_step(
     )
     if sorted(summary.verified_size_group_key_list) != sorted(summary.table_result_path_by_size_group_key_map):
         raise RuntimeError(f"source_type_summary key mismatch for {source_type}")
-    _artifact_path_list_validate(
+    artifact_reference_validator.path_list_validate(
         path_list=list(summary.table_result_path_by_size_group_key_map.values()),
-        result_dir=Path(result_dir),
         stage_key="source_type_summary",
     )
-    _artifact_path_list_validate(
+    artifact_reference_validator.path_list_validate(
         path_list=summary.evidence_manifest_path_list,
-        result_dir=Path(result_dir),
         stage_key="source_type_summary",
     )
-    json_artifact_write(source_type_dir / "source_type_summary" / "result.json", summary)
+    ARTIFACT_WRITER.write(artifact_layout.source_type_summary_result_path(brand_input, source_type), summary)
     return summary.model_dump(mode="json")
 
 
@@ -1909,12 +1839,14 @@ def table_stage_write_step(
     """
     brand_input = BrandInput.model_validate(brand_input_payload)
     prompt_scope = PromptScope.model_validate(prompt_scope_payload)
-    source_type_dir = _brand_audit_dir(Path(result_dir), brand_input) / "source_type" / source_type
+    result_dir_path = Path(result_dir)
+    artifact_layout = ArtifactLayout(result_dir_path)
+    source_type_dir = artifact_layout.source_type_dir(brand_input, source_type)
     table_extraction = _table_stage_run(
         brand_input=brand_input,
         browser_runtime_mcp_url=browser_runtime_mcp_url,
         prompt_scope=prompt_scope,
-        result_dir=Path(result_dir),
+        result_dir=result_dir_path,
         secret_path=Path(secret_ref),
         source_discovery=SourceDiscovery.model_validate(source_discovery_payload),
         source_type=source_type,
