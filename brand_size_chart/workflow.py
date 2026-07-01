@@ -9,7 +9,7 @@ from dbos import DBOS, SetWorkflowID
 from pydantic import BaseModel
 
 from brand_size_chart.artifact import ArtifactLayout, ArtifactReferenceValidator, JsonArtifactWriter
-from brand_size_chart.codex_stage import codex_stage_run
+from brand_size_chart.codex.runner import codex_stage_run
 from brand_size_chart.identifier import dbos_identifier
 from brand_size_chart.io import brand_list_parse
 from brand_size_chart.model import (

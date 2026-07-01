@@ -28,6 +28,15 @@ def test_model_is_package_not_monolithic_module() -> None:
     assert Path("brand_size_chart/model/schema_registry.py").exists()
 
 
+def test_codex_stage_py_is_compatibility_surface_only() -> None:
+    """Move Codex subprocess mechanics into the codex package."""
+    codex_stage_source = Path("brand_size_chart/codex_stage.py").read_text(encoding="utf-8")
+
+    assert "subprocess.Popen" not in codex_stage_source
+    assert "class CodexStageRunner" not in codex_stage_source
+    assert "from brand_size_chart.codex.runner import" in codex_stage_source
+
+
 def test_artifact_layout_owns_current_paths(tmp_path: Path) -> None:
     """Centralize deterministic artifact paths in ArtifactLayout."""
     from brand_size_chart.artifact.layout import ArtifactLayout

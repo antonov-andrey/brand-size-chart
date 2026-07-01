@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from brand_size_chart import codex_stage
 from brand_size_chart import workflow
+from brand_size_chart.codex import runner as codex_runner
 from brand_size_chart.model import (
     BrandInput,
     BrandSizeChart,
@@ -1044,6 +1045,7 @@ def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, t
     captured_command: list[str] = []
 
     def fake_codex_subprocess_run(
+        runner: object,
         command: list[str],
         *,
         input: str,
@@ -1052,6 +1054,7 @@ def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, t
         """Capture the Codex command and write a schema-valid output file.
 
         Args:
+            runner: Codex stage runner instance.
             command: Command argv passed to subprocess.
             input: Prompt text.
             stage_dir: Stage artifact directory.
@@ -1059,6 +1062,7 @@ def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, t
         Returns:
             Successful completed process.
         """
+        _ = runner
         _ = input
         _ = stage_dir
         captured_command.extend(command)
@@ -1074,7 +1078,7 @@ def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, t
         )
         return subprocess.CompletedProcess(args=command, returncode=0, stdout="", stderr="")
 
-    monkeypatch.setattr(codex_stage, "_codex_subprocess_run", fake_codex_subprocess_run)
+    monkeypatch.setattr(codex_runner.CodexStageRunner, "_subprocess_run", fake_codex_subprocess_run)
 
     monkeypatch.chdir(tmp_path)
     result_dir = Path("result")
@@ -1125,6 +1129,7 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
     stderr_path.write_text("old stderr\n", encoding="utf-8")
 
     def fake_codex_subprocess_run(
+        runner: object,
         command: list[str],
         *,
         input: str,
@@ -1133,6 +1138,7 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
         """Require stale terminal diagnostics to be gone before subprocess launch.
 
         Args:
+            runner: Codex stage runner instance.
             command: Command argv passed to subprocess.
             input: Prompt text.
             stage_dir: Stage artifact directory.
@@ -1140,6 +1146,7 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
         Returns:
             Successful completed process with fresh diagnostics.
         """
+        _ = runner
         _ = input
         _ = stage_dir
         assert not output_path.exists()
@@ -1157,7 +1164,7 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
         )
         return subprocess.CompletedProcess(args=command, returncode=0, stdout='{"type":"turn.completed"}\n', stderr="")
 
-    monkeypatch.setattr(codex_stage, "_codex_subprocess_run", fake_codex_subprocess_run)
+    monkeypatch.setattr(codex_runner.CodexStageRunner, "_subprocess_run", fake_codex_subprocess_run)
 
     result = codex_stage.codex_stage_run(
         model_class=StageVerification,
@@ -1236,9 +1243,9 @@ def test_codex_subprocess_waits_after_stage_activity(monkeypatch: object, tmp_pa
         _ = text
         return FakeProcess()
 
-    monkeypatch.setattr(codex_stage.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(codex_runner.subprocess, "Popen", fake_popen)
 
-    process = codex_stage._codex_subprocess_run(["codex", "exec"], input="prompt", stage_dir=tmp_path)
+    process = codex_runner.CodexStageRunner()._subprocess_run(["codex", "exec"], input="prompt", stage_dir=tmp_path)
 
     assert communicate_call_count == 2
     assert process.returncode == 0
@@ -1334,15 +1341,15 @@ def test_codex_subprocess_terminates_completed_stuck_process_group(monkeypatch: 
         _ = text
         return fake_process
 
-    monkeypatch.setattr(codex_stage.os, "killpg", fake_killpg)
-    monkeypatch.setattr(codex_stage.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(codex_runner.os, "killpg", fake_killpg)
+    monkeypatch.setattr(codex_runner.subprocess, "Popen", fake_popen)
 
-    process = codex_stage._codex_subprocess_run(
+    process = codex_runner.CodexStageRunner()._subprocess_run(
         ["codex", "exec", "--output-last-message", str(output_path)],
         input="prompt",
         stage_dir=tmp_path,
     )
 
-    assert terminate_signal_list == [codex_stage.signal.SIGTERM]
+    assert terminate_signal_list == [codex_runner.signal.SIGTERM]
     assert process.returncode == 0
     assert process.stdout == '{"type":"turn.completed"}\n'
