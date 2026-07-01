@@ -101,6 +101,8 @@ Create `test/test_dbos_class_method_contract.py`:
 ```python
 """Tests for DBOS class-method workflow and step ownership."""
 
+import inspect
+
 from dbos import DBOS
 
 
@@ -137,10 +139,14 @@ def test_dbos_class_method_workflow_and_step_are_registered() -> None:
 
     owner = ExampleWorkflowOwner()
 
-    assert owner.run("ok") == "workflow:ok"
-    assert owner.step_run("ok") == "step:ok"
+    assert inspect.ismethod(owner.run)
+    assert inspect.ismethod(owner.step_run)
     assert getattr(owner.run, "dbos_function_name") == "example_oop_workflow"
     assert getattr(owner.step_run, "dbos_function_name") == "example_oop_step"
+    assert owner.run.dbos_func_decorator_info.func_type.name == "Instance"
+    assert owner.step_run.dbos_func_decorator_info.func_type.name == "Instance"
+    assert owner.run.dbos_func_decorator_info.class_info.registered_name == "ExampleWorkflowOwner"
+    assert owner.step_run.dbos_func_decorator_info.class_info.registered_name == "ExampleWorkflowOwner"
 ```
 
 - [ ] **Step 2: Run the checkpoint**
@@ -151,7 +157,7 @@ Run:
 uv run pytest test/test_dbos_class_method_contract.py -q
 ```
 
-Expected: PASS. If DBOS rejects class methods, stop and report the blocker; do not introduce module-level wrappers.
+Expected: PASS. The test must not directly invoke decorated workflow or step methods before `DBOS.launch()`, because DBOS correctly rejects workflow execution before initialization. If the decorator metadata does not show instance-method registration, stop and report the blocker; do not introduce module-level wrappers.
 
 - [ ] **Step 3: Commit**
 
