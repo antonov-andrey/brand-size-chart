@@ -8,7 +8,7 @@ from typing import TypeVar
 
 from pydantic import BaseModel
 
-from brand_size_chart.artifact.writer import json_artifact_write
+from brand_size_chart.artifact import JsonArtifactWriter
 
 CODEX_EXEC_INACTIVITY_TIMEOUT_SECONDS = 900
 CODEX_EXEC_POLL_SECONDS = 5
@@ -33,6 +33,7 @@ PLAYWRIGHT_MCP_APPROVED_TOOL_LIST = [
     "browser_snapshot",
     "browser_tabs",
 ]
+ARTIFACT_WRITER = JsonArtifactWriter()
 _ResultModelT = TypeVar("_ResultModelT", bound=BaseModel)
 
 
@@ -79,7 +80,7 @@ def codex_stage_run(
     event_path = diagnostic_dir / "event.jsonl"
     for terminal_path in [output_path, stderr_path, event_path]:
         terminal_path.unlink(missing_ok=True)
-    json_artifact_write(schema_path, _codex_output_schema_get(model_class))
+    ARTIFACT_WRITER.write(schema_path, _codex_output_schema_get(model_class))
     system_prompt = CODEX_BROWSER_STAGE_SYSTEM_PROMPT if allow_user_config else CODEX_STAGE_SYSTEM_PROMPT
     prompt_path.write_text(f"{system_prompt}\n\n{prompt_text}\n", encoding="utf-8")
     command = [

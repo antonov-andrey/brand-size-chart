@@ -23,17 +23,3 @@ class JsonArtifactWriter:
         else:
             json_payload = payload
         path.write_text(json.dumps(json_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-
-_DEFAULT_WRITER = JsonArtifactWriter()
-
-
-def json_artifact_write(path: Path, payload: BaseModel | dict[str, object]) -> None:
-    """Write one JSON artifact with the default artifact writer.
-
-    Args:
-        path: Artifact path to write.
-        payload: Pydantic model or JSON-compatible dictionary payload.
-    """
-
-    _DEFAULT_WRITER.write(path, payload)

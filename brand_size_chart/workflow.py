@@ -788,6 +788,7 @@ def _source_discovery_result_get(
         source_type_dir=source_type_dir,
     )
     artifact_layout = ArtifactLayout(result_dir)
+    source_discovery_dir = artifact_layout.source_discovery_dir(brand_input, source_type)
     evidence_dir = artifact_layout.source_discovery_evidence_dir(brand_input, source_type)
     requested_product_type_text = (
         "\n".join(f"- {product_type}" for product_type in prompt_scope.product_type_request_list) or "- none"
@@ -885,10 +886,10 @@ def _source_discovery_result_get(
             expected_source_type=source_type,
             prompt_scope=prompt_scope,
             result_dir=result_dir,
-            stage_dir=source_type_dir / "source_discovery",
+            stage_dir=source_discovery_dir,
         ),
         result_dir=result_dir,
-        stage_dir=source_type_dir / "source_discovery",
+        stage_dir=source_discovery_dir,
         stage_key="source_discovery",
         browser_runtime_mcp_url=browser_runtime_mcp_url,
     )
