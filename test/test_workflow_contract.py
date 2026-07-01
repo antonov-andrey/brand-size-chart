@@ -3,8 +3,10 @@
 from contextlib import nullcontext
 from pathlib import Path
 
+import pytest
 import yaml
 
+from brand_size_chart import source_type as source_type_surface
 from brand_size_chart import workflow
 from brand_size_chart.model import BrandSizeChart
 from brand_size_chart.model import CanonicalSelectionResult
@@ -43,6 +45,34 @@ def test_source_type_py_is_compatibility_surface_only() -> None:
 
     assert "SOURCE_TYPE_LIST" not in source_type_source
     assert "from brand_size_chart.source.source_type_registry import" in source_type_source
+
+
+def test_source_type_registry_is_immutable_through_compatibility_import() -> None:
+    """Prevent compatibility imports from mutating source type registry state."""
+    from brand_size_chart.source import SOURCE_TYPE_REGISTRY
+
+    source_type = "official_brand_size_guide"
+    original_instruction = SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_get(source_type)
+    original_priority = SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type)
+
+    try:
+        with pytest.raises(TypeError):
+            source_type_surface.SOURCE_TYPE_PRIORITY_BY_KEY_MAP[source_type] = 1
+        with pytest.raises(TypeError):
+            source_type_surface.SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP[source_type] = "mutated"
+        with pytest.raises(AttributeError):
+            source_type_surface.PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET.add("mutated_source_type")
+    finally:
+        if SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type) != original_priority:
+            source_type_surface.SOURCE_TYPE_PRIORITY_BY_KEY_MAP[source_type] = original_priority
+        if SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_get(source_type) != original_instruction:
+            source_type_surface.SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP[source_type] = original_instruction
+        if hasattr(source_type_surface.PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET, "discard"):
+            source_type_surface.PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET.discard("mutated_source_type")
+
+    assert SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type) == original_priority
+    assert SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_get(source_type) == original_instruction
+    assert "mutated_source_type" not in SOURCE_TYPE_REGISTRY.product_type_required_source_type_set
 
 
 def test_artifact_layout_owns_current_paths(tmp_path: Path) -> None:
