@@ -23,6 +23,7 @@ from brand_size_chart.source_type import (
     SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP,
     SOURCE_TYPE_PRIORITY_BY_KEY_MAP,
 )
+from brand_size_chart.workflow import base as workflow_base
 
 
 def _workflow_package_source_text_get() -> str:
@@ -48,19 +49,84 @@ def test_workflow_is_package_not_monolithic_module() -> None:
     assert Path("brand_size_chart/workflow.py").exists() is False
     assert Path("brand_size_chart/workflow/__init__.py").exists()
     assert Path("brand_size_chart/workflow/root.py").exists()
+    assert set(workflow.__all__) == {
+        "BRAND_SIZE_CHART_BRAND_WORKFLOW",
+        "BRAND_SIZE_CHART_RUN_WORKFLOW",
+        "BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW",
+        "BRAND_SIZE_CHART_TABLE_WORKFLOW",
+        "BrandSizeChartBrandWorkflow",
+        "BrandSizeChartRunWorkflow",
+        "BrandSizeChartSourceTypeWorkflow",
+        "BrandSizeChartTableWorkflow",
+        "brand_selection_write_step",
+        "brand_size_chart_brand",
+        "brand_size_chart_run",
+        "brand_size_chart_source_type",
+        "brand_size_chart_table",
+        "brand_size_chart_workflow",
+        "coverage_decision_write_step",
+        "prompt_scope_write_step",
+        "run_failure_result_write",
+        "run_result_write_step",
+        "source_discovery_write_step",
+        "source_type_summary_write_step",
+        "table_stage_write_step",
+    }
 
 
 def test_dbos_workflow_classes_are_class_owned() -> None:
     """Ensure DBOS workflows are owned by class instance methods."""
-    from brand_size_chart.workflow.brand import BrandSizeChartBrandWorkflow
-    from brand_size_chart.workflow.root import BrandSizeChartRunWorkflow
-    from brand_size_chart.workflow.source_type import BrandSizeChartSourceTypeWorkflow
-    from brand_size_chart.workflow.table import BrandSizeChartTableWorkflow
+    method_expectation_list = [
+        (workflow.BRAND_SIZE_CHART_RUN_WORKFLOW.run, "brand_size_chart_run", "BrandSizeChartRunWorkflow"),
+        (
+            workflow.BRAND_SIZE_CHART_RUN_WORKFLOW.prompt_scope_write_step,
+            "prompt_scope_write_step",
+            "BrandSizeChartRunWorkflow",
+        ),
+        (
+            workflow.BRAND_SIZE_CHART_RUN_WORKFLOW.result_write_step,
+            "run_result_write_step",
+            "BrandSizeChartRunWorkflow",
+        ),
+        (workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.run, "brand_size_chart_brand", "BrandSizeChartBrandWorkflow"),
+        (
+            workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.selection_write_step,
+            "brand_selection_write_step",
+            "BrandSizeChartBrandWorkflow",
+        ),
+        (
+            workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.coverage_decision_write_step,
+            "coverage_decision_write_step",
+            "BrandSizeChartBrandWorkflow",
+        ),
+        (
+            workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.run,
+            "brand_size_chart_source_type",
+            "BrandSizeChartSourceTypeWorkflow",
+        ),
+        (
+            workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.discovery_write_step,
+            "source_discovery_write_step",
+            "BrandSizeChartSourceTypeWorkflow",
+        ),
+        (
+            workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.summary_write_step,
+            "source_type_summary_write_step",
+            "BrandSizeChartSourceTypeWorkflow",
+        ),
+        (workflow.BRAND_SIZE_CHART_TABLE_WORKFLOW.run, "brand_size_chart_table", "BrandSizeChartTableWorkflow"),
+        (
+            workflow.BRAND_SIZE_CHART_TABLE_WORKFLOW.stage_write_step,
+            "table_stage_write_step",
+            "BrandSizeChartTableWorkflow",
+        ),
+    ]
 
-    assert BrandSizeChartRunWorkflow.__name__ == "BrandSizeChartRunWorkflow"
-    assert BrandSizeChartBrandWorkflow.__name__ == "BrandSizeChartBrandWorkflow"
-    assert BrandSizeChartSourceTypeWorkflow.__name__ == "BrandSizeChartSourceTypeWorkflow"
-    assert BrandSizeChartTableWorkflow.__name__ == "BrandSizeChartTableWorkflow"
+    for method, function_name, class_name in method_expectation_list:
+        assert method.__self__.__class__.__name__ == class_name
+        assert getattr(method, "dbos_function_name") == function_name
+        assert method.dbos_func_decorator_info.func_type.name == "Instance"
+        assert method.dbos_func_decorator_info.class_info.registered_name == class_name
 
 
 def test_codex_stage_py_is_compatibility_surface_only() -> None:
@@ -410,8 +476,10 @@ def test_source_type_registry_uses_authority_sources_without_seller_qa_stage() -
 
 def test_source_type_selection_requires_product_types_for_product_page_source_types() -> None:
     """Run product-page source types only when product types are requested."""
-    source_type_list_without_product_types = workflow._source_type_list_get(PromptScope())
-    source_type_list_with_product_types = workflow._source_type_list_get(PromptScope(product_type_request_list=["bra"]))
+    source_type_list_without_product_types = workflow_base.source_type_list_get(PromptScope())
+    source_type_list_with_product_types = workflow_base.source_type_list_get(
+        PromptScope(product_type_request_list=["bra"])
+    )
 
     assert source_type_list_without_product_types == ["official_brand_size_guide", "official_seller_size_guide"]
     assert source_type_list_with_product_types == [
@@ -430,17 +498,17 @@ def test_size_guide_source_types_do_not_receive_product_type_scope() -> None:
         shared_instruction="Search official pages only.",
     )
 
-    official_brand_scope = workflow._source_type_prompt_scope_get(
+    official_brand_scope = workflow_base.source_type_prompt_scope_get(
         prompt_scope=prompt_scope,
         remaining_product_type_list=["women dresses", "men shoes"],
         source_type="official_brand_size_guide",
     )
-    official_seller_scope = workflow._source_type_prompt_scope_get(
+    official_seller_scope = workflow_base.source_type_prompt_scope_get(
         prompt_scope=prompt_scope,
         remaining_product_type_list=["women dresses", "men shoes"],
         source_type="official_seller_size_guide",
     )
-    product_page_scope = workflow._source_type_prompt_scope_get(
+    product_page_scope = workflow_base.source_type_prompt_scope_get(
         prompt_scope=prompt_scope,
         remaining_product_type_list=["men shoes"],
         source_type="official_brand_product_page",
@@ -459,7 +527,7 @@ def test_prompt_scope_owns_priority_country_code() -> None:
         shared_instruction="Search official pages only.",
     )
 
-    narrowed_prompt_scope = workflow._source_type_prompt_scope_get(
+    narrowed_prompt_scope = workflow_base.source_type_prompt_scope_get(
         prompt_scope=prompt_scope,
         remaining_product_type_list=[],
         source_type="official_seller_size_guide",
@@ -562,7 +630,7 @@ def test_canonical_selection_rejects_missing_verified_tables() -> None:
 
 def test_stage_prompt_text_includes_draft_result() -> None:
     """Give semantic stages their deterministic draft result as structured input."""
-    prompt_text = workflow._stage_prompt_text_get(
+    prompt_text = workflow_base.stage_prompt_text_get(
         attempt_index=1,
         draft_result_json_text='{"canonical_selection_list":[{"size_group_key":"women_upper"}]}',
         feedback_list=[],
@@ -720,7 +788,7 @@ def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch:
 
     from brand_size_chart.workflow import brand as brand_workflow_module
 
-    monkeypatch.setattr(workflow.DBOS, "enqueue_workflow", fake_enqueue_workflow)
+    monkeypatch.setattr(brand_workflow_module.DBOS, "enqueue_workflow", fake_enqueue_workflow)
     monkeypatch.setattr(brand_workflow_module, "SetWorkflowID", lambda _workflow_id: nullcontext())
     monkeypatch.setattr(
         workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW,
@@ -881,9 +949,8 @@ def test_prompt_scope_stage_retries_unknown_source_type_allow_phrase(monkeypatch
             source_type_allow_list=[],
         )
 
-    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
-
-    prompt_scope = workflow._prompt_scope_stage_get(
+    prompt_scope = workflow_base.prompt_scope_stage_get(
+        codex_stage_run_callable=fake_codex_stage_run,
         result_dir=tmp_path,
         workflow_run_prompt="Search all supported source types. Product types: socks.",
     )

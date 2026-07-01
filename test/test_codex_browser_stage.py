@@ -6,18 +6,20 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from brand_size_chart import codex_stage
-from brand_size_chart import workflow
 from brand_size_chart.codex import runner as codex_runner
 from brand_size_chart.model import (
     BrandInput,
     BrandSizeChart,
     BrandSizeChartMeasurement,
     BrandSizeChartRow,
+    PromptScope,
     SourceDiscovery,
     SourceDiscoveryResult,
     StageVerification,
     TableExtraction,
 )
+from brand_size_chart.stage.base import MAX_STAGE_ATTEMPT_COUNT
+from brand_size_chart.workflow import base as workflow_base
 
 
 def _brand_input_get() -> BrandInput:
@@ -102,12 +104,11 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
             message="verified",
         )
 
-    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
-
-    result = workflow._source_discovery_result_get(
+    result = workflow_base.source_discovery_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-        prompt_scope=workflow.PromptScope(
+        codex_stage_run_callable=fake_codex_stage_run,
+        prompt_scope=PromptScope(
             product_type_request_list=["women shoes"],
             shared_instruction="Only search official marketplace product page evidence for requested product types.",
         ),
@@ -227,12 +228,11 @@ def test_source_discovery_retries_page_level_size_group_key(monkeypatch: object,
             message="verified",
         )
 
-    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
-
-    result = workflow._source_discovery_result_get(
+    result = workflow_base.source_discovery_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-        prompt_scope=workflow.PromptScope(),
+        codex_stage_run_callable=fake_codex_stage_run,
+        prompt_scope=PromptScope(),
         result_dir=tmp_path,
         secret_path=tmp_path / "secret",
         source_priority=600,
@@ -339,12 +339,11 @@ def test_source_discovery_retry_prompt_includes_previous_result(monkeypatch: obj
             message="verified",
         )
 
-    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
-
-    result = workflow._source_discovery_result_get(
+    result = workflow_base.source_discovery_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-        prompt_scope=workflow.PromptScope(),
+        codex_stage_run_callable=fake_codex_stage_run,
+        prompt_scope=PromptScope(),
         result_dir=tmp_path,
         secret_path=tmp_path / "secret",
         source_priority=600,
@@ -429,12 +428,11 @@ def test_source_discovery_retries_after_mechanical_guard_failure(monkeypatch: ob
             message="verified",
         )
 
-    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
-
-    result = workflow._source_discovery_result_get(
+    result = workflow_base.source_discovery_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-        prompt_scope=workflow.PromptScope(),
+        codex_stage_run_callable=fake_codex_stage_run,
+        prompt_scope=PromptScope(),
         result_dir=tmp_path,
         secret_path=tmp_path / "secret",
         source_priority=600,
@@ -502,12 +500,11 @@ def test_source_discovery_accepts_failed_result_with_canonical_inventory(monkeyp
             status="success",
         )
 
-    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
-
-    result = workflow._source_discovery_result_get(
+    result = workflow_base.source_discovery_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-        prompt_scope=workflow.PromptScope(),
+        codex_stage_run_callable=fake_codex_stage_run,
+        prompt_scope=PromptScope(),
         result_dir=tmp_path,
         secret_path=tmp_path / "secret",
         source_priority=550,
@@ -584,12 +581,11 @@ def test_source_discovery_prompt_has_no_hardcoded_size_guide_routes(monkeypatch:
             message="verified",
         )
 
-    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
-
-    workflow._source_discovery_result_get(
+    workflow_base.source_discovery_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-        prompt_scope=workflow.PromptScope(),
+        codex_stage_run_callable=fake_codex_stage_run,
+        prompt_scope=PromptScope(),
         result_dir=tmp_path,
         secret_path=tmp_path / "secret",
         source_priority=600,
@@ -659,13 +655,12 @@ def test_source_discovery_retries_then_fails_empty_skipped_result(monkeypatch: o
             message="Empty source discovery must be fixed by the main stage.",
         )
 
-    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
-
     try:
-        workflow._source_discovery_result_get(
+        workflow_base.source_discovery_result_get(
             brand_input=_brand_input_get(),
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-            prompt_scope=workflow.PromptScope(),
+            codex_stage_run_callable=fake_codex_stage_run,
+            prompt_scope=PromptScope(),
             result_dir=tmp_path,
             secret_path=tmp_path / "secret",
             source_priority=600,
@@ -679,7 +674,7 @@ def test_source_discovery_retries_then_fails_empty_skipped_result(monkeypatch: o
 
     discovery_call_list = [call for call in call_list if call["model_class"] is SourceDiscoveryResult]
     assert "did not pass verification" in message
-    assert len(discovery_call_list) == workflow.MAX_STAGE_ATTEMPT_COUNT
+    assert len(discovery_call_list) == MAX_STAGE_ATTEMPT_COUNT
     assert "Empty source discovery" in str(discovery_call_list[1]["prompt_text"])
 
 
@@ -768,12 +763,11 @@ def test_table_extraction_calls_codex_browser_stage_and_requires_evidence(monkey
             message="verified",
         )
 
-    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
-
-    result = workflow._table_stage_run(
+    result = workflow_base.table_stage_run(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-        prompt_scope=workflow.PromptScope(),
+        codex_stage_run_callable=fake_codex_stage_run,
+        prompt_scope=PromptScope(),
         result_dir=tmp_path,
         secret_path=tmp_path / "secret",
         source_discovery=source_discovery,
@@ -839,13 +833,12 @@ def test_source_discovery_rejects_skipped_result_even_when_verification_passes(
             status="success",
         )
 
-    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
-
     try:
-        workflow._source_discovery_result_get(
+        workflow_base.source_discovery_result_get(
             brand_input=_brand_input_get(),
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-            prompt_scope=workflow.PromptScope(),
+            codex_stage_run_callable=fake_codex_stage_run,
+            prompt_scope=PromptScope(),
             result_dir=tmp_path,
             secret_path=tmp_path / "secret",
             source_priority=600,
@@ -922,13 +915,12 @@ def test_source_discovery_rejects_duplicate_size_group_key(monkeypatch: object, 
             status="success",
         )
 
-    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
-
     try:
-        workflow._source_discovery_result_get(
+        workflow_base.source_discovery_result_get(
             brand_input=_brand_input_get(),
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-            prompt_scope=workflow.PromptScope(),
+            codex_stage_run_callable=fake_codex_stage_run,
+            prompt_scope=PromptScope(),
             result_dir=tmp_path,
             secret_path=tmp_path / "secret",
             source_priority=600,
@@ -1018,13 +1010,12 @@ def test_table_extraction_rejects_identity_change(monkeypatch: object, tmp_path:
             status="success",
         )
 
-    monkeypatch.setattr(workflow, "codex_stage_run", fake_codex_stage_run)
-
     try:
-        workflow._table_stage_run(
+        workflow_base.table_stage_run(
             brand_input=_brand_input_get(),
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-            prompt_scope=workflow.PromptScope(),
+            codex_stage_run_callable=fake_codex_stage_run,
+            prompt_scope=PromptScope(),
             result_dir=tmp_path,
             secret_path=tmp_path / "secret",
             source_discovery=source_discovery,
