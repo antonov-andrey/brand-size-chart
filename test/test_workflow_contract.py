@@ -124,6 +124,7 @@ def test_dbos_workflow_classes_are_class_owned() -> None:
 
     for method, function_name, class_name in method_expectation_list:
         assert method.__self__.__class__.__name__ == class_name
+        assert method.__self__.config_name == "default"
         assert getattr(method, "dbos_function_name") == function_name
         assert method.dbos_func_decorator_info.func_type.name == "Instance"
         assert method.dbos_func_decorator_info.class_info.registered_name == class_name

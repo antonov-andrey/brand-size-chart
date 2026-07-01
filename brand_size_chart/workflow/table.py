@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from dbos import DBOS
+from dbos import DBOS, DBOSConfiguredInstance
 
 from brand_size_chart.codex.runner import codex_stage_run
 from brand_size_chart.artifact import ArtifactLayout
@@ -11,8 +11,13 @@ from brand_size_chart.workflow.base import table_stage_run
 
 
 @DBOS.dbos_class("BrandSizeChartTableWorkflow")
-class BrandSizeChartTableWorkflow:
+class BrandSizeChartTableWorkflow(DBOSConfiguredInstance):
     """DBOS owner for one table workflow and table extraction side-effect step."""
+
+    def __init__(self) -> None:
+        """Register the stable stateless DBOS instance."""
+
+        super().__init__("default")
 
     @DBOS.workflow(name="brand_size_chart_table")
     def run(
