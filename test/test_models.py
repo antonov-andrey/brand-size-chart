@@ -16,6 +16,21 @@ from brand_size_chart.model import (
 )
 
 
+def test_model_package_exports_existing_public_models() -> None:
+    """Keep public model imports stable while moving model owners into the package."""
+    from brand_size_chart.model import BrandInput
+    from brand_size_chart.model import BrandSizeChart
+    from brand_size_chart.model import PromptScope
+    from brand_size_chart.model import SourceDiscoveryResult
+    from brand_size_chart.model import TableExtraction
+
+    assert BrandInput.__module__ == "brand_size_chart.model.brand"
+    assert BrandSizeChart.__module__ == "brand_size_chart.model.chart"
+    assert PromptScope.__module__ == "brand_size_chart.model.prompt"
+    assert SourceDiscoveryResult.__module__ == "brand_size_chart.model.source"
+    assert TableExtraction.__module__ == "brand_size_chart.model.source"
+
+
 def test_generated_schemas_validate_representative_artifacts() -> None:
     """Validate representative JSON artifacts through generated Pydantic schemas."""
     schema_dir = Path("brand_size_chart/schema")

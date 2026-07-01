@@ -21,6 +21,13 @@ from brand_size_chart.source_type import (
 )
 
 
+def test_model_is_package_not_monolithic_module() -> None:
+    """Replace the broad model module with focused model package modules."""
+    assert Path("brand_size_chart/model.py").exists() is False
+    assert Path("brand_size_chart/model/__init__.py").exists()
+    assert Path("brand_size_chart/model/schema_registry.py").exists()
+
+
 def test_workflow_yaml_declares_required_cross_project_contract_keys() -> None:
     """Expose required input, output, and runtime keys in workflow metadata."""
     workflow = yaml.safe_load(Path("workflow.yaml").read_text(encoding="utf-8"))
