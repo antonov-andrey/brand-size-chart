@@ -158,6 +158,21 @@ def test_stage_validators_live_under_validator_package() -> None:
     assert CanonicalSelectionValidator.__name__ == "CanonicalSelectionValidator"
 
 
+def test_semantic_stages_live_under_stage_package() -> None:
+    """Keep semantic stage lifecycle outside DBOS workflow orchestration."""
+    from brand_size_chart.stage.canonical_selection import CanonicalSelectionStage
+    from brand_size_chart.stage.coverage_decision import CoverageDecisionStage
+    from brand_size_chart.stage.source_discovery import SourceDiscoveryStage
+    from brand_size_chart.stage.table_extraction import TableExtractionStage
+    from brand_size_chart.stage.workflow_run_prompt_apply import WorkflowRunPromptApplyStage
+
+    assert WorkflowRunPromptApplyStage.__name__ == "WorkflowRunPromptApplyStage"
+    assert SourceDiscoveryStage.__name__ == "SourceDiscoveryStage"
+    assert TableExtractionStage.__name__ == "TableExtractionStage"
+    assert CoverageDecisionStage.__name__ == "CoverageDecisionStage"
+    assert CanonicalSelectionStage.__name__ == "CanonicalSelectionStage"
+
+
 def test_workflow_yaml_declares_required_cross_project_contract_keys() -> None:
     """Expose required input, output, and runtime keys in workflow metadata."""
     workflow = yaml.safe_load(Path("workflow.yaml").read_text(encoding="utf-8"))
@@ -776,62 +791,62 @@ def test_size_group_key_contract_is_prompt_and_design_owned() -> None:
 def test_source_discovery_checks_official_host_variants() -> None:
     """Search all browser-visible official host variants before failing source discovery."""
     discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
-    workflow_text = Path("brand_size_chart/workflow.py").read_text(encoding="utf-8")
+    source_discovery_stage_text = Path("brand_size_chart/stage/source_discovery.py").read_text(encoding="utf-8")
 
     assert "official host variants" in discovery_prompt
     assert "country-code brand domains" in discovery_prompt
     assert "Do not stop after one official domain variant fails" in discovery_prompt
-    assert "official host variants" in workflow_text
-    assert "country-code " in workflow_text
-    assert "brand domains" in workflow_text
-    assert "stop after one official domain variant fails" in workflow_text
+    assert "official host variants" in source_discovery_stage_text
+    assert "country-code " in source_discovery_stage_text
+    assert "brand domains" in source_discovery_stage_text
+    assert "stop after one official domain variant fails" in source_discovery_stage_text
 
 
 def test_source_discovery_searches_localized_size_terms_without_route_templates() -> None:
     """Find official size guides through localized browser search rather than hardcoded URL guesses."""
     discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
-    workflow_text = Path("brand_size_chart/workflow.py").read_text(encoding="utf-8")
+    source_discovery_stage_text = Path("brand_size_chart/stage/source_discovery.py").read_text(encoding="utf-8")
 
     assert "browser-visible language and market" in discovery_prompt
     assert "localized size-chart term searches" in discovery_prompt
     assert "beden rehberi" in discovery_prompt
     assert "URL templates" in discovery_prompt
-    assert "browser-visible language and market" in workflow_text
-    assert "localized size-chart term searches" in workflow_text
-    assert "beden rehberi" in workflow_text
+    assert "browser-visible language and market" in source_discovery_stage_text
+    assert "localized size-chart term searches" in source_discovery_stage_text
+    assert "beden rehberi" in source_discovery_stage_text
     assert "/statik/beden-rehberi" not in discovery_prompt
-    assert "/statik/beden-rehberi" not in workflow_text
+    assert "/statik/beden-rehberi" not in source_discovery_stage_text
 
 
 def test_table_extraction_preserves_size_system_columns() -> None:
     """Represent size-system columns with an explicit non-empty unit."""
     extraction_prompt = Path("brand_size_chart/prompt/extraction.md").read_text(encoding="utf-8")
-    workflow_text = Path("brand_size_chart/workflow.py").read_text(encoding="utf-8")
+    table_extraction_stage_text = Path("brand_size_chart/stage/table_extraction.py").read_text(encoding="utf-8")
 
     assert "For size-system or label-equivalence columns" in extraction_prompt
     assert "use unit='size'" in extraction_prompt
-    assert "For size-system " in workflow_text
-    assert "use unit='size'" in workflow_text
+    assert "For size-system " in table_extraction_stage_text
+    assert "use unit='size'" in table_extraction_stage_text
 
 
 def test_table_extraction_preserves_physical_units_and_omits_blank_cells() -> None:
     """Keep physical measurement units and avoid empty measurement values."""
     extraction_prompt = Path("brand_size_chart/prompt/extraction.md").read_text(encoding="utf-8")
-    workflow_text = Path("brand_size_chart/workflow.py").read_text(encoding="utf-8")
+    table_extraction_stage_text = Path("brand_size_chart/stage/table_extraction.py").read_text(encoding="utf-8")
 
     assert "Do not emit measurement entries for blank source cells" in extraction_prompt
     assert "must keep their physical source unit" in extraction_prompt
-    assert "Do not emit measurement entries for blank source cells" in workflow_text
-    assert "must keep their physical source unit" in workflow_text
+    assert "Do not emit measurement entries for blank source cells" in table_extraction_stage_text
+    assert "must keep their physical source unit" in table_extraction_stage_text
 
 
 def test_coverage_decision_prompt_receives_verified_table_summary() -> None:
     """Prevent coverage decision from ignoring verified tables as missing evidence."""
-    workflow_text = Path("brand_size_chart/workflow.py").read_text(encoding="utf-8")
+    coverage_decision_stage_text = Path("brand_size_chart/stage/coverage_decision.py").read_text(encoding="utf-8")
 
-    assert "Verified table summary is supplied below as stage input" in workflow_text
-    assert "do not report missing evidence when" in workflow_text
-    assert "Refine the draft coverage decision from these verified tables" in workflow_text
+    assert "Verified table summary is supplied below as stage input" in coverage_decision_stage_text
+    assert "do not report missing evidence when" in coverage_decision_stage_text
+    assert "Refine the draft coverage decision from these verified tables" in coverage_decision_stage_text
 
 
 def test_source_discovery_prompt_preserves_partial_candidates() -> None:
@@ -846,13 +861,13 @@ def test_source_discovery_product_types_do_not_filter_tables() -> None:
     """Keep full source-surface table discovery separate from requested product-type coverage."""
     discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
     verification_prompt = Path("brand_size_chart/prompt/verification.md").read_text(encoding="utf-8")
-    workflow_text = Path("brand_size_chart/workflow.py").read_text(encoding="utf-8")
+    source_discovery_stage_text = Path("brand_size_chart/stage/source_discovery.py").read_text(encoding="utf-8")
     design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
 
     expected_text = "Requested product types are coverage targets only"
     assert expected_text in discovery_prompt
     assert expected_text in verification_prompt
-    assert expected_text in workflow_text
+    assert expected_text in source_discovery_stage_text
     assert "`product_type_request_list` defines coverage targets" in design_text
     assert "must not filter `source_discovery` candidates" in design_text
 
@@ -861,12 +876,13 @@ def test_source_discovery_returns_unique_size_group_key_candidates() -> None:
     """Keep duplicate locale tables as evidence instead of duplicate source candidates."""
     discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
     verification_prompt = Path("brand_size_chart/prompt/verification.md").read_text(encoding="utf-8")
-    workflow_text = Path("brand_size_chart/workflow.py").read_text(encoding="utf-8")
+    source_discovery_stage_text = Path("brand_size_chart/stage/source_discovery.py").read_text(encoding="utf-8")
     design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
 
     assert "return at most one `discovered_source_list` item for one `size_group_key`" in discovery_prompt
     assert "must not require a second `discovered_source_list` item" in verification_prompt
-    assert "return at most one discovered_source_list item" in workflow_text
+    assert "return at most one discovered_source_list" in source_discovery_stage_text
+    assert "item for one size_group_key" in source_discovery_stage_text
     assert "one `size_group_key` may appear at most once in `discovered_source_list`" in design_text
 
 
@@ -875,12 +891,14 @@ def test_source_discovery_locale_policy_is_priority_global_europe_without_vague_
     apply_prompt = Path("brand_size_chart/prompt/apply.md").read_text(encoding="utf-8")
     discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
     verification_prompt = Path("brand_size_chart/prompt/verification.md").read_text(encoding="utf-8")
-    workflow_text = Path("brand_size_chart/workflow.py").read_text(encoding="utf-8")
+    source_discovery_stage_text = Path("brand_size_chart/stage/source_discovery.py").read_text(encoding="utf-8")
     design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-    combined_text = "\n".join([apply_prompt, discovery_prompt, verification_prompt, workflow_text, design_text])
+    combined_text = "\n".join(
+        [apply_prompt, discovery_prompt, verification_prompt, source_discovery_stage_text, design_text]
+    )
 
     assert "`priority_country_code`" in apply_prompt
-    assert "Priority country code:" in workflow_text
+    assert "Priority country code:" in source_discovery_stage_text
     assert "priority country tables exist" in discovery_prompt
     assert "global tables" in discovery_prompt
     assert "European country tables" in discovery_prompt
@@ -893,38 +911,38 @@ def test_source_discovery_locale_policy_is_priority_global_europe_without_vague_
 def test_source_discovery_prompt_requires_canonical_inventory_on_retry() -> None:
     """Require retry attempts to update the canonical source-surface inventory."""
     discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
-    workflow_text = Path("brand_size_chart/workflow.py").read_text(encoding="utf-8")
+    source_discovery_stage_text = Path("brand_size_chart/stage/source_discovery.py").read_text(encoding="utf-8")
 
     assert "canonical source-surface inventory artifact" in discovery_prompt
     assert "source_surface_inventory.json" in discovery_prompt
     assert "overwrite the canonical inventory artifact" in discovery_prompt
     assert "attempt-only inventory names are allowed only as extra diagnostics" in discovery_prompt
-    assert "First build one canonical" in workflow_text
-    assert "source_surface_inventory.json" in workflow_text
-    assert "browser-backed source-surface inventory artifact" in workflow_text
-    assert "attempt-only inventory artifacts are allowed only as extra" in workflow_text
+    assert "First build one canonical" in source_discovery_stage_text
+    assert "source_surface_inventory.json" in source_discovery_stage_text
+    assert "browser-backed source-surface inventory artifact" in source_discovery_stage_text
+    assert "attempt-only inventory artifacts are allowed only as extra" in source_discovery_stage_text
 
 
 def test_source_discovery_candidate_urls_exclude_helper_surfaces() -> None:
     """Keep sitemap and navigation helper surfaces out of concrete candidate URLs."""
     discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
-    workflow_text = Path("brand_size_chart/workflow.py").read_text(encoding="utf-8")
+    source_discovery_stage_text = Path("brand_size_chart/stage/source_discovery.py").read_text(encoding="utf-8")
 
     assert "`candidate_urls` must contain only concrete source candidates" in discovery_prompt
     assert "helper surfaces are discovery surfaces, not candidate URLs" in discovery_prompt
-    assert "candidate_urls must contain only concrete source candidates" in workflow_text
-    assert "helper surfaces are discovery surfaces, not candidate URLs" in workflow_text
+    assert "candidate_urls must contain only concrete source candidates" in source_discovery_stage_text
+    assert "helper surfaces are discovery surfaces, not candidate URLs" in source_discovery_stage_text
 
 
 def test_source_discovery_candidate_urls_exclude_broad_product_lists() -> None:
     """Keep broad search-result product inventories separate from selected source candidates."""
     discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
-    workflow_text = Path("brand_size_chart/workflow.py").read_text(encoding="utf-8")
+    source_discovery_stage_text = Path("brand_size_chart/stage/source_discovery.py").read_text(encoding="utf-8")
 
     assert "broad search-result or category product URL inventories" in discovery_prompt
     assert "search_result_url_list" in discovery_prompt
-    assert "broad search-result or category product URL inventories" in workflow_text
-    assert "search_result_url_list" in workflow_text
+    assert "broad search-result or category product URL inventories" in source_discovery_stage_text
+    assert "search_result_url_list" in source_discovery_stage_text
 
 
 def test_source_discovery_verification_preserves_partial_candidates() -> None:
