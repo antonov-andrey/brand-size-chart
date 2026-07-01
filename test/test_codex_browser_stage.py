@@ -740,11 +740,17 @@ def test_table_extraction_calls_codex_browser_stage_and_requires_evidence(monkey
                         BrandSizeChartRow(
                             measurement_list=[
                                 BrandSizeChartMeasurement(
+                                    max_value="M",
+                                    min_value="M",
+                                    name="SIZE",
+                                    unit="size",
+                                ),
+                                BrandSizeChartMeasurement(
                                     max_value="90",
                                     min_value="88",
                                     name="chest",
                                     unit="cm",
-                                )
+                                ),
                             ],
                             size_label="M",
                         )
@@ -991,7 +997,8 @@ def test_table_extraction_rejects_identity_change(monkeypatch: object, tmp_path:
                     row_list=[
                         BrandSizeChartRow(
                             measurement_list=[
-                                BrandSizeChartMeasurement(max_value="90", min_value="88", name="chest", unit="cm")
+                                BrandSizeChartMeasurement(max_value="M", min_value="M", name="SIZE", unit="size"),
+                                BrandSizeChartMeasurement(max_value="90", min_value="88", name="chest", unit="cm"),
                             ],
                             size_label="M",
                         )

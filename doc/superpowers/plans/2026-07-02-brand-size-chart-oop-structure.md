@@ -868,33 +868,24 @@ Use every supported source type. Load real Defacto size charts without fixtures 
 
 - [ ] **Step 2: Start browser runtime if needed**
 
-Run from the environment that owns the browser runtime:
+Run in `/home/andrey/Projects/brand-size-chart/.worktrees/oop-workflow-structure` through the project-local standalone compose profile:
 
 ```bash
-docker compose up -d
+HOST_UID="$(id -u)" \
+HOST_GID="$(id -g)" \
+BROWSER_VPN_RUNTIME_CONTEXT="/home/andrey/Projects/browser-vpn-runtime" \
+WORKFLOW_RUN_ID="defacto-all-source-types-oop-verify" \
+BRAND_LIST="./tmp/brand_list_defacto_all_source_types.txt" \
+OUTPUT_DIR="./out/defacto-all-source-types-oop-verify" \
+WORKFLOW_RUN_PROMPT="$(cat tmp/prompt_defacto_all_source_types.txt)" \
+docker compose --profile vpn up --build --abort-on-container-exit --exit-code-from workflow
 ```
 
-Expected: browser MCP endpoint is reachable at the configured local URL.
+Expected: `openvpn`, `playwright-mcp`, and `workflow` run in the same compose project; `workflow` receives `BROWSER_RUNTIME_MCP_URL=http://openvpn:8931/mcp` from `compose.yaml`; command exits 0.
 
-- [ ] **Step 3: Run real workflow**
+- [ ] **Step 3: Inspect real output**
 
 Run in `/home/andrey/Projects/brand-size-chart/.worktrees/oop-workflow-structure`:
-
-```bash
-DBOS_SYSTEM_DATABASE_URL="sqlite:///$(pwd)/tmp/dbos-defacto-all-source-types-oop.sqlite" \
-BROWSER_RUNTIME_MCP_URL="http://127.0.0.1:8931/mcp" \
-uv run brand-size-chart-run \
-  --workflow-run-id "defacto-all-source-types-oop-verify" \
-  --brand-list tmp/brand_list_defacto_all_source_types.txt \
-  --output-dir out/defacto-all-source-types-oop-verify \
-  --workflow-run-prompt "$(cat tmp/prompt_defacto_all_source_types.txt)"
-```
-
-Expected: command exits 0. No fixtures, no `--dry-run`, and no deterministic-only source bypasses are allowed.
-
-- [ ] **Step 4: Inspect real output**
-
-Run:
 
 ```bash
 find out/defacto-all-source-types-oop-verify -path '*result.json' -o -path '*source_type_summary.json' | sort
@@ -904,7 +895,7 @@ find out/defacto-all-source-types-oop-verify/brand_size_chart/brand -name '*.jso
 
 Expected: source type summaries and final brand outputs are present. Any failed or blocked source type is a real defect unless the artifact contains a verified external blocker that is consistent with the current specification.
 
-- [ ] **Step 5: Commit verification-required code fixes**
+- [ ] **Step 4: Commit verification-required code fixes**
 
 If the real run exposes code defects, fix them, rerun Task 11 and Task 12, then commit:
 

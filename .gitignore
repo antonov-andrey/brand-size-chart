@@ -1,6 +1,6 @@
 .venv/
 .worktrees/
-.secret/
+.secret
 __pycache__/
 .pytest_cache/
 *.pyc

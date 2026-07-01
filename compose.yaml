@@ -1,7 +1,7 @@
 services:
   openvpn:
     build:
-      context: ../browser-vpn-runtime
+      context: ${BROWSER_VPN_RUNTIME_CONTEXT:-../browser-vpn-runtime}
       dockerfile: docker/openvpn/Dockerfile
     cap_add:
       - NET_ADMIN
@@ -23,7 +23,7 @@ services:
 
   playwright-mcp:
     build:
-      context: ../browser-vpn-runtime
+      context: ${BROWSER_VPN_RUNTIME_CONTEXT:-../browser-vpn-runtime}
       dockerfile: docker/playwright/Dockerfile
     entrypoint: []
     command:

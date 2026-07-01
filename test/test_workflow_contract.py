@@ -10,6 +10,8 @@ from brand_size_chart import source_type as source_type_surface
 from brand_size_chart import workflow
 from brand_size_chart.model import BrandInput
 from brand_size_chart.model import BrandSizeChart
+from brand_size_chart.model import BrandSizeChartMeasurement
+from brand_size_chart.model import BrandSizeChartRow
 from brand_size_chart.model import CanonicalSelectionResult
 from brand_size_chart.model import CoverageDecisionResult
 from brand_size_chart.model import PromptScope
@@ -401,7 +403,7 @@ def test_project_secret_is_ignored_by_git() -> None:
     """Keep the local private DataSource out of git."""
     gitignore_text = Path(".gitignore").read_text(encoding="utf-8")
 
-    assert ".secret/" in gitignore_text.splitlines()
+    assert ".secret" in gitignore_text.splitlines()
 
 
 def test_local_compose_declares_vpn_profile() -> None:
@@ -413,6 +415,13 @@ def test_local_compose_declares_vpn_profile() -> None:
     workflow_command_text = compose["services"]["workflow"]["command"][-1]
     workflow_dockerfile_text = Path("docker/workflow/Dockerfile").read_text(encoding="utf-8")
 
+    assert (
+        compose["services"]["openvpn"]["build"]["context"] == "${BROWSER_VPN_RUNTIME_CONTEXT:-../browser-vpn-runtime}"
+    )
+    assert (
+        compose["services"]["playwright-mcp"]["build"]["context"]
+        == "${BROWSER_VPN_RUNTIME_CONTEXT:-../browser-vpn-runtime}"
+    )
     assert compose["services"]["playwright-mcp"]["profiles"] == ["vpn"]
     assert compose["services"]["playwright-mcp"]["entrypoint"] == []
     assert "--allowed-hosts localhost,127.0.0.1,openvpn" in compose["services"]["playwright-mcp"]["command"][-1]
@@ -602,6 +611,112 @@ def test_source_discovery_rejects_non_priority_country_when_priority_country_exi
 
     assert "non-priority country" in message
     assert "priority_country_code=TR" in message
+
+
+def test_table_extraction_rejects_non_priority_applicability_for_priority_country_source(tmp_path: Path) -> None:
+    """Keep table applicability aligned with the verified source market."""
+    from brand_size_chart.validator.table_extraction import TableExtractionValidator
+
+    evidence_path = tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "evidence.json"
+    evidence_path.parent.mkdir(parents=True)
+    evidence_path.write_text("{}", encoding="utf-8")
+    source_discovery = SourceDiscovery(
+        confidence=0.95,
+        country_code_list=["TR"],
+        size_group_key="boys_3_8_year_clothing",
+        source_priority=600,
+        source_title="DeFacto Beden Rehberi",
+        source_type="official_brand_size_guide",
+        source_url="https://www.defacto.com.tr/statik/beden-rehberi",
+    )
+    table_extraction = TableExtraction(
+        applicability_status="official_global",
+        chart=BrandSizeChart(
+            description="Boys 3-8 chart.",
+            row_list=[
+                BrandSizeChartRow(
+                    measurement_list=[
+                        BrandSizeChartMeasurement(
+                            max_value="3-4 YAŞ",
+                            min_value="3-4 YAŞ",
+                            name="BEDENLER",
+                            unit="size",
+                        ),
+                        BrandSizeChartMeasurement(max_value="104", min_value="98", name="Boy", unit="cm"),
+                    ],
+                    size_label="3-4 YAŞ",
+                )
+            ],
+        ),
+        evidence_path_list=[evidence_path.relative_to(tmp_path).as_posix()],
+        size_group_key="boys_3_8_year_clothing",
+        source_title="DeFacto Beden Rehberi",
+        source_type="official_brand_size_guide",
+        source_url="https://www.defacto.com.tr/statik/beden-rehberi",
+    )
+
+    try:
+        TableExtractionValidator(tmp_path).validate(
+            source_discovery=source_discovery,
+            table_extraction=table_extraction,
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        message = ""
+
+    assert "applicability_status" in message
+    assert "priority_country_official" in message
+
+
+def test_table_extraction_rejects_missing_size_label_measurement(tmp_path: Path) -> None:
+    """Preserve the source row size label as a unit=size measurement."""
+    from brand_size_chart.validator.table_extraction import TableExtractionValidator
+
+    evidence_path = tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "evidence.json"
+    evidence_path.parent.mkdir(parents=True)
+    evidence_path.write_text("{}", encoding="utf-8")
+    source_discovery = SourceDiscovery(
+        confidence=0.95,
+        country_code_list=["TR"],
+        size_group_key="boys_3_8_year_clothing",
+        source_priority=600,
+        source_title="DeFacto Beden Rehberi",
+        source_type="official_brand_size_guide",
+        source_url="https://www.defacto.com.tr/statik/beden-rehberi",
+    )
+    table_extraction = TableExtraction(
+        applicability_status="priority_country_official",
+        chart=BrandSizeChart(
+            description="Boys 3-8 chart.",
+            row_list=[
+                BrandSizeChartRow(
+                    measurement_list=[
+                        BrandSizeChartMeasurement(max_value="104", min_value="98", name="Boy", unit="cm"),
+                    ],
+                    size_label="3-4 YAŞ",
+                )
+            ],
+        ),
+        evidence_path_list=[evidence_path.relative_to(tmp_path).as_posix()],
+        size_group_key="boys_3_8_year_clothing",
+        source_title="DeFacto Beden Rehberi",
+        source_type="official_brand_size_guide",
+        source_url="https://www.defacto.com.tr/statik/beden-rehberi",
+    )
+
+    try:
+        TableExtractionValidator(tmp_path).validate(
+            source_discovery=source_discovery,
+            table_extraction=table_extraction,
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        message = ""
+
+    assert "unit=size" in message
+    assert "size_label" in message
 
 
 def test_canonical_selection_rejects_missing_verified_tables() -> None:

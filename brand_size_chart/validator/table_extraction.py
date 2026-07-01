@@ -63,6 +63,12 @@ class TableExtractionValidator(MechanicalValidator):
                 f"table_extraction size_group_key mismatch: "
                 f"{table_extraction.size_group_key} != {source_discovery.size_group_key}"
             )
+        expected_applicability_status = self._applicability_status_get(source_discovery=source_discovery)
+        if table_extraction.applicability_status != expected_applicability_status:
+            raise RuntimeError(
+                f"table_extraction applicability_status mismatch for {source_discovery.size_group_key}: "
+                f"{table_extraction.applicability_status} != {expected_applicability_status}"
+            )
         self._artifact_validator.evidence_path_list_validate(
             evidence_path_list=table_extraction.evidence_path_list,
             stage_key="table_extraction",
@@ -93,3 +99,31 @@ class TableExtractionValidator(MechanicalValidator):
                     raise RuntimeError(
                         f"table_extraction returned empty max_value at row {row_index}, measurement {measurement_index}"
                     )
+            if not any(
+                measurement.unit == "size"
+                and measurement.min_value == chart_row.size_label
+                and measurement.max_value == chart_row.size_label
+                for measurement in chart_row.measurement_list
+            ):
+                raise RuntimeError(
+                    f"table_extraction must preserve size_label as a unit=size measurement at row {row_index}"
+                )
+
+    def _applicability_status_get(self, *, source_discovery: SourceDiscovery) -> str:
+        """Return required applicability status for one verified source market.
+
+        Args:
+            source_discovery: Source discovery that owns the table identity.
+
+        Returns:
+            Required applicability status.
+        """
+
+        country_code_set = set(source_discovery.country_code_list)
+        if country_code_set == {"GLOBAL"}:
+            return "official_global"
+        if country_code_set == {"EU"}:
+            return "official_eu_consensus"
+        if len(country_code_set) > 1:
+            return "official_cross_locale_consensus"
+        return "priority_country_official"
