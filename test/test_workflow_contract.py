@@ -138,6 +138,14 @@ def test_codex_stage_py_is_compatibility_surface_only() -> None:
     assert "from brand_size_chart.codex.runner import" in codex_stage_source
 
 
+def test_entrypoint_py_is_compatibility_surface_only() -> None:
+    """Move runtime config and launch ownership into app package."""
+    entrypoint_source = Path("brand_size_chart/entrypoint.py").read_text(encoding="utf-8")
+
+    assert "from brand_size_chart.app.entrypoint import main" in entrypoint_source
+    assert "DBOS.launch" not in entrypoint_source
+
+
 def test_source_type_py_is_compatibility_surface_only() -> None:
     """Move source type registry ownership into source package."""
     source_type_source = Path("brand_size_chart/source_type.py").read_text(encoding="utf-8")

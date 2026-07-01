@@ -1,10 +1,13 @@
 """Tests for DBOS entrypoint bootstrap."""
 
+import argparse
+import os
 from pathlib import Path
 
 import pytest
 
-from brand_size_chart import entrypoint
+from brand_size_chart.app import entrypoint
+from brand_size_chart.app import runtime_config
 
 
 class _FakeWorkflowHandle:
@@ -122,9 +125,9 @@ def test_entrypoint_bootstraps_dbos_with_stable_ids_and_worker_concurrency(monke
     monkeypatch.setattr(entrypoint, "DBOS", _FakeDBOS)
     monkeypatch.setattr(entrypoint, "SetWorkflowID", _FakeSetWorkflowID)
     monkeypatch.setattr(
-        entrypoint,
+        runtime_config,
         "args_parse",
-        lambda: entrypoint.argparse.Namespace(
+        lambda: argparse.Namespace(
             brand_list=brand_list_path,
             browser_runtime_mcp_url="http://browser-runtime:8931/mcp",
             input_secret=None,
@@ -175,7 +178,7 @@ def test_entrypoint_accepts_explicit_sqlite_system_database(monkeypatch: object)
     """Accept SQLite only when it is configured explicitly."""
     monkeypatch.setenv("DBOS_SYSTEM_DATABASE_URL", "sqlite:///tmp/brand_size_chart.sqlite")
 
-    assert entrypoint.system_database_url_get() == "sqlite:///tmp/brand_size_chart.sqlite"
+    assert runtime_config.system_database_url_get() == "sqlite:///tmp/brand_size_chart.sqlite"
 
 
 def test_entrypoint_rejects_hidden_sqlite_system_database_fallback(monkeypatch: object, tmp_path: Path) -> None:
@@ -186,9 +189,9 @@ def test_entrypoint_rejects_hidden_sqlite_system_database_fallback(monkeypatch: 
     secret_dir = tmp_path / "secret"
     monkeypatch.delenv("DBOS_SYSTEM_DATABASE_URL", raising=False)
     monkeypatch.setattr(
-        entrypoint,
+        runtime_config,
         "args_parse",
-        lambda: entrypoint.argparse.Namespace(
+        lambda: argparse.Namespace(
             brand_list=brand_list_path,
             browser_runtime_mcp_url="http://browser-runtime:8931/mcp",
             input_secret=None,
@@ -209,9 +212,9 @@ def test_entrypoint_rejects_missing_browser_runtime_mcp_url(monkeypatch: object,
     brand_list_path = tmp_path / "brand_list.txt"
     brand_list_path.write_text("Mavi\n", encoding="utf-8")
     monkeypatch.setattr(
-        entrypoint,
+        runtime_config,
         "args_parse",
-        lambda: entrypoint.argparse.Namespace(
+        lambda: argparse.Namespace(
             brand_list=brand_list_path,
             browser_runtime_mcp_url="",
             input_secret=None,
@@ -229,18 +232,13 @@ def test_entrypoint_rejects_missing_browser_runtime_mcp_url(monkeypatch: object,
 
 def test_entrypoint_parser_has_no_dry_run_flag(monkeypatch: object) -> None:
     """Expose exactly one production runtime path without a dry-run switch."""
-    assert "--dry-run" not in Path("brand_size_chart/entrypoint.py").read_text(encoding="utf-8")
+    assert "--dry-run" not in Path("brand_size_chart/app/runtime_config.py").read_text(encoding="utf-8")
 
 
 def test_entrypoint_parser_uses_project_secret_by_default(monkeypatch: object, tmp_path: Path) -> None:
     """Use the project-local `.secret` directory as the default runtime DataSource."""
     brand_list_path = tmp_path / "brand_list.txt"
     brand_list_path.write_text("Defacto\n", encoding="utf-8")
-    monkeypatch.setattr(
-        entrypoint,
-        "argparse",
-        entrypoint.argparse,
-    )
     monkeypatch.setattr(
         "sys.argv",
         [
@@ -254,7 +252,7 @@ def test_entrypoint_parser_uses_project_secret_by_default(monkeypatch: object, t
         ],
     )
 
-    args = entrypoint.args_parse()
+    args = runtime_config.args_parse()
 
     assert args.secret == Path(".secret")
 
@@ -278,9 +276,9 @@ def test_entrypoint_materializes_input_secret_before_workflow_start(
     monkeypatch.setattr(entrypoint, "DBOS", _FakeDBOS)
     monkeypatch.setattr(entrypoint, "SetWorkflowID", _FakeSetWorkflowID)
     monkeypatch.setattr(
-        entrypoint,
+        runtime_config,
         "args_parse",
-        lambda: entrypoint.argparse.Namespace(
+        lambda: argparse.Namespace(
             brand_list=brand_list_path,
             browser_runtime_mcp_url="http://browser-runtime:8931/mcp",
             input_secret=input_secret_path,
@@ -298,7 +296,7 @@ def test_entrypoint_materializes_input_secret_before_workflow_start(
     assert (runtime_secret_path / "codex_profile" / "auth.json").read_text(encoding="utf-8") == (
         input_codex_profile_path / "auth.json"
     ).read_text(encoding="utf-8")
-    assert entrypoint.os.environ["CODEX_HOME"] == str(runtime_secret_path / "codex_profile")
+    assert os.environ["CODEX_HOME"] == str(runtime_secret_path / "codex_profile")
     assert event_list[5] == (
         "enqueue_workflow",
         (
