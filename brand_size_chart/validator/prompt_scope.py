@@ -3,7 +3,7 @@
 from collections.abc import Collection
 
 from brand_size_chart.model import PromptScope
-from brand_size_chart.source_type import SOURCE_TYPE_PRIORITY_BY_KEY_MAP
+from brand_size_chart.source import SOURCE_TYPE_REGISTRY
 from brand_size_chart.validator.base import MechanicalValidator
 
 STAGE_KEY_SET = {
@@ -21,7 +21,7 @@ class PromptScopeValidator(MechanicalValidator):
     def __init__(
         self,
         *,
-        source_type_set: Collection[str] = frozenset(SOURCE_TYPE_PRIORITY_BY_KEY_MAP),
+        source_type_set: Collection[str] = frozenset(SOURCE_TYPE_REGISTRY.source_type_priority_by_key_map),
         stage_key_set: Collection[str] = frozenset(STAGE_KEY_SET),
     ) -> None:
         """Store allowed prompt-scope keys.

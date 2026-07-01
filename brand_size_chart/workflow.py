@@ -29,12 +29,8 @@ from brand_size_chart.model import (
     StageVerification,
     TableExtraction,
 )
+from brand_size_chart.source import SOURCE_TYPE_REGISTRY
 from brand_size_chart.source_extractor import source_discovery_result_get, table_extraction_from_discovery_get
-from brand_size_chart.source_type import (
-    PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET,
-    SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP,
-    SOURCE_TYPE_PRIORITY_BY_KEY_MAP,
-)
 from brand_size_chart.validator import (
     CanonicalSelectionValidator,
     CoverageDecisionValidator,
@@ -80,8 +76,8 @@ def _canonical_selection_result_get(table_extraction_list: list[TableExtraction]
             selected_extraction_by_size_group_key_map[table_extraction.size_group_key] = table_extraction
             continue
 
-        existing_priority = SOURCE_TYPE_PRIORITY_BY_KEY_MAP[existing_extraction.source_type]
-        current_priority = SOURCE_TYPE_PRIORITY_BY_KEY_MAP[table_extraction.source_type]
+        existing_priority = SOURCE_TYPE_REGISTRY.source_type_priority_get(existing_extraction.source_type)
+        current_priority = SOURCE_TYPE_REGISTRY.source_type_priority_get(table_extraction.source_type)
         if current_priority > existing_priority:
             conflict_list.append(
                 "Higher priority table selected for "
@@ -99,7 +95,7 @@ def _canonical_selection_result_get(table_extraction_list: list[TableExtraction]
     canonical_selection_list = [
         CanonicalSelection(
             conflict_list=[conflict for conflict in conflict_list if f" {size_group_key}:" in conflict],
-            selected_source_priority=SOURCE_TYPE_PRIORITY_BY_KEY_MAP[table_extraction.source_type],
+            selected_source_priority=SOURCE_TYPE_REGISTRY.source_type_priority_get(table_extraction.source_type),
             selected_source_type=table_extraction.source_type,
             selected_source_url=table_extraction.source_url,
             size_group_key=size_group_key,
@@ -280,7 +276,7 @@ def _source_type_prompt_scope_get(
     Returns:
         Source-type-local prompt scope.
     """
-    if source_type in PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET:
+    if SOURCE_TYPE_REGISTRY.source_type_requires_product_type(source_type):
         return _prompt_scope_with_product_type_request_list_get(
             product_type_request_list=remaining_product_type_list,
             prompt_scope=prompt_scope,
@@ -318,7 +314,9 @@ def _prompt_scope_stage_get(*, result_dir: Path, workflow_run_prompt: str) -> Pr
             ),
         )
         return prompt_scope
-    allowed_source_type_text = "\n".join(f"- {source_type}" for source_type in sorted(SOURCE_TYPE_PRIORITY_BY_KEY_MAP))
+    allowed_source_type_text = "\n".join(
+        f"- {source_type}" for source_type in sorted(SOURCE_TYPE_REGISTRY.source_type_priority_by_key_map)
+    )
     stage_context = (
         "Allowed source_type keys are:\n"
         f"{allowed_source_type_text}\n\n"
@@ -485,7 +483,7 @@ def _source_discovery_result_get(
         f"Source priority: {source_priority}\n"
         f"Priority country code: {prompt_scope.priority_country_code}\n"
         f"Requested product types:\n{requested_product_type_text}\n"
-        f"Source type instruction: {SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP[source_type]}\n"
+        f"Source type instruction: {SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_get(source_type)}\n"
         f"Evidence directory: {artifact_layout.artifact_path(evidence_dir)}\n"
         "Use the configured browser to search, open, and interact with source pages. "
         "All source-page and source-data loading must go through the configured browser. "
@@ -1000,7 +998,10 @@ def brand_size_chart_brand(
     table_extraction_payload_list: list[dict[str, object]] = []
     queue_name = dbos_identifier("queue", workflow_run_id)
     for source_type in source_type_list:
-        if source_type in PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET and prompt_scope.product_type_request_list:
+        if (
+            SOURCE_TYPE_REGISTRY.source_type_requires_product_type(source_type)
+            and prompt_scope.product_type_request_list
+        ):
             if not remaining_product_type_list:
                 break
         source_type_prompt_scope = _source_type_prompt_scope_get(
@@ -1339,7 +1340,7 @@ def source_discovery_write_step(
         prompt_scope=prompt_scope,
         result_dir=result_dir_path,
         secret_path=Path(secret_ref),
-        source_priority=SOURCE_TYPE_PRIORITY_BY_KEY_MAP[source_type],
+        source_priority=SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type),
         source_type=source_type,
         source_type_dir=source_type_dir,
     )
@@ -1395,7 +1396,7 @@ def source_type_summary_write_step(
     summary = SourceTypeSummary(
         blocker_list=blocker_list,
         evidence_manifest_path_list=evidence_manifest_path_list,
-        source_priority=SOURCE_TYPE_PRIORITY_BY_KEY_MAP[source_type],
+        source_priority=SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type),
         source_type=source_type,
         state="failed" if blocker_list else ("passed" if table_extraction_list else "skipped"),
         table_result_path_by_size_group_key_map=table_result_path_by_size_group_key_map,
@@ -1467,22 +1468,7 @@ def _source_type_list_get(prompt_scope: PromptScope) -> list[str]:
         Source type list.
     """
     PROMPT_SCOPE_VALIDATOR.validate(prompt_scope)
-    source_type_list = prompt_scope.source_type_allow_list or [
-        source_type
-        for source_type, _source_priority in sorted(
-            SOURCE_TYPE_PRIORITY_BY_KEY_MAP.items(),
-            key=lambda item: item[1],
-            reverse=True,
-        )
-    ]
-    known_source_type_list = list(source_type_list)
-    if prompt_scope.product_type_request_list:
-        return known_source_type_list
-    filtered_source_type_list = [
-        source_type
-        for source_type in known_source_type_list
-        if source_type not in PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET
-    ]
-    if not filtered_source_type_list:
-        raise RuntimeError("No source types remain after applying product-type scope rules.")
-    return filtered_source_type_list
+    return SOURCE_TYPE_REGISTRY.source_type_list_get(
+        have_product_type_request=bool(prompt_scope.product_type_request_list),
+        source_type_allow_list=prompt_scope.source_type_allow_list,
+    )

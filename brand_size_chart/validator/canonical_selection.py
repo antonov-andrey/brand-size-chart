@@ -3,7 +3,7 @@
 from collections.abc import Collection, Mapping
 
 from brand_size_chart.model import APPLICABILITY_STATUS_CANONICAL_SET, CanonicalSelectionResult, TableExtraction
-from brand_size_chart.source_type import SOURCE_TYPE_PRIORITY_BY_KEY_MAP
+from brand_size_chart.source import SOURCE_TYPE_REGISTRY
 from brand_size_chart.validator.base import MechanicalValidator
 
 
@@ -14,7 +14,7 @@ class CanonicalSelectionValidator(MechanicalValidator):
         self,
         *,
         canonical_applicability_status_set: Collection[str] = frozenset(APPLICABILITY_STATUS_CANONICAL_SET),
-        source_priority_by_key_map: Mapping[str, int] = SOURCE_TYPE_PRIORITY_BY_KEY_MAP,
+        source_priority_by_key_map: Mapping[str, int] = SOURCE_TYPE_REGISTRY.source_type_priority_by_key_map,
     ) -> None:
         """Store canonical table and source-priority contracts.
 

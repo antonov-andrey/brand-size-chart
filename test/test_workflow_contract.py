@@ -37,6 +37,14 @@ def test_codex_stage_py_is_compatibility_surface_only() -> None:
     assert "from brand_size_chart.codex.runner import" in codex_stage_source
 
 
+def test_source_type_py_is_compatibility_surface_only() -> None:
+    """Move source type registry ownership into source package."""
+    source_type_source = Path("brand_size_chart/source_type.py").read_text(encoding="utf-8")
+
+    assert "SOURCE_TYPE_LIST" not in source_type_source
+    assert "from brand_size_chart.source.source_type_registry import" in source_type_source
+
+
 def test_artifact_layout_owns_current_paths(tmp_path: Path) -> None:
     """Centralize deterministic artifact paths in ArtifactLayout."""
     from brand_size_chart.artifact.layout import ArtifactLayout

@@ -1,4 +1,4 @@
-"""Compatibility imports for source type registry symbols."""
+"""Source discovery registry package."""
 
 from brand_size_chart.source.source_type_registry import (
     PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET,
