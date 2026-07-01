@@ -64,10 +64,10 @@ class CoverageDecisionStage:
             ),
             model_class=CoverageDecisionResult,
             prompt_context=self._prompt_context_get(),
-        )
-        self._validator.validate(
-            coverage_decision_result=coverage_decision_result,
-            prompt_scope=self._prompt_scope,
+            result_error_list_get=lambda result: self._validator.error_list_get(
+                result,
+                prompt_scope=self._prompt_scope,
+            ),
         )
         return coverage_decision_result
 

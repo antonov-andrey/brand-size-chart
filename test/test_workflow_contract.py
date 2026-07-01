@@ -8,8 +8,10 @@ import yaml
 
 from brand_size_chart import source_type as source_type_surface
 from brand_size_chart import workflow
+from brand_size_chart.model import BrandInput
 from brand_size_chart.model import BrandSizeChart
 from brand_size_chart.model import CanonicalSelectionResult
+from brand_size_chart.model import CoverageDecisionResult
 from brand_size_chart.model import PromptScope
 from brand_size_chart.model import PromptStageInstruction
 from brand_size_chart.model import SourceDiscovery
@@ -171,6 +173,103 @@ def test_semantic_stages_live_under_stage_package() -> None:
     assert TableExtractionStage.__name__ == "TableExtractionStage"
     assert CoverageDecisionStage.__name__ == "CoverageDecisionStage"
     assert CanonicalSelectionStage.__name__ == "CanonicalSelectionStage"
+
+
+def test_coverage_decision_validation_retries_inside_semantic_stage(tmp_path: Path) -> None:
+    """Feed coverage-decision mechanical errors back into the semantic retry loop."""
+    from pydantic import BaseModel
+
+    from brand_size_chart.model import CoverageDecision
+    from brand_size_chart.stage.coverage_decision import CoverageDecisionStage
+
+    call_list: list[dict[str, object]] = []
+
+    def fake_codex_stage_run(
+        *,
+        allow_user_config: bool,
+        browser_runtime_mcp_url: str,
+        model_class: type[BaseModel],
+        prompt_text: str,
+        result_dir: Path,
+        stage_dir: Path,
+        stage_name: str,
+    ) -> BaseModel:
+        """Return one mechanically invalid coverage result, then a corrected result.
+
+        Args:
+            allow_user_config: Whether Codex browser config is enabled.
+            browser_runtime_mcp_url: Browser runtime URL.
+            model_class: Expected result model.
+            prompt_text: Prompt text with feedback.
+            result_dir: Root result directory.
+            stage_dir: Stage artifact directory.
+            stage_name: Stage name.
+
+        Returns:
+            Fake coverage or verification result.
+        """
+
+        _ = allow_user_config
+        _ = browser_runtime_mcp_url
+        _ = result_dir
+        _ = stage_dir
+        _ = stage_name
+        call_list.append({"model_class": model_class, "prompt_text": prompt_text})
+        if model_class is StageVerification:
+            return StageVerification(
+                artifact_path_list=["brand_size_chart_audit/brand/defacto/coverage_decision/result.json"],
+                message="verified",
+                stage_key="coverage_decision",
+                status="success",
+            )
+        coverage_call_count = len([call for call in call_list if call["model_class"] is CoverageDecisionResult])
+        if coverage_call_count == 1:
+            return CoverageDecisionResult(
+                coverage_decision_list=[
+                    CoverageDecision(is_covered=True, reason="Verified source table exists.", size_group_key="women")
+                ],
+                message="coverage checked",
+                status="success",
+                uncovered_product_type_list=["unexpected_product"],
+            )
+
+        assert "coverage_decision returned unexpected product types" in prompt_text
+        return CoverageDecisionResult(
+            coverage_decision_list=[
+                CoverageDecision(is_covered=True, reason="Verified source table exists.", size_group_key="women")
+            ],
+            message="coverage checked",
+            status="success",
+            uncovered_product_type_list=["women shoes"],
+        )
+
+    result = CoverageDecisionStage(
+        brand_input=BrandInput(
+            parsed_brand_key="defacto",
+            parsed_brand_name="Defacto",
+            raw_brand_name="Defacto",
+            source_line_number=1,
+        ),
+        codex_stage_run_callable=fake_codex_stage_run,
+        prompt_scope=PromptScope(product_type_request_list=["women shoes"]),
+        result_dir=tmp_path,
+        source_type="official_brand_size_guide",
+        stage_dir=tmp_path / "coverage_decision",
+        table_extraction_list=[
+            TableExtraction(
+                applicability_status="priority_country_official",
+                chart=BrandSizeChart(description="Women shoes", row_list=[]),
+                size_group_key="women",
+                source_title="Women shoes",
+                source_type="official_brand_size_guide",
+                source_url="https://www.defacto.com.tr/size",
+            )
+        ],
+    ).run()
+
+    coverage_call_list = [call for call in call_list if call["model_class"] is CoverageDecisionResult]
+    assert len(coverage_call_list) == 2
+    assert result.uncovered_product_type_list == ["women shoes"]
 
 
 def test_workflow_yaml_declares_required_cross_project_contract_keys() -> None:
