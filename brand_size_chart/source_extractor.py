@@ -1,6 +1,5 @@
 """Draft helpers for Codex-owned source discovery and table extraction."""
 
-import json
 from pathlib import Path
 
 from brand_size_chart.model import (
@@ -50,7 +49,7 @@ def source_discovery_result_get(
 def table_extraction_from_discovery_get(
     *, brand_input: BrandInput, result_dir: Path, source_discovery: SourceDiscovery
 ) -> TableExtraction:
-    """Return a fixture table or an empty draft for Codex-owned extraction.
+    """Return an empty draft for Codex-owned extraction.
 
     Args:
         brand_input: Parsed brand input.
@@ -61,26 +60,7 @@ def table_extraction_from_discovery_get(
         Draft table extraction that must be completed by Codex in real runs.
     """
     _ = brand_input
-    for evidence_path_text in source_discovery.evidence_path_list:
-        evidence_path = result_dir / evidence_path_text
-        if not evidence_path.is_file():
-            continue
-        if evidence_path.suffix.lower() != ".json":
-            continue
-        payload = json.loads(evidence_path.read_text(encoding="utf-8"))
-        if isinstance(payload, dict) and "chart" in payload:
-            table_extraction = TableExtraction.model_validate(payload)
-            return TableExtraction(
-                applicability_description=table_extraction.applicability_description,
-                applicability_status=table_extraction.applicability_status,
-                chart=table_extraction.chart,
-                evidence_path_list=[evidence_path_text],
-                product_type_hint_list=table_extraction.product_type_hint_list,
-                size_group_key=table_extraction.size_group_key,
-                source_title=table_extraction.source_title,
-                source_type=table_extraction.source_type,
-                source_url=table_extraction.source_url,
-            )
+    _ = result_dir
 
     return TableExtraction(
         applicability_description=source_discovery.source_title,

@@ -16,7 +16,7 @@ CODEX_BROWSER_STAGE_SYSTEM_PROMPT = (
     "Use the configured browser tools for every source-page and source-data load. "
     "All non-browser loading mechanisms are forbidden for source data; curl, requests, wget, and direct HTTP are "
     "examples, not an exhaustive list. "
-    "You may write evidence files only under the stage artifact directory named in the prompt. "
+    "You may write evidence files only under the absolute browser evidence write directory named in the prompt. "
     "Do not emit progress text. Return only the final JSON object that matches the supplied output schema."
 )
 CODEX_EXEC_INACTIVITY_TIMEOUT_SECONDS = 900

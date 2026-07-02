@@ -72,15 +72,21 @@ class CanonicalSelectionValidator(MechanicalValidator):
         if error_list:
             raise RuntimeError("; ".join(error_list))
 
-        table_extraction_by_size_group_key_map = {
-            table_extraction.size_group_key: table_extraction for table_extraction in table_extraction_list
-        }
         selected_size_group_key_set: set[str] = set()
         for selection in canonical_selection_result.canonical_selection_list:
             if selection.size_group_key in selected_size_group_key_set:
                 raise RuntimeError(f"canonical_selection duplicate size_group_key: {selection.size_group_key}")
             selected_size_group_key_set.add(selection.size_group_key)
-            table_extraction = table_extraction_by_size_group_key_map.get(selection.size_group_key)
+            table_extraction = next(
+                (
+                    table_extraction
+                    for table_extraction in table_extraction_list
+                    if table_extraction.size_group_key == selection.size_group_key
+                    and table_extraction.source_type == selection.selected_source_type
+                    and table_extraction.source_url == selection.selected_source_url
+                ),
+                None,
+            )
             if table_extraction is None:
                 raise RuntimeError(f"canonical_selection missing table extraction: {selection.size_group_key}")
             expected_priority = self._source_priority_by_key_map[selection.selected_source_type]

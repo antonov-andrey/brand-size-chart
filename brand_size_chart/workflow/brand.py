@@ -1,5 +1,6 @@
 """Brand-level DBOS workflow owner."""
 
+import json
 from pathlib import Path
 
 from dbos import DBOS, DBOSConfiguredInstance, SetWorkflowID
@@ -26,6 +27,30 @@ from brand_size_chart.workflow.base import (
     source_type_prompt_scope_get,
 )
 from brand_size_chart.workflow.source_type import brand_size_chart_source_type
+
+
+def _table_extraction_identity_key_get(*, size_group_key: str, source_type: str, source_url: str) -> str:
+    """Return deterministic exact-match key for one extracted table identity.
+
+    Args:
+        size_group_key: Size group key.
+        source_type: Source type key.
+        source_url: Source URL.
+
+    Returns:
+        JSON identity key.
+    """
+
+    return json.dumps(
+        {
+            "size_group_key": size_group_key,
+            "source_type": source_type,
+            "source_url": source_url,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
 
 
 @DBOS.dbos_class("BrandSizeChartBrandWorkflow")
@@ -218,12 +243,27 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
             stage_dir=artifact_layout.canonical_selection_dir(brand_input),
             table_extraction_list=table_extraction_list,
         ).run()
-        table_extraction_by_size_group_key_map = {
-            table_extraction.size_group_key: table_extraction for table_extraction in table_extraction_list
+        table_extraction_by_identity_key_map = {
+            _table_extraction_identity_key_get(
+                size_group_key=table_extraction.size_group_key,
+                source_type=table_extraction.source_type,
+                source_url=table_extraction.source_url,
+            ): table_extraction
+            for table_extraction in table_extraction_list
         }
         chart_path_list: list[str] = []
         for selection in canonical_selection_result.canonical_selection_list:
-            table_extraction = table_extraction_by_size_group_key_map[selection.size_group_key]
+            table_extraction_identity_key = _table_extraction_identity_key_get(
+                size_group_key=selection.size_group_key,
+                source_type=selection.selected_source_type,
+                source_url=selection.selected_source_url,
+            )
+            if table_extraction_identity_key not in table_extraction_by_identity_key_map:
+                raise RuntimeError(
+                    "canonical_selection selected missing table_extraction: "
+                    f"{selection.size_group_key} {selection.selected_source_type} {selection.selected_source_url}"
+                )
+            table_extraction = table_extraction_by_identity_key_map[table_extraction_identity_key]
             chart_path = artifact_layout.brand_size_chart_path(brand_input, selection.size_group_key)
             ARTIFACT_WRITER.write(chart_path, table_extraction.chart)
             chart_path_list.append(artifact_layout.artifact_path(chart_path))

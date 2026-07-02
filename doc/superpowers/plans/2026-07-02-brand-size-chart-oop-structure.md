@@ -881,7 +881,7 @@ WORKFLOW_RUN_PROMPT="$(cat tmp/prompt_defacto_all_source_types.txt)" \
 docker compose --profile vpn up --build --abort-on-container-exit --exit-code-from workflow
 ```
 
-Expected: `openvpn`, `playwright-mcp`, and `workflow` run in the same compose project; `workflow` receives `BROWSER_RUNTIME_MCP_URL=http://openvpn:8931/mcp` from `compose.yaml`; command exits 0.
+Expected: `openvpn`, `playwright-mcp`, and `workflow` run in the same compose project; `playwright-mcp` uses `/output` as its writable artifact root; `workflow` receives `BROWSER_RUNTIME_MCP_URL=http://openvpn:8931/mcp` from `compose.yaml`; command exits 0.
 
 - [ ] **Step 3: Inspect real output**
 

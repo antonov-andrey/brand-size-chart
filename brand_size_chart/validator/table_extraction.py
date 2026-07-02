@@ -58,6 +58,11 @@ class TableExtractionValidator(MechanicalValidator):
                 f"table_extraction source_url mismatch for {source_discovery.size_group_key}: "
                 f"{table_extraction.source_url} != {source_discovery.source_url}"
             )
+        if table_extraction.source_title != source_discovery.source_title:
+            raise RuntimeError(
+                f"table_extraction source_title mismatch for {source_discovery.size_group_key}: "
+                f"{table_extraction.source_title} != {source_discovery.source_title}"
+            )
         if table_extraction.size_group_key != source_discovery.size_group_key:
             raise RuntimeError(
                 f"table_extraction size_group_key mismatch: "

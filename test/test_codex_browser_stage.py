@@ -76,7 +76,19 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
                 "stage_name": stage_name,
             }
         )
-        evidence_path = stage_dir / "evidence" / "marketplace_product_page.json"
+        evidence_path = (
+            result_dir
+            / ".playwright-mcp"
+            / "current"
+            / "brand_size_chart_audit"
+            / "brand"
+            / "defacto"
+            / "source_type"
+            / "official_marketplace_product_page"
+            / "source_discovery"
+            / "evidence"
+            / "marketplace_product_page.json"
+        )
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
         if model_class is SourceDiscoveryResult:
@@ -123,7 +135,27 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
     assert call_list[0]["allow_user_config"] is True
     assert call_list[0]["browser_runtime_mcp_url"] == "http://127.0.0.1:12000/mcp"
     assert "Use the configured browser" in str(call_list[0]["prompt_text"])
+    assert (
+        f"Browser evidence write directory: "
+        f"{tmp_path / '.playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/official_marketplace_product_page/source_discovery/evidence'}"
+        in str(call_list[0]["prompt_text"])
+    )
+    assert (
+        "Evidence reference directory: "
+        ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
+        "official_marketplace_product_page/source_discovery/evidence" in str(call_list[0]["prompt_text"])
+    )
     assert "women shoes" in str(call_list[0]["prompt_text"])
+    assert "run separate browser-visible searches for both `beden rehberi` and `beden tablosu`" in str(
+        call_list[0]["prompt_text"]
+    )
+    assert (
+        "Do not create one source candidate from product category, product title, variant labels, or option labels "
+        "alone." in str(call_list[0]["prompt_text"])
+    )
+    assert "The candidate size_group_key must match one concrete browser-visible chart group or table heading" in str(
+        call_list[0]["prompt_text"]
+    )
     assert "Only search official marketplace product page evidence for requested product types." in str(
         call_list[0]["prompt_text"]
     )
@@ -728,7 +760,21 @@ def test_table_extraction_calls_codex_browser_stage_and_requires_evidence(monkey
                 "stage_name": stage_name,
             }
         )
-        evidence_path = stage_dir / "evidence" / "women_upper.json"
+        evidence_path = (
+            result_dir
+            / ".playwright-mcp"
+            / "current"
+            / "brand_size_chart_audit"
+            / "brand"
+            / "defacto"
+            / "source_type"
+            / "official_marketplace_product_page"
+            / "size_chart"
+            / "women_upper"
+            / "table_extraction"
+            / "evidence"
+            / "women_upper.json"
+        )
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
         if model_class is TableExtraction:
@@ -785,6 +831,22 @@ def test_table_extraction_calls_codex_browser_stage_and_requires_evidence(monkey
     assert call_list[0]["allow_user_config"] is True
     assert call_list[0]["browser_runtime_mcp_url"] == "http://127.0.0.1:12000/mcp"
     assert "Use the configured browser" in str(call_list[0]["prompt_text"])
+    assert (
+        f"Browser evidence write directory: "
+        f"{tmp_path / '.playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/official_marketplace_product_page/size_chart/women_upper/table_extraction/evidence'}"
+        in str(call_list[0]["prompt_text"])
+    )
+    assert (
+        "Evidence reference directory: "
+        ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
+        "official_marketplace_product_page/size_chart/women_upper/table_extraction/evidence"
+        in str(call_list[0]["prompt_text"])
+    )
+    assert "Target size_group_key: women_upper" in str(call_list[0]["prompt_text"])
+    assert "Target source title: Official marketplace product page size answer" in str(call_list[0]["prompt_text"])
+    assert "Do not extract a default, current, product-category, adjacent, or differently named table" in str(
+        call_list[0]["prompt_text"]
+    )
 
 
 def test_source_discovery_rejects_skipped_result_even_when_verification_passes(

@@ -29,6 +29,18 @@ class ArtifactLayout:
 
         return path.relative_to(self.result_dir).as_posix()
 
+    def filesystem_path_get(self, path: Path) -> str:
+        """Return one absolute filesystem path for runtime file writes.
+
+        Args:
+            path: Artifact path.
+
+        Returns:
+            Absolute filesystem path as POSIX text.
+        """
+
+        return path.resolve().as_posix()
+
     def brand_audit_dir(self, brand_input: BrandInput) -> Path:
         """Return audit directory for one brand.
 
@@ -160,7 +172,18 @@ class ArtifactLayout:
             Source-discovery evidence directory.
         """
 
-        return self.source_discovery_dir(brand_input, source_type) / "evidence"
+        return (
+            self.result_dir
+            / ".playwright-mcp"
+            / "current"
+            / "brand_size_chart_audit"
+            / "brand"
+            / brand_input.parsed_brand_key
+            / "source_type"
+            / source_type
+            / "source_discovery"
+            / "evidence"
+        )
 
     def source_type_dir(self, brand_input: BrandInput, source_type: str) -> Path:
         """Return audit directory for one brand source type.
@@ -238,7 +261,20 @@ class ArtifactLayout:
             Table-extraction evidence directory.
         """
 
-        return self.table_extraction_dir(brand_input, source_type, size_group_key) / "evidence"
+        return (
+            self.result_dir
+            / ".playwright-mcp"
+            / "current"
+            / "brand_size_chart_audit"
+            / "brand"
+            / brand_input.parsed_brand_key
+            / "source_type"
+            / source_type
+            / "size_chart"
+            / size_group_key
+            / "table_extraction"
+            / "evidence"
+        )
 
     def table_extraction_result_path(self, brand_input: BrandInput, source_type: str, size_group_key: str) -> Path:
         """Return table-extraction result path for one size group.

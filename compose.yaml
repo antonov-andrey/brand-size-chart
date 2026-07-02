@@ -35,9 +35,9 @@ services:
         browser-vpn-runtime-playwright-mcp
         --allowed-hosts localhost,127.0.0.1,openvpn
         --data-source-path /input/.secret
-        --persistent-profile-path "/output/brand_size_chart_audit/run/browser_vpn_runtime/playwright_profile"
-        --output-dir "/output/brand_size_chart_audit/run/browser_vpn_runtime/playwright_mcp"
-        --mcp-config-path "/output/brand_size_chart_audit/run/browser_vpn_runtime/playwright_mcp/config.json"
+        --persistent-profile-path "/runtime/browser_vpn_runtime/playwright_profile"
+        --output-dir /output/.playwright-mcp/current
+        --mcp-config-path "/runtime/browser_vpn_runtime/playwright_mcp/config.json"
         --host 0.0.0.0
         --port 8931
         --require-openvpn

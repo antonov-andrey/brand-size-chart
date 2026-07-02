@@ -1,6 +1,7 @@
 """Tests for cross-project workflow contract metadata."""
 
 from contextlib import nullcontext
+import json
 from pathlib import Path
 
 import pytest
@@ -8,16 +9,19 @@ import yaml
 
 from brand_size_chart import source_type as source_type_surface
 from brand_size_chart import workflow
+from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import BrandInput
 from brand_size_chart.model import BrandSizeChart
 from brand_size_chart.model import BrandSizeChartMeasurement
 from brand_size_chart.model import BrandSizeChartRow
+from brand_size_chart.model import CanonicalSelection
 from brand_size_chart.model import CanonicalSelectionResult
 from brand_size_chart.model import CoverageDecisionResult
 from brand_size_chart.model import PromptScope
 from brand_size_chart.model import PromptStageInstruction
 from brand_size_chart.model import SourceDiscovery
 from brand_size_chart.model import SourceDiscoveryResult
+from brand_size_chart.model import SourceTypeSummary
 from brand_size_chart.model import StageVerification
 from brand_size_chart.model import TableExtraction
 from brand_size_chart.source_type import (
@@ -268,6 +272,61 @@ def test_stage_validators_live_under_validator_package() -> None:
     assert CanonicalSelectionValidator.__name__ == "CanonicalSelectionValidator"
 
 
+def test_table_extraction_validator_rejects_source_title_mismatch(tmp_path: Path) -> None:
+    """Require extracted table identity to preserve the discovered source title."""
+    from brand_size_chart.validator.table_extraction import TableExtractionValidator
+
+    evidence_path = (
+        tmp_path
+        / "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/size_chart/women_upper/table_extraction/evidence/table.json"
+    )
+    evidence_path.parent.mkdir(parents=True)
+    evidence_path.write_text("{}\n", encoding="utf-8")
+    source_discovery = SourceDiscovery(
+        confidence=1.0,
+        country_code_list=["TR"],
+        evidence_path_list=[evidence_path.relative_to(tmp_path).as_posix()],
+        product_type_hint_list=["upper"],
+        size_group_key="women_upper",
+        source_priority=600,
+        source_title="Kadın Üst Beden Tablosu",
+        source_type="official_brand_size_guide",
+        source_url="https://www.defacto.com.tr/statik/beden-rehberi",
+    )
+    table_extraction = TableExtraction(
+        applicability_status="priority_country_official",
+        chart=BrandSizeChart(
+            description="Different title",
+            row_list=[
+                BrandSizeChartRow(
+                    measurement_list=[
+                        BrandSizeChartMeasurement(name="Beden", min_value="S", max_value="S", unit="size"),
+                    ],
+                    size_label="S",
+                )
+            ],
+        ),
+        evidence_path_list=[evidence_path.relative_to(tmp_path).as_posix()],
+        size_group_key="women_upper",
+        source_title="Different title",
+        source_type="official_brand_size_guide",
+        source_url="https://www.defacto.com.tr/statik/beden-rehberi",
+    )
+
+    try:
+        TableExtractionValidator(tmp_path).validate(
+            source_discovery=source_discovery,
+            table_extraction=table_extraction,
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        message = ""
+
+    assert "table_extraction source_title mismatch" in message
+    assert "Kadın Üst Beden Tablosu" in message
+
+
 def test_semantic_stages_live_under_stage_package() -> None:
     """Keep semantic stage lifecycle outside DBOS workflow orchestration."""
     from brand_size_chart.stage.canonical_selection import CanonicalSelectionStage
@@ -425,6 +484,24 @@ def test_local_compose_declares_vpn_profile() -> None:
     assert compose["services"]["playwright-mcp"]["profiles"] == ["vpn"]
     assert compose["services"]["playwright-mcp"]["entrypoint"] == []
     assert "--allowed-hosts localhost,127.0.0.1,openvpn" in compose["services"]["playwright-mcp"]["command"][-1]
+    assert "--output-dir /output/.playwright-mcp/current" in compose["services"]["playwright-mcp"]["command"][-1]
+    assert "--output-dir /output\n" not in compose["services"]["playwright-mcp"]["command"][-1]
+    assert (
+        '--persistent-profile-path "/runtime/browser_vpn_runtime/playwright_profile"'
+        in compose["services"]["playwright-mcp"]["command"][-1]
+    )
+    assert (
+        '--mcp-config-path "/runtime/browser_vpn_runtime/playwright_mcp/config.json"'
+        in compose["services"]["playwright-mcp"]["command"][-1]
+    )
+    assert (
+        '--persistent-profile-path "/output/brand_size_chart_audit/run/browser_vpn_runtime/playwright_profile"'
+        not in compose["services"]["playwright-mcp"]["command"][-1]
+    )
+    assert (
+        '--mcp-config-path "/output/brand_size_chart_audit/run/browser_vpn_runtime/playwright_mcp/config.json"'
+        not in compose["services"]["playwright-mcp"]["command"][-1]
+    )
     assert compose["services"]["playwright-mcp"]["network_mode"] == "service:openvpn"
     assert compose["services"]["playwright-mcp"]["depends_on"]["openvpn"]["condition"] == "service_healthy"
     assert "network_mode" not in compose["services"]["workflow"]
@@ -454,6 +531,33 @@ def test_local_compose_declares_vpn_profile() -> None:
     assert "pip install --root-user-action=ignore --no-cache-dir ." in workflow_dockerfile_text
     assert "healthcheck" in compose["services"]["openvpn"]
     assert "healthcheck" in compose["services"]["playwright-mcp"]
+
+
+def test_browser_evidence_layout_uses_playwright_mcp_namespace(tmp_path: Path) -> None:
+    """Keep browser evidence away from root workflow artifact directories."""
+    layout = ArtifactLayout(tmp_path)
+    brand_input = BrandInput(
+        parsed_brand_key="defacto",
+        parsed_brand_name="Defacto",
+        raw_brand_name="Defacto",
+        source_line_number=1,
+    )
+
+    source_evidence_path = layout.source_discovery_evidence_dir(brand_input, "official_brand_size_guide")
+    table_evidence_path = layout.table_extraction_evidence_dir(
+        brand_input,
+        "official_brand_size_guide",
+        "women_upper",
+    )
+
+    assert layout.artifact_path(source_evidence_path) == (
+        ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
+        "official_brand_size_guide/source_discovery/evidence"
+    )
+    assert layout.artifact_path(table_evidence_path) == (
+        ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
+        "official_brand_size_guide/size_chart/women_upper/table_extraction/evidence"
+    )
 
 
 def test_workflow_imports_dbos_eagerly_without_noop_decorator_fallback() -> None:
@@ -750,6 +854,229 @@ def test_canonical_selection_rejects_missing_verified_tables() -> None:
 
     assert "canonical_selection missing eligible size_group_key" in message
     assert "women_upper" in message
+
+
+def test_canonical_selection_validator_accepts_selected_duplicate_source_type() -> None:
+    """Validate the selected table, not the last table with the same size_group_key."""
+    from brand_size_chart.validator.canonical_selection import CanonicalSelectionValidator
+
+    lower_priority_table = TableExtraction(
+        applicability_status="priority_country_official",
+        chart=BrandSizeChart(description="Seller boys clothing", row_list=[]),
+        size_group_key="boys_3_8_year_clothing",
+        source_title="Seller boys clothing",
+        source_type="official_seller_size_guide",
+        source_url="https://seller.example/size-guide",
+    )
+    higher_priority_table = TableExtraction(
+        applicability_status="priority_country_official",
+        chart=BrandSizeChart(description="Brand boys clothing", row_list=[]),
+        size_group_key="boys_3_8_year_clothing",
+        source_title="Brand boys clothing",
+        source_type="official_brand_size_guide",
+        source_url="https://brand.example/beden-rehberi",
+    )
+    canonical_selection_result = CanonicalSelectionResult(
+        canonical_selection_list=[
+            CanonicalSelection(
+                selected_source_priority=600,
+                selected_source_type="official_brand_size_guide",
+                selected_source_url="https://brand.example/beden-rehberi",
+                size_group_key="boys_3_8_year_clothing",
+            )
+        ],
+        message="Canonical tables selected.",
+        status="success",
+    )
+
+    CanonicalSelectionValidator().validate(
+        canonical_selection_result=canonical_selection_result,
+        table_extraction_list=[higher_priority_table, lower_priority_table],
+    )
+
+
+def test_table_extraction_draft_ignores_discovery_evidence_chart_payload(tmp_path: Path) -> None:
+    """Do not hydrate production table extraction from discovery evidence JSON."""
+    from brand_size_chart.source_extractor import table_extraction_from_discovery_get
+
+    evidence_path = (
+        tmp_path
+        / "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/source_discovery/evidence/table.json"
+    )
+    evidence_path.parent.mkdir(parents=True)
+    evidence_table = TableExtraction(
+        applicability_status="priority_country_official",
+        chart=BrandSizeChart(
+            description="Fixture chart",
+            row_list=[
+                BrandSizeChartRow(
+                    measurement_list=[
+                        BrandSizeChartMeasurement(name="Beden", min_value="XL", max_value="XL", unit="size"),
+                    ],
+                    size_label="XL",
+                )
+            ],
+        ),
+        size_group_key="women_upper",
+        source_title="Fixture title",
+        source_type="official_brand_size_guide",
+        source_url="https://fixture.example/table",
+    )
+    evidence_path.write_text(evidence_table.model_dump_json(), encoding="utf-8")
+    source_discovery = SourceDiscovery(
+        confidence=1.0,
+        country_code_list=["TR"],
+        evidence_path_list=[evidence_path.relative_to(tmp_path).as_posix()],
+        product_type_hint_list=["upper"],
+        size_group_key="women_upper",
+        source_priority=600,
+        source_title="Kadın Üst Beden Tablosu",
+        source_type="official_brand_size_guide",
+        source_url="https://www.defacto.com.tr/statik/beden-rehberi",
+    )
+
+    table_extraction = table_extraction_from_discovery_get(
+        brand_input=BrandInput(
+            parsed_brand_key="defacto",
+            parsed_brand_name="Defacto",
+            raw_brand_name="Defacto",
+            source_line_number=1,
+        ),
+        result_dir=tmp_path,
+        source_discovery=source_discovery,
+    )
+
+    assert table_extraction.chart.row_list == []
+    assert table_extraction.source_title == "Kadın Üst Beden Tablosu"
+    assert table_extraction.source_url == "https://www.defacto.com.tr/statik/beden-rehberi"
+    assert table_extraction.evidence_path_list == [evidence_path.relative_to(tmp_path).as_posix()]
+
+
+def test_brand_selection_writes_selected_duplicate_table(monkeypatch: object, tmp_path: Path) -> None:
+    """Write the canonical table selected by full source identity when size_group_key duplicates exist."""
+    from pydantic import BaseModel
+
+    from brand_size_chart.workflow import brand as brand_workflow
+
+    brand_input = BrandInput(
+        parsed_brand_key="defacto",
+        parsed_brand_name="Defacto",
+        raw_brand_name="Defacto",
+        source_line_number=1,
+    )
+    selected_table = TableExtraction(
+        applicability_status="priority_country_official",
+        chart=BrandSizeChart(
+            description="Selected brand table",
+            row_list=[
+                BrandSizeChartRow(
+                    measurement_list=[
+                        BrandSizeChartMeasurement(name="Beden", min_value="S", max_value="S", unit="size"),
+                    ],
+                    size_label="S",
+                )
+            ],
+        ),
+        size_group_key="boys_3_8_year_clothing",
+        source_title="Brand boys clothing",
+        source_type="official_brand_size_guide",
+        source_url="https://brand.example/beden-rehberi",
+    )
+    duplicate_table = TableExtraction(
+        applicability_status="priority_country_official",
+        chart=BrandSizeChart(
+            description="Lower priority duplicate table",
+            row_list=[
+                BrandSizeChartRow(
+                    measurement_list=[
+                        BrandSizeChartMeasurement(name="Beden", min_value="M", max_value="M", unit="size"),
+                    ],
+                    size_label="M",
+                )
+            ],
+        ),
+        size_group_key="boys_3_8_year_clothing",
+        source_title="Seller boys clothing",
+        source_type="official_seller_size_guide",
+        source_url="https://seller.example/size-guide",
+    )
+
+    def fake_coverage_decision_semantic_result_get(**kwargs: object) -> CoverageDecisionResult:
+        """Return final coverage without using Codex.
+
+        Args:
+            kwargs: Ignored workflow inputs.
+
+        Returns:
+            Successful coverage result.
+        """
+
+        _ = kwargs
+        return CoverageDecisionResult(
+            coverage_decision_list=[],
+            message="coverage checked",
+            status="success",
+        )
+
+    class FakeCanonicalSelectionStage:
+        """Return a canonical selection for the higher-priority duplicate table."""
+
+        def __init__(self, **kwargs: object) -> None:
+            """Accept workflow construction kwargs.
+
+            Args:
+                kwargs: Ignored workflow inputs.
+            """
+
+            _ = kwargs
+
+        def run(self) -> CanonicalSelectionResult:
+            """Return selected canonical table identity.
+
+            Returns:
+                Canonical selection result.
+            """
+
+            return CanonicalSelectionResult(
+                canonical_selection_list=[
+                    CanonicalSelection(
+                        selected_source_priority=600,
+                        selected_source_type="official_brand_size_guide",
+                        selected_source_url="https://brand.example/beden-rehberi",
+                        size_group_key="boys_3_8_year_clothing",
+                    )
+                ],
+                message="Canonical tables selected.",
+                status="success",
+            )
+
+    monkeypatch.setattr(
+        brand_workflow,
+        "coverage_decision_semantic_result_get",
+        fake_coverage_decision_semantic_result_get,
+    )
+    monkeypatch.setattr(brand_workflow, "CanonicalSelectionStage", FakeCanonicalSelectionStage)
+
+    result = brand_workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.selection_write_step.__wrapped__(
+        brand_workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW,
+        brand_input.model_dump(mode="json"),
+        PromptScope().model_dump(mode="json"),
+        str(tmp_path),
+        [selected_table.model_dump(mode="json"), duplicate_table.model_dump(mode="json")],
+        [
+            SourceTypeSummary(
+                source_priority=600,
+                source_type="official_brand_size_guide",
+                state="passed",
+            ).model_dump(mode="json")
+        ],
+    )
+
+    chart_path = tmp_path / "brand_size_chart/brand/defacto/size_chart/boys_3_8_year_clothing.json"
+    chart_payload = json.loads(chart_path.read_text(encoding="utf-8"))
+    assert result["status"] == "success"
+    assert chart_payload["description"] == "Selected brand table"
+    assert chart_payload["row_list"][0]["size_label"] == "S"
 
 
 def test_stage_prompt_text_includes_draft_result() -> None:
@@ -1100,6 +1427,15 @@ def test_source_discovery_prompt_makes_table_forms_universal() -> None:
     assert "for `official_brand_size_guide`" not in discovery_prompt
 
 
+def test_source_discovery_prompt_uses_split_evidence_paths() -> None:
+    """Keep source discovery prompt explicit about filesystem writes and returned references."""
+    source_discovery_stage_text = Path("brand_size_chart/stage/source_discovery.py").read_text(encoding="utf-8")
+
+    assert "under the browser evidence write directory" in source_discovery_stage_text
+    assert "result-dir-relative paths under the evidence reference directory" in source_discovery_stage_text
+    assert "under the evidence directory" not in source_discovery_stage_text
+
+
 def test_size_group_key_contract_is_prompt_and_design_owned() -> None:
     """Keep size-group naming as a semantic prompt/design contract."""
     size_group_prompt = Path("brand_size_chart/prompt/size_group_key.md").read_text(encoding="utf-8")
@@ -1254,6 +1590,16 @@ def test_source_discovery_prompt_requires_canonical_inventory_on_retry() -> None
     assert "source_surface_inventory.json" in source_discovery_stage_text
     assert "browser-backed source-surface inventory artifact" in source_discovery_stage_text
     assert "attempt-only inventory artifacts are allowed only as extra" in source_discovery_stage_text
+
+
+def test_source_discovery_prompt_requires_market_localized_term_families() -> None:
+    """Require all local size-guide/search-term families before an absence result."""
+    discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
+    verification_prompt = Path("brand_size_chart/prompt/verification.md").read_text(encoding="utf-8")
+
+    expected_text = "run separate browser-visible searches for both `beden rehberi` and `beden tablosu`"
+    assert expected_text in discovery_prompt
+    assert expected_text in verification_prompt
 
 
 def test_source_discovery_candidate_urls_exclude_helper_surfaces() -> None:
