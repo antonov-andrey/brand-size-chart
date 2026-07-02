@@ -1576,7 +1576,7 @@ def test_source_discovery_product_types_do_not_filter_tables() -> None:
     assert expected_text in verification_prompt
     assert expected_text in source_discovery_stage_text
     assert "`product_type_request_list` defines coverage targets" in design_text
-    assert "must not filter `source_discovery` candidates" in design_text
+    assert "must not filter `source_discover` candidates" in design_text
 
 
 def test_source_discovery_returns_unique_size_group_key_candidates() -> None:
