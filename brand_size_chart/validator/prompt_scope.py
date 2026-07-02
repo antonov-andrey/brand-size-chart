@@ -10,7 +10,7 @@ STAGE_KEY_SET = {
     "canonical_selection",
     "coverage_decision",
     "source_discovery",
-    "table_extraction",
+    "table_extract",
     "workflow_run_prompt_apply",
 }
 

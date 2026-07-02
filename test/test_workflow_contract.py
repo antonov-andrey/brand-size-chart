@@ -1544,6 +1544,30 @@ def test_prompt_scope_rejects_product_type_values_in_shared_instruction() -> Non
     assert "shared_instruction must not repeat product_type_request_list values" in message
 
 
+def test_prompt_scope_accepts_table_extract_and_rejects_table_extraction_stage_key() -> None:
+    """Keep prompt stage keys aligned with live action-verb stage keys."""
+    from brand_size_chart.validator.prompt_scope import PromptScopeValidator
+
+    PromptScopeValidator().validate(
+        PromptScope(stage_instruction_list=[PromptStageInstruction(stage_key="table_extract", instruction="focus")])
+    )
+    try:
+        PromptScopeValidator().validate(
+            PromptScope(
+                stage_instruction_list=[
+                    PromptStageInstruction(stage_key="table_extraction", instruction="legacy focus")
+                ]
+            )
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        message = ""
+
+    assert "Unknown stage_instruction stage_key values" in message
+    assert "table_extraction" in message
+
+
 def test_source_type_summary_records_failed_source_without_discovery_artifact(tmp_path: Path) -> None:
     """Write failed source-type summaries without requiring a successful discovery artifact."""
     summary_payload = workflow.source_type_summary_write_step.__wrapped__(
