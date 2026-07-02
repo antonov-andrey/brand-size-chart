@@ -1725,37 +1725,37 @@ def test_source_discovery_candidate_urls_exclude_broad_product_lists() -> None:
 
 def test_source_discovery_verification_preserves_partial_candidates() -> None:
     """Prevent verification feedback from converting evidence-backed candidates into failed discovery."""
-    verification_prompt = Path("brand_size_chart/prompt/verification.md").read_text(encoding="utf-8")
+    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
 
     assert "Do not require status='failed' only because requested product-type coverage is incomplete" in (
-        verification_prompt
+        source_discover_verify_template
     )
-    assert "failed only when no concrete acceptable candidate remains" in verification_prompt
+    assert "failed only when no concrete acceptable candidate remains" in source_discover_verify_template
 
 
 def test_source_discovery_verification_uses_bounded_completeness() -> None:
     """Do not require unbounded product URL enumeration after bounded inventory is complete."""
-    verification_prompt = Path("brand_size_chart/prompt/verification.md").read_text(encoding="utf-8")
+    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
 
-    assert "verify source-type completeness inside the bounded source surface" in verification_prompt
-    assert "canonical inventory evidence is missing or stale" in verification_prompt
-    assert "unbounded search evidence contains additional similar product URLs" in verification_prompt
+    assert "verify source-type completeness inside the bounded source surface" in source_discover_verify_template
+    assert "canonical inventory evidence is missing or stale" in source_discover_verify_template
+    assert "unbounded search evidence contains additional similar product URLs" in source_discover_verify_template
 
 
 def test_verification_prompt_rejects_stale_feedback() -> None:
     """Verify only the current stage result and current artifacts."""
-    verification_prompt = Path("brand_size_chart/prompt/verification.md").read_text(encoding="utf-8")
+    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
 
-    assert "Feedback from previous attempts is not evidence" in verification_prompt
-    assert "A URL already present in `opened_urls` is tested" in verification_prompt
-    assert "navigation, search, home, sitemap, FAQ, or help URL" in verification_prompt
-    assert "Do not fail `source_discovery` solely because one helper URL" in verification_prompt
+    assert "Feedback from previous attempts is not evidence" in source_discover_verify_template
+    assert "A URL already present in `opened_urls` is tested" in source_discover_verify_template
+    assert "navigation, search, home, sitemap, FAQ, or help URL" in source_discover_verify_template
+    assert "Do not fail `source_discover` solely because one helper URL" in source_discover_verify_template
 
 
 def test_verification_prompt_rejects_stale_hidden_row_errors() -> None:
     """Do not fail table extraction for hidden rows already omitted from the current result."""
-    verification_prompt = Path("brand_size_chart/prompt/verification.md").read_text(encoding="utf-8")
+    table_extract_verify_template = _prompt_template_text_get("table_extract_verify.md.j2")
 
-    assert "hidden or non-rendered rows" in verification_prompt
-    assert "current `Stage result JSON` already omits them" in verification_prompt
-    assert "quote the exact current extracted row" in verification_prompt
+    assert "hidden or non-rendered rows" in table_extract_verify_template
+    assert "current Stage result JSON already omits them" in table_extract_verify_template
+    assert "quote the exact current extracted row" in table_extract_verify_template
