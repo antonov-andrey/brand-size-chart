@@ -7,8 +7,34 @@ from pydantic import BaseModel
 
 from brand_size_chart.artifact import ArtifactLayout, JsonArtifactWriter
 from brand_size_chart.model import PromptScope, StageVerification
-from brand_size_chart.stage.base import CodexStageRun, MAX_STAGE_ATTEMPT_COUNT, ResultErrorListGet, _ResultModelT
-from brand_size_chart.stage.base import prompt_file_text_get
+from brand_size_chart.prompt.renderer import PromptRenderer
+from brand_size_chart.stage.base import (
+    CodexStageRun,
+    MAX_STAGE_ATTEMPT_COUNT,
+    ResultErrorListGet,
+    _ResultModelT,
+    prompt_template_name_get,
+    verify_prompt_template_name_get,
+)
+
+
+def _stage_instruction_text_get(*, prompt_scope: PromptScope | None, stage_key: str) -> str:
+    """Return bullet-form stage instructions from the prompt scope.
+
+    Args:
+        prompt_scope: Parsed workflow-run prompt scope.
+        stage_key: Current stage key.
+
+    Returns:
+        Bullet-form stage instruction text.
+    """
+
+    stage_instruction_list = [
+        stage_instruction.instruction
+        for stage_instruction in (prompt_scope.stage_instruction_list if prompt_scope else [])
+        if stage_instruction.stage_key == stage_key
+    ]
+    return "\n".join(f"- {stage_instruction}" for stage_instruction in stage_instruction_list)
 
 
 def stage_prompt_text_get(
@@ -38,24 +64,18 @@ def stage_prompt_text_get(
         Complete prompt text.
     """
 
-    feedback_text = "\n".join(f"- {feedback}" for feedback in feedback_list)
-    shared_instruction = prompt_scope.shared_instruction if prompt_scope else ""
-    stage_instruction_list = [
-        stage_instruction.instruction
-        for stage_instruction in (prompt_scope.stage_instruction_list if prompt_scope else [])
-        if stage_instruction.stage_key == stage_key
-    ]
-    stage_instruction_text = "\n".join(f"- {stage_instruction}" for stage_instruction in stage_instruction_list)
-    return (
-        f"{prompt_file_text_get(prompt_name)}\n\n"
-        f"Stage: {stage_key}\n"
-        f"Attempt: {attempt_index}\n\n"
-        f"Workflow run shared instruction:\n{shared_instruction if shared_instruction else '- none'}\n\n"
-        f"Stage-specific instruction:\n{stage_instruction_text if stage_instruction_text else '- none'}\n\n"
-        f"{prompt_context}\n\n"
-        f"Draft stage result JSON:\n{draft_result_json_text}\n\n"
-        f"Previous stage result JSON:\n{previous_result_json_text if previous_result_json_text else '- none'}\n\n"
-        f"Verification feedback from previous attempt:\n{feedback_text if feedback_text else '- none'}\n"
+    return PromptRenderer().render(
+        prompt_template_name_get(prompt_name=prompt_name, stage_key=stage_key),
+        {
+            "attempt_index": attempt_index,
+            "draft_result_json_text": draft_result_json_text,
+            "feedback_list": feedback_list,
+            "previous_result_json_text": previous_result_json_text,
+            "prompt_context": prompt_context,
+            "shared_instruction": prompt_scope.shared_instruction if prompt_scope else "",
+            "stage_instruction_text": _stage_instruction_text_get(prompt_scope=prompt_scope, stage_key=stage_key),
+            "stage_key": stage_key,
+        },
     )
 
 
@@ -218,16 +238,15 @@ class SemanticStage:
             stage_key=self._stage_key,
             status="success",
         )
-        verification_prompt = (
-            f"{prompt_file_text_get('verification')}\n\n"
-            f"Stage: {self._stage_key}\n\n"
-            "You must return a StageVerification JSON object only. Do not fail because structured output prevents "
-            "progress messages. Use browser tools silently only when source evidence must be re-opened; otherwise "
-            "verify from the artifact files listed below. If the stage result is schema-valid, evidence-backed, and "
-            "semantically consistent with the prompt context, return the supplied draft verification success.\n\n"
-            f"{prompt_context}\n\n"
-            f"Stage result JSON:\n{result.model_dump_json(indent=2)}\n\n"
-            f"Draft verification JSON:\n{draft_verification.model_dump_json(indent=2)}\n"
+        verification_prompt = PromptRenderer().render(
+            verify_prompt_template_name_get(self._stage_key),
+            {
+                "artifact_path_list": artifact_path_list,
+                "draft_verification_json_text": draft_verification.model_dump_json(indent=2),
+                "prompt_context": prompt_context,
+                "stage_key": self._stage_key,
+                "stage_result_json_text": result.model_dump_json(indent=2),
+            },
         )
         return cast(
             StageVerification,

@@ -127,13 +127,5 @@ class CoverageDecisionStage:
             f"Brand: {self._brand_input.parsed_brand_name}\n"
             f"Source type just completed: {self._source_type}\n"
             f"Requested product types: {self._prompt_scope.product_type_request_list}\n"
-            "Check whether verified tables cover requested product types. Use product_type_hint_list, "
-            "applicability_description, source_title, size_group_key, chart description, and evidence references. "
-            "A product type may be considered covered only when the table explicitly applies to it. If one table "
-            "clearly covers multiple requested product types, mark all of those product types covered. Do not infer "
-            "coverage from weak substring matches alone. Obviously irrelevant non-sized products may be ignored with "
-            "warnings. Verified table summary is supplied below as stage input; do not report missing evidence when "
-            "this list is non-empty. Refine the draft coverage decision from these verified tables instead of "
-            "discarding it.\n"
             f"Verified table summary:\n{verified_table_summary_text if verified_table_summary_text else '- none'}\n"
         )

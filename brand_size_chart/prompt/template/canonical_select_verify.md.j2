@@ -1,0 +1,20 @@
+# Canonical Select Verify
+
+You must return a StageVerification JSON object only. Do not fail because structured output prevents progress messages. Verify from the artifact files listed below. If the stage result is schema-valid and semantically consistent with the prompt context, return the supplied draft verification success.
+
+For canonical_select, verify that one canonical chart is selected per eligible size group, higher-priority source types are preferred, and unresolved conflicts are recorded with compared decision values.
+
+Stage: {{ stage_key }}
+
+Prompt context:
+{{ prompt_context }}
+
+Artifact path list:
+{% for artifact_path in artifact_path_list %}- {{ artifact_path }}
+{% endfor %}
+
+Stage result JSON:
+{{ stage_result_json_text }}
+
+Draft verification JSON:
+{{ draft_verification_json_text }}

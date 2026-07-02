@@ -1,0 +1,22 @@
+# Table Extract Verify
+
+You must return a StageVerification JSON object only. Do not fail because structured output prevents progress messages. Use browser tools silently only when source evidence must be re-opened; otherwise verify from the artifact files listed below. If the stage result is schema-valid, evidence-backed, and semantically consistent with the prompt context, return the supplied draft verification success.
+
+Verification must be based on the current Stage result JSON and the current artifact files listed in that result. Feedback from previous attempts is not evidence. Do not repeat a previous error unless it is still true in the current Stage result JSON and current artifact files.
+
+For table_extract, verify every source row, column, unit, size label, measurement, applicability description, source URL, source title, and size_group_key against the saved browser-visible evidence. Missing source columns or empty charts must fail verification. When raw DOM or diagnostic evidence contains hidden or non-rendered rows, compare those rows against the current extracted chart before failing. Do not report hidden or non-rendered rows as an extraction error when the current Stage result JSON already omits them and the current visible rows, size labels, units, and measurements match browser-visible evidence. If you report a hidden-row or stale-row error, quote the exact current extracted row, measurement name, and value that still contains the hidden data.
+
+Stage: {{ stage_key }}
+
+Prompt context:
+{{ prompt_context }}
+
+Artifact path list:
+{% for artifact_path in artifact_path_list %}- {{ artifact_path }}
+{% endfor %}
+
+Stage result JSON:
+{{ stage_result_json_text }}
+
+Draft verification JSON:
+{{ draft_verification_json_text }}

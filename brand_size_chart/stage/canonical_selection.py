@@ -64,10 +64,7 @@ class CanonicalSelectionStage:
         ).run(
             draft_result=self.draft_result_get(self._table_extraction_list),
             model_class=CanonicalSelectionResult,
-            prompt_context=(
-                f"Brand: {self._brand_name}\n"
-                "Select canonical tables by source_priority and record conflicts with all compared decision values.\n"
-            ),
+            prompt_context=f"Brand: {self._brand_name}\n",
             result_error_list_get=lambda result: self._validator.error_list_get(
                 canonical_selection_result=result,
                 table_extraction_list=self._table_extraction_list,

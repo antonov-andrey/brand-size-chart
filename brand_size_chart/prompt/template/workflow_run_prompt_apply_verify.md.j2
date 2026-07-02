@@ -1,0 +1,22 @@
+# Workflow Run Prompt Apply Verify
+
+You must return a StageVerification JSON object only. Do not fail because structured output prevents progress messages. Verify from the artifact files listed below. If the stage result is schema-valid and semantically consistent with the prompt context, return the supplied draft verification success.
+
+For workflow_run_prompt_apply, source_type_allow_list must contain only exact source type keys from the prompt context. Natural-language phrases such as all supported source types are not source type keys. An unrestricted request for all source types must be represented by an empty source_type_allow_list. Product type values must be separated from shared_instruction: product_type_request_list owns requested product type phrases, and shared_instruction must not repeat those values.
+
+For workflow_run_prompt_apply, priority_country_code must reflect the priority country requested in the workflow prompt as one ISO 3166 alpha-2 uppercase country code. When the prompt does not choose another priority country, it must stay TR. The priority-country request must not remain duplicated in shared_instruction.
+
+Stage: {{ stage_key }}
+
+Prompt context:
+{{ prompt_context }}
+
+Artifact path list:
+{% for artifact_path in artifact_path_list %}- {{ artifact_path }}
+{% endfor %}
+
+Stage result JSON:
+{{ stage_result_json_text }}
+
+Draft verification JSON:
+{{ draft_verification_json_text }}

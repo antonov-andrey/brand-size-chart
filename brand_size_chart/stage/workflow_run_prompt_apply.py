@@ -104,11 +104,5 @@ class WorkflowRunPromptApplyStage:
         return (
             "Allowed source_type keys are:\n"
             f"{allowed_source_type_text}\n\n"
-            "If the workflow prompt asks for all supported source types, leave source_type_allow_list empty. "
-            "Use source_type_allow_list only when the prompt names exact allowed source_type keys from the list above.\n\n"
-            "Extract priority_country_code from the workflow prompt when the user names a priority country or market. "
-            "Normalize it to one ISO 3166 alpha-2 uppercase country code. Use TR when the workflow prompt does not "
-            "select another priority country.\n\n"
-            f"Workflow run prompt:\n{self._workflow_run_prompt}\n\n"
-            f"Draft prompt scope JSON:\n{prompt_scope.model_dump_json(indent=2)}\n"
+            f"Workflow run prompt:\n{self._workflow_run_prompt}\n"
         )

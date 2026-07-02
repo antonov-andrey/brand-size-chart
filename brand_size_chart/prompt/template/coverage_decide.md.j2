@@ -1,0 +1,7 @@
+# Coverage Decide
+
+Check whether verified tables cover requested product types. Use product_type_hint_list, applicability_description, source_title, size_group_key, chart description, and evidence references. A product type may be considered covered only when the table explicitly applies to it. If one table clearly covers multiple requested product types, mark all of those product types covered. Do not infer coverage from weak substring matches alone. Obviously irrelevant non-sized products may be ignored with warnings. Verified table summary is supplied below as stage input; do not report missing evidence when this list is non-empty. Refine the draft coverage decision from these verified tables instead of discarding it.
+
+{% include "partial/size_group_key_contract.md.j2" %}
+
+{% include "partial/stage_retry_context.md.j2" %}

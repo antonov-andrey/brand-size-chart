@@ -1,0 +1,20 @@
+# Coverage Decide Verify
+
+You must return a StageVerification JSON object only. Do not fail because structured output prevents progress messages. Verify from the artifact files listed below. If the stage result is schema-valid and semantically consistent with the prompt context, return the supplied draft verification success.
+
+For coverage_decide, verify that requested product types are covered only by explicit table applicability evidence in the verified table summary. Do not infer coverage from weak substring matches alone. Do not report missing evidence when the verified table summary is non-empty and directly supports the coverage decision.
+
+Stage: {{ stage_key }}
+
+Prompt context:
+{{ prompt_context }}
+
+Artifact path list:
+{% for artifact_path in artifact_path_list %}- {{ artifact_path }}
+{% endfor %}
+
+Stage result JSON:
+{{ stage_result_json_text }}
+
+Draft verification JSON:
+{{ draft_verification_json_text }}
