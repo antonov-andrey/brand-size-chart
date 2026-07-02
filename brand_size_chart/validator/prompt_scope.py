@@ -56,6 +56,8 @@ class PromptScopeValidator(MechanicalValidator):
             RuntimeError: If prompt scope contains unknown source types, unknown stage keys, or leaked product types.
         """
 
+        if not prompt_scope.priority_country_code:
+            raise RuntimeError("priority_country_code must be supplied by workflow_run_prompt")
         unknown_source_type_list = [
             source_type
             for source_type in prompt_scope.source_type_allow_list

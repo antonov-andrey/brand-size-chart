@@ -4,6 +4,7 @@ import ast
 from contextlib import nullcontext
 import json
 from pathlib import Path
+import re
 
 import pytest
 import yaml
@@ -825,7 +826,7 @@ def test_coverage_decision_validation_retries_inside_semantic_stage(tmp_path: Pa
             source_line_number=1,
         ),
         codex_stage_run_callable=fake_codex_stage_run,
-        prompt_scope=PromptScope(product_type_request_list=["women shoes"]),
+        prompt_scope=PromptScope(priority_country_code="TR", product_type_request_list=["women shoes"]),
         result_dir=tmp_path,
         source_type="official_brand_size_guide",
         stage_dir=tmp_path / "coverage_decide",
@@ -1005,9 +1006,9 @@ def test_source_type_registry_uses_authority_sources_without_seller_qa_stage() -
 
 def test_source_type_selection_requires_product_types_for_product_page_source_types() -> None:
     """Run product-page source types only when product types are requested."""
-    source_type_list_without_product_types = workflow_base.source_type_list_get(PromptScope())
+    source_type_list_without_product_types = workflow_base.source_type_list_get(PromptScope(priority_country_code="TR"))
     source_type_list_with_product_types = workflow_base.source_type_list_get(
-        PromptScope(product_type_request_list=["bra"])
+        PromptScope(priority_country_code="TR", product_type_request_list=["bra"])
     )
 
     assert source_type_list_without_product_types == ["official_brand_size_guide", "official_seller_size_guide"]
@@ -1050,6 +1051,8 @@ def test_size_guide_source_types_do_not_receive_product_type_scope() -> None:
 
 def test_prompt_scope_owns_priority_country_code() -> None:
     """Carry the priority country through prompt scope without product-type narrowing."""
+    from brand_size_chart.validator.prompt_scope import PromptScopeValidator
+
     prompt_scope = PromptScope(
         priority_country_code="TR",
         product_type_request_list=["women dresses"],
@@ -1062,7 +1065,9 @@ def test_prompt_scope_owns_priority_country_code() -> None:
         source_type="official_seller_size_guide",
     )
 
-    assert PromptScope().priority_country_code == "TR"
+    with pytest.raises(RuntimeError, match="priority_country_code must be supplied"):
+        PromptScopeValidator().validate(PromptScope(shared_instruction="Search official pages only."))
+    assert PromptScope().priority_country_code == ""
     assert narrowed_prompt_scope.priority_country_code == "TR"
     assert "priority_country_code" in PromptScope.model_fields
     assert "country_code_list" in SourceDiscovery.model_fields
@@ -1504,7 +1509,7 @@ def test_stage_prompt_text_includes_draft_result() -> None:
         feedback_list=[],
         prompt_context="Brand: Defacto",
         prompt_name="canonical_select",
-        prompt_scope=PromptScope(),
+        prompt_scope=PromptScope(priority_country_code="TR"),
         previous_result_json_text="",
         stage_key="canonical_select",
     )
@@ -1679,7 +1684,7 @@ def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch:
             "source_line_number": 1,
         },
         "http://browser/mcp",
-        PromptScope(product_type_request_list=["women dresses"]).model_dump(mode="json"),
+        PromptScope(priority_country_code="TR", product_type_request_list=["women dresses"]).model_dump(mode="json"),
         str(tmp_path),
         str(tmp_path / ".secret"),
     )
@@ -1697,6 +1702,7 @@ def test_prompt_scope_rejects_product_type_values_in_shared_instruction() -> Non
     try:
         PromptScopeValidator().validate(
             PromptScope(
+                priority_country_code="TR",
                 product_type_request_list=["women dresses"],
                 shared_instruction="Search all source types. Product types: women dresses.",
             )
@@ -1714,14 +1720,18 @@ def test_prompt_scope_accepts_table_extract_and_rejects_table_extraction_stage_k
     from brand_size_chart.validator.prompt_scope import PromptScopeValidator
 
     PromptScopeValidator().validate(
-        PromptScope(stage_instruction_list=[PromptStageInstruction(stage_key="table_extract", instruction="focus")])
+        PromptScope(
+            priority_country_code="TR",
+            stage_instruction_list=[PromptStageInstruction(stage_key="table_extract", instruction="focus")],
+        )
     )
     try:
         PromptScopeValidator().validate(
             PromptScope(
+                priority_country_code="TR",
                 stage_instruction_list=[
                     PromptStageInstruction(stage_key="table_extraction", instruction="legacy focus")
-                ]
+                ],
             )
         )
     except RuntimeError as exc:
@@ -1812,7 +1822,7 @@ def test_prompt_scope_rejects_unknown_source_type_and_stage_key() -> None:
 
     validator = PromptScopeValidator()
     try:
-        validator.validate(PromptScope(source_type_allow_list=["unknown_source_type"]))
+        validator.validate(PromptScope(priority_country_code="TR", source_type_allow_list=["unknown_source_type"]))
     except RuntimeError as exc:
         source_type_message = str(exc)
     else:
@@ -1820,7 +1830,10 @@ def test_prompt_scope_rejects_unknown_source_type_and_stage_key() -> None:
 
     try:
         validator.validate(
-            PromptScope(stage_instruction_list=[PromptStageInstruction(stage_key="unknown_stage", instruction="x")])
+            PromptScope(
+                priority_country_code="TR",
+                stage_instruction_list=[PromptStageInstruction(stage_key="unknown_stage", instruction="x")],
+            )
         )
     except RuntimeError as exc:
         stage_key_message = str(exc)
@@ -1875,18 +1888,21 @@ def test_prompt_scope_stage_retries_unknown_source_type_allow_phrase(monkeypatch
         prompt_scope_call_count += 1
         if prompt_scope_call_count == 1:
             return PromptScope(
+                priority_country_code="TR",
                 product_type_request_list=["socks"],
                 shared_instruction="Search all supported source types. Product types: socks.",
                 source_type_allow_list=["all supported source types"],
             )
         if prompt_scope_call_count == 2:
             return PromptScope(
+                priority_country_code="TR",
                 product_type_request_list=["socks"],
                 shared_instruction="Search all supported source types. Product types: socks.",
                 source_type_allow_list=[],
             )
         assert "shared_instruction must not repeat product_type_request_list values" in prompt_text
         return PromptScope(
+            priority_country_code="TR",
             product_type_request_list=["socks"],
             shared_instruction="Search all supported source types.",
             source_type_allow_list=[],
@@ -1895,7 +1911,7 @@ def test_prompt_scope_stage_retries_unknown_source_type_allow_phrase(monkeypatch
     prompt_scope = workflow_base.prompt_scope_stage_get(
         codex_stage_run_callable=fake_codex_stage_run,
         result_dir=tmp_path,
-        workflow_run_prompt="Search all supported source types. Product types: socks.",
+        workflow_run_prompt="Priority country TR. Search all supported source types. Product types: socks.",
     )
 
     assert prompt_scope.product_type_request_list == ["socks"]
@@ -1965,8 +1981,10 @@ def test_source_discovery_searches_localized_size_terms_without_route_templates(
 
     assert "browser-visible language and market" in source_discover_template
     assert "localized size-chart term searches" in source_discover_template
-    assert "beden rehberi" in source_discover_template
+    assert "derive localized size-chart search-term families" in source_discover_template
     assert "URL templates" in source_discover_template
+    assert "beden rehberi" not in source_discover_template
+    assert "beden tablosu" not in source_discover_template
     assert "/statik/beden-rehberi" not in source_discover_template
 
 
@@ -2051,6 +2069,19 @@ def test_source_discovery_locale_policy_is_priority_global_europe_without_vague_
         assert forbidden_text not in combined_text
 
 
+def test_priority_country_is_not_hardcoded_in_prompts_or_design() -> None:
+    """Keep concrete priority market selection only in the workflow-run prompt."""
+    prompt_text = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(Path("brand_size_chart/prompt").rglob("*.md*"))
+    )
+    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
+    checked_text = "\n".join([prompt_text, design_text])
+
+    assert not re.search(r"\bTR\b", checked_text)
+    for forbidden_text in ["Turkey", "Turkiye", "Türkiye", "Турция", "Turkish", "beden rehberi", "beden tablosu"]:
+        assert forbidden_text not in checked_text
+
+
 def test_source_discovery_prompt_requires_canonical_inventory_on_retry() -> None:
     """Require retry attempts to update the canonical source-surface inventory."""
     source_discover_template = _prompt_template_text_get("source_discover.md.j2")
@@ -2066,7 +2097,7 @@ def test_source_discovery_prompt_requires_market_localized_term_families() -> No
     source_discover_template = _prompt_template_text_get("source_discover.md.j2")
     source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
 
-    expected_text = "run separate browser-visible searches for both `beden rehberi` and `beden tablosu`"
+    expected_text = "derive localized size-chart search-term families"
     assert expected_text in source_discover_template
     assert expected_text in source_discover_verify_template
 

@@ -17,7 +17,7 @@ class PromptStageInstruction(StrictBaseModel):
 class PromptScope(StrictBaseModel):
     """Parsed runtime prompt scope used by all stage prompts."""
 
-    priority_country_code: str = "TR"
+    priority_country_code: str = ""
     product_type_request_list: list[str] = Field(default_factory=list)
     scope_warning_list: list[str] = Field(default_factory=list)
     shared_instruction: str = ""
@@ -33,12 +33,14 @@ class PromptScope(StrictBaseModel):
             value: Prompt-selected priority country code.
 
         Returns:
-            Normalized ISO 3166 alpha-2 country code.
+            Normalized ISO 3166 alpha-2 country code, or empty string before prompt parsing succeeds.
 
         Raises:
-            ValueError: If the value is not one uppercase or lower-case alpha-2 country code.
+            ValueError: If the value is neither empty nor one uppercase or lower-case alpha-2 country code.
         """
         priority_country_code = value.strip().upper()
+        if not priority_country_code:
+            return ""
         if not COUNTRY_CODE_PATTERN.match(priority_country_code):
             raise ValueError("priority_country_code must be one ISO 3166 alpha-2 country code")
         return priority_country_code
