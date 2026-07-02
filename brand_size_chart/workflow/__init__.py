@@ -5,7 +5,7 @@ from brand_size_chart.workflow.brand import (
     BrandSizeChartBrandWorkflow,
     brand_selection_write_step,
     brand_size_chart_brand,
-    coverage_decision_write_step,
+    coverage_decide_write_step,
 )
 from brand_size_chart.workflow.root import (
     BRAND_SIZE_CHART_RUN_WORKFLOW,
@@ -19,7 +19,7 @@ from brand_size_chart.workflow.source_type import (
     BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW,
     BrandSizeChartSourceTypeWorkflow,
     brand_size_chart_source_type,
-    source_discovery_write_step,
+    source_discover_write_step,
     table_extract_write_step,
     source_type_summary_write_step,
 )
@@ -38,11 +38,11 @@ __all__ = [
     "brand_size_chart_run",
     "brand_size_chart_source_type",
     "brand_size_chart_workflow",
-    "coverage_decision_write_step",
+    "coverage_decide_write_step",
     "prompt_scope_write_step",
     "run_failure_result_write",
     "run_result_write_step",
-    "source_discovery_write_step",
+    "source_discover_write_step",
     "table_extract_write_step",
     "source_type_summary_write_step",
 ]

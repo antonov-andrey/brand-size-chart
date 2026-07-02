@@ -22,8 +22,6 @@ PROMPT_TEMPLATE_NAME_BY_STAGE_PROMPT_MAP = MappingProxyType(
         "apply": "workflow_run_prompt_apply.md.j2",
         "canonical_select": "canonical_select.md.j2",
         "coverage_decide": "coverage_decide.md.j2",
-        "discovery": "source_discover.md.j2",
-        "selection": "canonical_select.md.j2",
         "source_discover": "source_discover.md.j2",
         "table_extract": "table_extract.md.j2",
     }
@@ -38,8 +36,6 @@ VERIFY_TEMPLATE_NAME_BY_STAGE_KEY_MAP = MappingProxyType(
     }
 )
 SIZE_GROUP_KEY_PROMPT_NAME_SET = {
-    "discovery",
-    "selection",
     "verification",
 }
 CodexStageRun = Callable[..., BaseModel]

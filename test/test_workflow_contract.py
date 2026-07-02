@@ -47,6 +47,10 @@ FORBIDDEN_STAGE_KEY_SET = {
     "source_discovery",
     "table_extraction",
 }
+FORBIDDEN_STAGE_PROMPT_ALIAS_SET = {
+    "discovery",
+    "selection",
+}
 
 
 def _workflow_package_source_text_get() -> str:
@@ -194,6 +198,12 @@ def test_stage_names_use_action_verbs() -> None:
         if stage_key in prompt_scope.STAGE_KEY_SET
     )
     error_list.extend(
+        f"prompt alias map still accepts {prompt_alias!r}"
+        for prompt_alias in FORBIDDEN_STAGE_PROMPT_ALIAS_SET
+        if prompt_alias in stage_base.PROMPT_TEMPLATE_NAME_BY_STAGE_PROMPT_MAP
+        or prompt_alias in stage_base.SIZE_GROUP_KEY_PROMPT_NAME_SET
+    )
+    error_list.extend(
         f"prompt template file still uses {stage_key!r}: {path}"
         for path in sorted(Path("brand_size_chart/prompt/template").glob("*.md.j2"))
         for stage_key in FORBIDDEN_STAGE_KEY_SET
@@ -205,6 +215,13 @@ def test_stage_names_use_action_verbs() -> None:
         error_list.extend(_python_stage_literal_error_list_get(path))
 
     assert stage_base.PROMPT_TEMPLATE_NAME_BY_STAGE_KEY_MAP.keys() == ACTION_STAGE_KEY_SET
+    assert stage_base.PROMPT_TEMPLATE_NAME_BY_STAGE_PROMPT_MAP.keys() == {
+        "apply",
+        "canonical_select",
+        "coverage_decide",
+        "source_discover",
+        "table_extract",
+    }
     assert stage_base.VERIFY_TEMPLATE_NAME_BY_STAGE_KEY_MAP.keys() == ACTION_STAGE_KEY_SET
     assert prompt_scope.STAGE_KEY_SET == ACTION_STAGE_KEY_SET
     assert hasattr(layout, "source_discovery_dir") is False
@@ -232,6 +249,10 @@ def test_stage_names_use_action_verbs() -> None:
         layout.canonical_select_dir(brand_input).as_posix()
         == "/tmp/result/brand_size_chart_audit/brand/defacto/canonical_select"
     )
+    assert "coverage_decision_write_step" not in workflow.__all__
+    assert "source_discovery_write_step" not in workflow.__all__
+    assert "coverage_decide_write_step" in workflow.__all__
+    assert "source_discover_write_step" in workflow.__all__
     assert error_list == []
 
 
@@ -259,11 +280,11 @@ def test_workflow_is_package_not_monolithic_module() -> None:
         "brand_size_chart_run",
         "brand_size_chart_source_type",
         "brand_size_chart_workflow",
-        "coverage_decision_write_step",
+        "coverage_decide_write_step",
         "prompt_scope_write_step",
         "run_failure_result_write",
         "run_result_write_step",
-        "source_discovery_write_step",
+        "source_discover_write_step",
         "source_type_summary_write_step",
         "table_extract_write_step",
     }
@@ -315,8 +336,8 @@ def test_dbos_workflow_classes_are_class_owned() -> None:
             "BrandSizeChartBrandWorkflow",
         ),
         (
-            workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.coverage_decision_write_step,
-            "coverage_decision_write_step",
+            workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.coverage_decide_write_step,
+            "coverage_decide_write_step",
             "BrandSizeChartBrandWorkflow",
         ),
         (
@@ -325,8 +346,8 @@ def test_dbos_workflow_classes_are_class_owned() -> None:
             "BrandSizeChartSourceTypeWorkflow",
         ),
         (
-            workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.discovery_write_step,
-            "source_discovery_write_step",
+            workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.source_discover_write_step,
+            "source_discover_write_step",
             "BrandSizeChartSourceTypeWorkflow",
         ),
         (
@@ -1515,7 +1536,7 @@ def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch:
             """
             return self.result_payload
 
-    def fake_coverage_decision_write_step(
+    def fake_coverage_decide_write_step(
         brand_input_payload: dict[str, object],
         prompt_scope_payload: dict[str, object],
         result_dir: str,
@@ -1644,8 +1665,8 @@ def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch:
     )
     monkeypatch.setattr(
         workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW,
-        "coverage_decision_write_step",
-        fake_coverage_decision_write_step,
+        "coverage_decide_write_step",
+        fake_coverage_decide_write_step,
     )
 
     result_payload = workflow.brand_size_chart_brand.__wrapped__(

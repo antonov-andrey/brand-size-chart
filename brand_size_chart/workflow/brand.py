@@ -128,7 +128,7 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
                     product_type_request_list=remaining_product_type_list,
                     prompt_scope=prompt_scope,
                 )
-                coverage_check_payload = self.coverage_decision_write_step(
+                coverage_check_payload = self.coverage_decide_write_step(
                     brand_input.model_dump(mode="json"),
                     coverage_prompt_scope.model_dump(mode="json"),
                     result_dir,
@@ -146,8 +146,8 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
             source_type_summary_payload_list,
         )
 
-    @DBOS.step(name="coverage_decision_write_step")
-    def coverage_decision_write_step(
+    @DBOS.step(name="coverage_decide_write_step")
+    def coverage_decide_write_step(
         self,
         brand_input_payload: dict[str, object],
         prompt_scope_payload: dict[str, object],
@@ -310,12 +310,12 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
 BRAND_SIZE_CHART_BRAND_WORKFLOW = BrandSizeChartBrandWorkflow()
 brand_selection_write_step = BRAND_SIZE_CHART_BRAND_WORKFLOW.selection_write_step
 brand_size_chart_brand = BRAND_SIZE_CHART_BRAND_WORKFLOW.run
-coverage_decision_write_step = BRAND_SIZE_CHART_BRAND_WORKFLOW.coverage_decision_write_step
+coverage_decide_write_step = BRAND_SIZE_CHART_BRAND_WORKFLOW.coverage_decide_write_step
 
 __all__ = [
     "BRAND_SIZE_CHART_BRAND_WORKFLOW",
     "BrandSizeChartBrandWorkflow",
     "brand_selection_write_step",
     "brand_size_chart_brand",
-    "coverage_decision_write_step",
+    "coverage_decide_write_step",
 ]

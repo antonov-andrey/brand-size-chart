@@ -58,7 +58,7 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
         verified_table_extraction_payload_list: list[dict[str, object]] = []
         blocker_list: list[str] = []
         try:
-            discovery_result_payload = self.discovery_write_step(
+            discovery_result_payload = self.source_discover_write_step(
                 brand_input.model_dump(mode="json"),
                 browser_runtime_mcp_url,
                 prompt_scope.model_dump(mode="json"),
@@ -105,8 +105,8 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
             "table_extraction_list": verified_table_extraction_payload_list,
         }
 
-    @DBOS.step(name="source_discovery_write_step")
-    def discovery_write_step(
+    @DBOS.step(name="source_discover_write_step")
+    def source_discover_write_step(
         self,
         brand_input_payload: dict[str, object],
         browser_runtime_mcp_url: str,
@@ -265,7 +265,7 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
 
 BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW = BrandSizeChartSourceTypeWorkflow()
 brand_size_chart_source_type = BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.run
-source_discovery_write_step = BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.discovery_write_step
+source_discover_write_step = BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.source_discover_write_step
 table_extract_write_step = BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.table_extract_write_step
 source_type_summary_write_step = BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.summary_write_step
 
@@ -273,7 +273,7 @@ __all__ = [
     "BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW",
     "BrandSizeChartSourceTypeWorkflow",
     "brand_size_chart_source_type",
-    "source_discovery_write_step",
+    "source_discover_write_step",
     "table_extract_write_step",
     "source_type_summary_write_step",
 ]
