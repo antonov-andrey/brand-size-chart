@@ -21,6 +21,8 @@ from brand_size_chart.model.source import (
     SourceDiscoveryResult,
     SourceTypeSummary,
     TableExtraction,
+    TableExtractionArtifact,
+    TableExtractionArtifactBatchResult,
     TableExtractionBatchResult,
 )
 from brand_size_chart.model.stage import StageVerification
@@ -62,5 +64,7 @@ def schema_model_map_get() -> dict[str, type[StrictBaseModel]]:
         "source_type_summary": SourceTypeSummary,
         "stage_verification": StageVerification,
         "table_extraction": TableExtraction,
+        "table_extraction_artifact": TableExtractionArtifact,
+        "table_extraction_artifact_batch_result": TableExtractionArtifactBatchResult,
         "table_extraction_batch_result": TableExtractionBatchResult,
     }

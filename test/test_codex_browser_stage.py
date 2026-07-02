@@ -18,6 +18,8 @@ from brand_size_chart.model import (
     SourceDiscoveryResult,
     StageVerification,
     TableExtraction,
+    TableExtractionArtifact,
+    TableExtractionArtifactBatchResult,
     TableExtractionBatchResult,
 )
 from brand_size_chart.stage.base import MAX_STAGE_ATTEMPT_COUNT
@@ -161,6 +163,45 @@ def _table_extraction_get(
     return TableExtraction(
         applicability_status="priority_country_official",
         chart=_brand_size_chart_get(description=source_title, size_label="M"),
+        evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
+        size_group_key=size_group_key,
+        source_title=source_title,
+        source_type=source_type,
+        source_url=source_url,
+    )
+
+
+def _table_extraction_artifact_get(
+    *,
+    chart_path: Path,
+    evidence_path: Path,
+    result_dir: Path,
+    size_group_key: str,
+    source_title: str,
+    source_type: str = "official_brand_size_guide",
+    source_url: str = "https://defacto.example/size",
+) -> TableExtractionArtifact:
+    """Write one chart artifact and return its lightweight table extraction metadata.
+
+    Args:
+        chart_path: Chart artifact path to write.
+        evidence_path: Browser evidence artifact path.
+        result_dir: Root result directory.
+        size_group_key: Extracted size group key.
+        source_title: Extracted source title.
+        source_type: Source type key.
+        source_url: Source URL.
+
+    Returns:
+        Table extraction artifact result with a chart path reference.
+    """
+
+    chart = _brand_size_chart_get(description=source_title, size_label="M")
+    chart_path.parent.mkdir(parents=True, exist_ok=True)
+    chart_path.write_text(json.dumps(chart.model_dump(mode="json"), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return TableExtractionArtifact(
+        applicability_status="priority_country_official",
+        chart_path=chart_path.relative_to(result_dir).as_posix(),
         evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
         size_group_key=size_group_key,
         source_title=source_title,
@@ -900,7 +941,7 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
                 "stage_name": stage_name,
             }
         )
-        if model_class is TableExtractionBatchResult:
+        if model_class is TableExtractionArtifactBatchResult:
             evidence_path_by_size_group_key_map = {
                 source_discovery.size_group_key: _table_evidence_path_get(
                     result_dir=result_dir,
@@ -912,12 +953,13 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
             for evidence_path in evidence_path_by_size_group_key_map.values():
                 evidence_path.parent.mkdir(parents=True, exist_ok=True)
                 evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
-            return TableExtractionBatchResult(
+            return TableExtractionArtifactBatchResult(
                 message="browser extraction completed",
                 source_type="official_marketplace_product_page",
                 status="success",
-                table_extraction_list=[
-                    _table_extraction_get(
+                table_extraction_artifact_list=[
+                    _table_extraction_artifact_get(
+                        chart_path=stage_dir / "chart" / f"{source_discovery.size_group_key}.json",
                         evidence_path=evidence_path_by_size_group_key_map[source_discovery.size_group_key],
                         result_dir=result_dir,
                         size_group_key=source_discovery.size_group_key,
@@ -947,7 +989,7 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
         source_type_dir=source_type_dir,
     )
 
-    table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionBatchResult]
+    table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionArtifactBatchResult]
     assert [table_extraction.size_group_key for table_extraction in result.table_extraction_list] == [
         "women_upper",
         "women_lower",
@@ -1006,9 +1048,120 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
             / "brand_size_chart_audit/brand/defacto/source_type/official_marketplace_product_page/table_extract/chart/women_lower.json"
         ).read_text(encoding="utf-8")
     )
-    assert batch_result_payload["table_extraction_list"][0]["size_group_key"] == "women_upper"
+    assert batch_result_payload["table_extraction_artifact_list"][0]["size_group_key"] == "women_upper"
+    assert "chart_path" in batch_result_payload["table_extraction_artifact_list"][0]
+    assert "chart" not in batch_result_payload["table_extraction_artifact_list"][0]
     assert women_upper_chart_payload == result.table_extraction_list[0].chart.model_dump(mode="json")
     assert women_lower_chart_payload == result.table_extraction_list[1].chart.model_dump(mode="json")
+
+
+def test_table_extract_batch_loads_chart_artifacts_from_lightweight_codex_result(
+    monkeypatch: object, tmp_path: Path
+) -> None:
+    """Load generated chart files instead of requiring full charts in Codex structured output."""
+    call_list: list[dict[str, object]] = []
+    source_type = "official_brand_size_guide"
+    source_type_dir = tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "source_type" / source_type
+    source_discovery_list = [
+        _source_discovery_get(size_group_key="women_upper", source_title="Women upper"),
+        _source_discovery_get(size_group_key="women_lower", source_title="Women lower"),
+    ]
+
+    def fake_codex_stage_run(
+        *,
+        allow_user_config: bool,
+        browser_runtime_mcp_url: str,
+        model_class: type[BaseModel],
+        prompt_text: str,
+        result_dir: Path,
+        stage_dir: Path,
+        stage_name: str,
+    ) -> BaseModel:
+        """Write chart artifacts and return a lightweight extraction result.
+
+        Args:
+            allow_user_config: Whether Codex loads configured MCP tools.
+            browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
+            model_class: Expected stage result model.
+            prompt_text: Prompt text passed to Codex.
+            result_dir: Root result directory.
+            stage_dir: Stage artifact directory.
+            stage_name: Stage name.
+
+        Returns:
+            Fake artifact extraction or verification result.
+        """
+        _ = allow_user_config
+        _ = browser_runtime_mcp_url
+        _ = stage_name
+        call_list.append({"model_class": model_class, "prompt_text": prompt_text})
+        if model_class is StageVerification:
+            return StageVerification(
+                artifact_path_list=[],
+                message="verified",
+                stage_key="table_extract",
+                status="success",
+            )
+        assert model_class is TableExtractionArtifactBatchResult
+        table_extraction_artifact_list = []
+        for source_discovery in source_discovery_list:
+            evidence_path = _table_evidence_path_get(
+                result_dir=result_dir,
+                source_type=source_discovery.source_type,
+                size_group_key=source_discovery.size_group_key,
+            )
+            evidence_path.parent.mkdir(parents=True, exist_ok=True)
+            evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
+            chart_path = stage_dir / "chart" / f"{source_discovery.size_group_key}.json"
+            chart = _brand_size_chart_get(description=source_discovery.source_title, size_label="M")
+            chart_path.parent.mkdir(parents=True, exist_ok=True)
+            chart_path.write_text(
+                json.dumps(chart.model_dump(mode="json"), indent=2, sort_keys=True) + "\n",
+                encoding="utf-8",
+            )
+            table_extraction_artifact_list.append(
+                TableExtractionArtifact(
+                    applicability_status="priority_country_official",
+                    chart_path=chart_path.relative_to(result_dir).as_posix(),
+                    evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
+                    size_group_key=source_discovery.size_group_key,
+                    source_title=source_discovery.source_title,
+                    source_type=source_discovery.source_type,
+                    source_url=source_discovery.source_url,
+                )
+            )
+        return TableExtractionArtifactBatchResult(
+            message="browser extraction completed",
+            source_type=source_type,
+            status="success",
+            table_extraction_artifact_list=table_extraction_artifact_list,
+        )
+
+    result = workflow_base.table_extract_result_get(
+        brand_input=_brand_input_get(),
+        browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
+        codex_stage_run_callable=fake_codex_stage_run,
+        prompt_scope=PromptScope(),
+        result_dir=tmp_path,
+        secret_path=tmp_path / "secret",
+        source_discovery_list=source_discovery_list,
+        source_type=source_type,
+        source_type_dir=source_type_dir,
+    )
+
+    table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionArtifactBatchResult]
+    result_payload = json.loads((source_type_dir / "table_extract" / "result.json").read_text(encoding="utf-8"))
+    assert len(table_extract_call_list) == 1
+    assert "Chart artifact path:" in str(table_extract_call_list[0]["prompt_text"])
+    assert "Stage chart artifact write directory:" in str(table_extract_call_list[0]["prompt_text"])
+    assert "chart_path" in result_payload["table_extraction_artifact_list"][0]
+    assert "chart" not in result_payload["table_extraction_artifact_list"][0]
+    assert [table_extraction.size_group_key for table_extraction in result.table_extraction_list] == [
+        "women_upper",
+        "women_lower",
+    ]
+    assert result.table_extraction_list[0].chart.description == "Women upper"
+    assert result.table_extraction_list[1].chart.description == "Women lower"
 
 
 def test_table_extract_batch_rejects_missing_discovery(monkeypatch: object, tmp_path: Path) -> None:
@@ -1046,7 +1199,6 @@ def test_table_extract_batch_rejects_missing_discovery(monkeypatch: object, tmp_
 
         _ = allow_user_config
         _ = browser_runtime_mcp_url
-        _ = stage_dir
         _ = stage_name
         call_list.append({"model_class": model_class, "prompt_text": prompt_text})
         if model_class is StageVerification:
@@ -1057,11 +1209,13 @@ def test_table_extract_batch_rejects_missing_discovery(monkeypatch: object, tmp_
                 status="success",
             )
 
-        batch_call_count = len([call for call in call_list if call["model_class"] is TableExtractionBatchResult])
+        batch_call_count = len(
+            [call for call in call_list if call["model_class"] is TableExtractionArtifactBatchResult]
+        )
         if batch_call_count == 2:
             assert "missing" in prompt_text.lower()
             assert "women_lower" in prompt_text
-        extraction_list = []
+        table_extraction_artifact_list = []
         selected_discovery_list = source_discovery_list if batch_call_count == 2 else source_discovery_list[:1]
         for source_discovery in selected_discovery_list:
             evidence_path = _table_evidence_path_get(
@@ -1071,8 +1225,9 @@ def test_table_extract_batch_rejects_missing_discovery(monkeypatch: object, tmp_
             )
             evidence_path.parent.mkdir(parents=True, exist_ok=True)
             evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
-            extraction_list.append(
-                _table_extraction_get(
+            table_extraction_artifact_list.append(
+                _table_extraction_artifact_get(
+                    chart_path=stage_dir / "chart" / f"{source_discovery.size_group_key}.json",
                     evidence_path=evidence_path,
                     result_dir=result_dir,
                     size_group_key=source_discovery.size_group_key,
@@ -1081,11 +1236,11 @@ def test_table_extract_batch_rejects_missing_discovery(monkeypatch: object, tmp_
                     source_url=source_discovery.source_url,
                 )
             )
-        return TableExtractionBatchResult(
+        return TableExtractionArtifactBatchResult(
             message="browser extraction completed",
             source_type="official_brand_size_guide",
             status="success",
-            table_extraction_list=extraction_list,
+            table_extraction_artifact_list=table_extraction_artifact_list,
         )
 
     result = workflow_base.table_extract_result_get(
@@ -1100,7 +1255,7 @@ def test_table_extract_batch_rejects_missing_discovery(monkeypatch: object, tmp_
         source_type_dir=tmp_path / "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide",
     )
 
-    table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionBatchResult]
+    table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionArtifactBatchResult]
     assert [table_extraction.size_group_key for table_extraction in result.table_extraction_list] == [
         "women_upper",
         "women_lower",
@@ -1140,7 +1295,6 @@ def test_table_extract_batch_rejects_extra_discovery(monkeypatch: object, tmp_pa
 
         _ = allow_user_config
         _ = browser_runtime_mcp_url
-        _ = stage_dir
         _ = stage_name
         call_list.append({"model_class": model_class, "prompt_text": prompt_text})
         if model_class is StageVerification:
@@ -1151,12 +1305,14 @@ def test_table_extract_batch_rejects_extra_discovery(monkeypatch: object, tmp_pa
                 status="success",
             )
 
-        batch_call_count = len([call for call in call_list if call["model_class"] is TableExtractionBatchResult])
+        batch_call_count = len(
+            [call for call in call_list if call["model_class"] is TableExtractionArtifactBatchResult]
+        )
         if batch_call_count == 2:
             assert "extra" in prompt_text.lower()
             assert "women_extra" in prompt_text
         selected_size_group_key_list = ["women_upper"] if batch_call_count == 2 else ["women_upper", "women_extra"]
-        extraction_list = []
+        table_extraction_artifact_list = []
         for size_group_key in selected_size_group_key_list:
             evidence_path = _table_evidence_path_get(
                 result_dir=result_dir,
@@ -1165,19 +1321,20 @@ def test_table_extract_batch_rejects_extra_discovery(monkeypatch: object, tmp_pa
             )
             evidence_path.parent.mkdir(parents=True, exist_ok=True)
             evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
-            extraction_list.append(
-                _table_extraction_get(
+            table_extraction_artifact_list.append(
+                _table_extraction_artifact_get(
+                    chart_path=stage_dir / "chart" / f"{size_group_key}.json",
                     evidence_path=evidence_path,
                     result_dir=result_dir,
                     size_group_key=size_group_key,
                     source_title="Women upper" if size_group_key == "women_upper" else "Women extra",
                 )
             )
-        return TableExtractionBatchResult(
+        return TableExtractionArtifactBatchResult(
             message="browser extraction completed",
             source_type="official_brand_size_guide",
             status="success",
-            table_extraction_list=extraction_list,
+            table_extraction_artifact_list=table_extraction_artifact_list,
         )
 
     result = workflow_base.table_extract_result_get(
@@ -1192,7 +1349,7 @@ def test_table_extract_batch_rejects_extra_discovery(monkeypatch: object, tmp_pa
         source_type_dir=tmp_path / "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide",
     )
 
-    table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionBatchResult]
+    table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionArtifactBatchResult]
     assert [table_extraction.size_group_key for table_extraction in result.table_extraction_list] == ["women_upper"]
     assert len(table_extract_call_list) == 2
 
@@ -1387,7 +1544,6 @@ def test_table_extract_batch_rejects_identity_change(monkeypatch: object, tmp_pa
         _ = browser_runtime_mcp_url
         _ = prompt_text
         _ = stage_name
-        _ = stage_dir
         evidence_path = _table_evidence_path_get(
             result_dir=result_dir,
             source_type="official_brand_size_guide",
@@ -1396,13 +1552,14 @@ def test_table_extract_batch_rejects_identity_change(monkeypatch: object, tmp_pa
         )
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("table evidence", encoding="utf-8")
-        if model_class is TableExtractionBatchResult:
-            return TableExtractionBatchResult(
+        if model_class is TableExtractionArtifactBatchResult:
+            return TableExtractionArtifactBatchResult(
                 message="browser extraction completed",
                 source_type="official_brand_size_guide",
                 status="success",
-                table_extraction_list=[
-                    _table_extraction_get(
+                table_extraction_artifact_list=[
+                    _table_extraction_artifact_get(
+                        chart_path=stage_dir / "chart" / "renamed_upper.json",
                         evidence_path=evidence_path,
                         result_dir=result_dir,
                         size_group_key="renamed_upper",

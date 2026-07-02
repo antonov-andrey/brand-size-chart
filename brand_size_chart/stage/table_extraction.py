@@ -3,9 +3,15 @@
 from functools import partial
 from pathlib import Path
 
-from brand_size_chart.artifact import ArtifactLayout, JsonArtifactWriter
-from brand_size_chart.model import BrandInput, BrandSizeChart, PromptScope, SourceDiscovery, TableExtractionBatchResult
-from brand_size_chart.source_extractor import table_extraction_from_discovery_get
+from brand_size_chart.artifact import ArtifactLayout
+from brand_size_chart.model import (
+    BrandInput,
+    PromptScope,
+    SourceDiscovery,
+    TableExtractionArtifactBatchResult,
+    TableExtractionBatchResult,
+)
+from brand_size_chart.source_extractor import table_extraction_artifact_from_discovery_get
 from brand_size_chart.stage.base import CodexStageRun
 from brand_size_chart.stage.semantic import SemanticStage
 from brand_size_chart.validator import TableExtractionValidator
@@ -42,7 +48,6 @@ class TableExtractionStage:
         """
 
         self._artifact_layout = ArtifactLayout(result_dir)
-        self._artifact_writer = JsonArtifactWriter()
         self._brand_input = brand_input
         self._browser_runtime_mcp_url = browser_runtime_mcp_url
         self._codex_stage_run = codex_stage_run_callable
@@ -61,7 +66,7 @@ class TableExtractionStage:
             Verified batch table extraction.
         """
 
-        table_extraction_batch_result = SemanticStage(
+        table_extraction_artifact_batch_result = SemanticStage(
             browser_access=True,
             browser_runtime_mcp_url=self._browser_runtime_mcp_url,
             codex_stage_run_callable=self._codex_stage_run,
@@ -71,56 +76,40 @@ class TableExtractionStage:
             stage_dir=self._artifact_layout.table_extract_dir(self._brand_input, self._source_type),
             stage_key="table_extract",
         ).run(
-            draft_result=self._draft_result_get(),
-            model_class=TableExtractionBatchResult,
+            draft_result=self._draft_artifact_result_get(),
+            model_class=TableExtractionArtifactBatchResult,
             prompt_context=self._prompt_context_get(),
             result_error_list_get=partial(
-                self._validator.error_list_get,
+                self._validator.artifact_error_list_get,
                 source_discovery_list=self._source_discovery_list,
             ),
         )
-        self._chart_artifact_list_write(table_extraction_batch_result)
-        return table_extraction_batch_result
+        return self._validator.table_extraction_batch_result_get(
+            table_extraction_artifact_batch_result,
+            source_discovery_list=self._source_discovery_list,
+        )
 
-    def _chart_artifact_list_write(self, table_extraction_batch_result: TableExtractionBatchResult) -> None:
-        """Write and validate extracted chart artifacts.
-
-        Args:
-            table_extraction_batch_result: Verified batch table extraction.
-
-        Raises:
-            RuntimeError: If one chart artifact was not written or does not match the result.
-        """
-
-        for table_extraction in table_extraction_batch_result.table_extraction_list:
-            chart_path = self._artifact_layout.table_extract_chart_path(
-                self._brand_input,
-                self._source_type,
-                table_extraction.size_group_key,
-            )
-            self._artifact_writer.write(chart_path, table_extraction.chart)
-            if not chart_path.is_file():
-                raise RuntimeError(f"table_extract chart artifact was not written: {chart_path}")
-            written_chart = BrandSizeChart.model_validate_json(chart_path.read_text(encoding="utf-8"))
-            if written_chart.model_dump(mode="json") != table_extraction.chart.model_dump(mode="json"):
-                raise RuntimeError(f"table_extract chart artifact mismatch for {table_extraction.size_group_key}")
-
-    def _draft_result_get(self) -> TableExtractionBatchResult:
-        """Return deterministic draft extraction batch from source discoveries.
+    def _draft_artifact_result_get(self) -> TableExtractionArtifactBatchResult:
+        """Return deterministic draft extraction-artifact batch from source discoveries.
 
         Returns:
-            Draft batch table extraction.
+            Draft batch table extraction artifact result.
         """
 
         _ = self._secret_path
         _ = self._source_type_dir
-        return TableExtractionBatchResult(
-            message="Codex table extraction has not produced charts yet.",
+        return TableExtractionArtifactBatchResult(
+            message="Codex table extraction has not produced chart artifacts yet.",
             source_type=self._source_type,
             status="skipped",
-            table_extraction_list=[
-                table_extraction_from_discovery_get(
+            table_extraction_artifact_list=[
+                table_extraction_artifact_from_discovery_get(
                     brand_input=self._brand_input,
+                    chart_path=self._artifact_layout.table_extract_chart_path(
+                        self._brand_input,
+                        self._source_type,
+                        source_discovery.size_group_key,
+                    ),
                     result_dir=self._result_dir,
                     source_discovery=source_discovery,
                 )
@@ -136,8 +125,14 @@ class TableExtractionStage:
         """
 
         execplan_line_list = []
+        chart_dir = self._artifact_layout.table_extract_dir(self._brand_input, self._source_type) / "chart"
         for discovery_index, source_discovery in enumerate(self._source_discovery_list, start=1):
             evidence_dir = self._table_extract_evidence_dir_get(source_discovery)
+            chart_path = self._artifact_layout.table_extract_chart_path(
+                self._brand_input,
+                self._source_type,
+                source_discovery.size_group_key,
+            )
             execplan_line_list.append(
                 "\n".join(
                     [
@@ -152,6 +147,8 @@ class TableExtractionStage:
                         f"   Browser evidence write directory: {self._artifact_layout.filesystem_path_get(evidence_dir)}",
                         f"   Evidence reference directory: {self._artifact_layout.artifact_path(evidence_dir)}",
                         f"   Source discovery evidence paths: {source_discovery.evidence_path_list}",
+                        f"   Chart artifact path: {self._artifact_layout.artifact_path(chart_path)}",
+                        f"   Chart artifact filesystem path: {self._artifact_layout.filesystem_path_get(chart_path)}",
                     ]
                 )
             )
@@ -159,6 +156,7 @@ class TableExtractionStage:
         return (
             f"Brand: {self._brand_input.parsed_brand_name}\n"
             f"Source type: {self._source_type}\n"
+            f"Stage chart artifact write directory: {self._artifact_layout.filesystem_path_get(chart_dir)}\n"
             "Batch table_extract execplan:\n"
             f"{execplan_text}\n"
         )

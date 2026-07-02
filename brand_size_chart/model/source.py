@@ -130,6 +130,48 @@ class TableExtraction(StrictBaseModel):
         return value
 
 
+class TableExtractionArtifact(StrictBaseModel):
+    """Extracted size-chart table metadata with chart artifact reference."""
+
+    applicability_description: str = ""
+    applicability_status: ApplicabilityStatus = "unknown_blocked"
+    chart_path: str
+    evidence_path_list: list[str] = Field(default_factory=list)
+    product_type_hint_list: list[str] = Field(default_factory=list)
+    size_group_key: str
+    source_title: str
+    source_type: str
+    source_url: str
+
+    @field_validator("size_group_key", "source_type")
+    @classmethod
+    def identifier_component_validate(cls, value: str) -> str:
+        """Validate artifact path components.
+
+        Args:
+            value: Candidate path component.
+
+        Returns:
+            Validated path component.
+
+        Raises:
+            ValueError: If the value is not already a safe identifier component.
+        """
+        if dbos_identifier_component(value) != value:
+            raise ValueError("value must already be a safe DBOS identifier component")
+        return value
+
+
+class TableExtractionArtifactBatchResult(StrictBaseModel):
+    """Batch extraction result with generated chart artifact references."""
+
+    error_list: list[str] = Field(default_factory=list)
+    message: str
+    source_type: str
+    status: StageStatus
+    table_extraction_artifact_list: list[TableExtractionArtifact]
+
+
 class TableExtractionBatchResult(StrictBaseModel):
     """Batch extraction result for one source type."""
 

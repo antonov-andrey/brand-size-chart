@@ -2117,9 +2117,9 @@ def test_verification_prompt_rejects_stale_feedback() -> None:
 
 
 def test_verification_prompt_rejects_stale_hidden_row_errors() -> None:
-    """Do not fail table extraction for hidden rows already omitted from the current result."""
+    """Do not fail table extraction for hidden rows already omitted from the current chart artifact."""
     table_extract_verify_template = _prompt_template_text_get("table_extract_verify.md.j2")
 
     assert "hidden or non-rendered rows" in table_extract_verify_template
-    assert "current Stage result JSON already omits them" in table_extract_verify_template
+    assert "current chart artifact already omits them" in table_extract_verify_template
     assert "quote the exact current extracted row" in table_extract_verify_template
