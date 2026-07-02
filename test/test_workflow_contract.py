@@ -24,6 +24,7 @@ from brand_size_chart.model import SourceDiscoveryResult
 from brand_size_chart.model import SourceTypeSummary
 from brand_size_chart.model import StageVerification
 from brand_size_chart.model import TableExtraction
+from brand_size_chart.model import TableExtractionBatchResult
 from brand_size_chart.prompt.renderer import PromptRenderer
 from brand_size_chart.source_type import (
     PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET,
@@ -106,16 +107,13 @@ def test_workflow_is_package_not_monolithic_module() -> None:
         "BRAND_SIZE_CHART_BRAND_WORKFLOW",
         "BRAND_SIZE_CHART_RUN_WORKFLOW",
         "BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW",
-        "BRAND_SIZE_CHART_TABLE_WORKFLOW",
         "BrandSizeChartBrandWorkflow",
         "BrandSizeChartRunWorkflow",
         "BrandSizeChartSourceTypeWorkflow",
-        "BrandSizeChartTableWorkflow",
         "brand_selection_write_step",
         "brand_size_chart_brand",
         "brand_size_chart_run",
         "brand_size_chart_source_type",
-        "brand_size_chart_table",
         "brand_size_chart_workflow",
         "coverage_decision_write_step",
         "prompt_scope_write_step",
@@ -123,8 +121,23 @@ def test_workflow_is_package_not_monolithic_module() -> None:
         "run_result_write_step",
         "source_discovery_write_step",
         "source_type_summary_write_step",
-        "table_stage_write_step",
+        "table_extract_write_step",
     }
+
+
+def test_workflow_has_no_per_table_child_workflow() -> None:
+    """Run table extraction as one source-type batch step instead of one child workflow per table."""
+    workflow_source_text = _workflow_package_source_text_get()
+
+    assert hasattr(workflow_base, "table_stage_run") is False
+    assert hasattr(workflow_base, "table_extract_result_get") is True
+    assert Path("brand_size_chart/workflow/table.py").exists() is False
+    assert "BrandSizeChartTableWorkflow" not in workflow.__all__
+    assert "BRAND_SIZE_CHART_TABLE_WORKFLOW" not in workflow.__all__
+    assert "brand_size_chart_table" not in workflow.__all__
+    assert "table_stage_write_step" not in workflow.__all__
+    assert "table_extract_write_step" in workflow.__all__
+    assert "brand_size_chart_table" not in workflow_source_text
 
 
 def test_dbos_workflow_classes_are_class_owned() -> None:
@@ -167,11 +180,10 @@ def test_dbos_workflow_classes_are_class_owned() -> None:
             "source_type_summary_write_step",
             "BrandSizeChartSourceTypeWorkflow",
         ),
-        (workflow.BRAND_SIZE_CHART_TABLE_WORKFLOW.run, "brand_size_chart_table", "BrandSizeChartTableWorkflow"),
         (
-            workflow.BRAND_SIZE_CHART_TABLE_WORKFLOW.stage_write_step,
-            "table_stage_write_step",
-            "BrandSizeChartTableWorkflow",
+            workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.table_extract_write_step,
+            "table_extract_write_step",
+            "BrandSizeChartSourceTypeWorkflow",
         ),
     ]
 
@@ -417,8 +429,13 @@ def test_table_extraction_validator_rejects_source_title_mismatch(tmp_path: Path
 
     try:
         TableExtractionValidator(tmp_path).validate(
-            source_discovery=source_discovery,
-            table_extraction=table_extraction,
+            source_discovery_list=[source_discovery],
+            table_extraction_batch_result=TableExtractionBatchResult(
+                message="browser extraction completed",
+                source_type="official_brand_size_guide",
+                status="success",
+                table_extraction_list=[table_extraction],
+            ),
         )
     except RuntimeError as exc:
         message = str(exc)
@@ -879,8 +896,13 @@ def test_table_extraction_rejects_non_priority_applicability_for_priority_countr
 
     try:
         TableExtractionValidator(tmp_path).validate(
-            source_discovery=source_discovery,
-            table_extraction=table_extraction,
+            source_discovery_list=[source_discovery],
+            table_extraction_batch_result=TableExtractionBatchResult(
+                message="browser extraction completed",
+                source_type="official_brand_size_guide",
+                status="success",
+                table_extraction_list=[table_extraction],
+            ),
         )
     except RuntimeError as exc:
         message = str(exc)
@@ -929,8 +951,13 @@ def test_table_extraction_rejects_missing_size_label_measurement(tmp_path: Path)
 
     try:
         TableExtractionValidator(tmp_path).validate(
-            source_discovery=source_discovery,
-            table_extraction=table_extraction,
+            source_discovery_list=[source_discovery],
+            table_extraction_batch_result=TableExtractionBatchResult(
+                message="browser extraction completed",
+                source_type="official_brand_size_guide",
+                status="success",
+                table_extraction_list=[table_extraction],
+            ),
         )
     except RuntimeError as exc:
         message = str(exc)
@@ -1430,6 +1457,57 @@ def test_source_type_summary_records_failed_source_without_discovery_artifact(tm
     assert summary_payload["evidence_manifest_path_list"] == []
     assert summary_payload["source_type"] == "official_brand_size_guide"
     assert summary_payload["state"] == "failed"
+
+
+def test_source_type_summary_points_to_table_extract_chart_artifacts(tmp_path: Path) -> None:
+    """Expose batch chart artifact paths as source-type table results."""
+    brand_input = BrandInput(
+        parsed_brand_key="defacto",
+        parsed_brand_name="Defacto",
+        raw_brand_name="Defacto",
+        source_line_number=1,
+    )
+    source_type = "official_brand_size_guide"
+    chart = BrandSizeChart(
+        description="Women upper",
+        row_list=[
+            BrandSizeChartRow(
+                measurement_list=[
+                    BrandSizeChartMeasurement(name="SIZE", min_value="M", max_value="M", unit="size"),
+                ],
+                size_label="M",
+            )
+        ],
+    )
+    artifact_layout = ArtifactLayout(tmp_path)
+    chart_path = artifact_layout.table_extract_chart_path(brand_input, source_type, "women_upper")
+    chart_path.parent.mkdir(parents=True)
+    chart_path.write_text(json.dumps(chart.model_dump(mode="json"), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    table_extraction = TableExtraction(
+        applicability_status="priority_country_official",
+        chart=chart,
+        size_group_key="women_upper",
+        source_title="Women upper",
+        source_type=source_type,
+        source_url="https://www.defacto.com.tr/statik/beden-rehberi",
+    )
+
+    summary_payload = workflow.source_type_summary_write_step.__wrapped__(
+        workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW,
+        brand_input.model_dump(mode="json"),
+        str(tmp_path),
+        source_type,
+        [table_extraction.model_dump(mode="json")],
+        [],
+    )
+
+    assert summary_payload["table_result_path_by_size_group_key_map"] == {
+        "women_upper": (
+            "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/"
+            "table_extract/chart/women_upper.json"
+        )
+    }
+    assert summary_payload["verified_size_group_key_list"] == ["women_upper"]
 
 
 def test_prompt_scope_rejects_unknown_source_type_and_stage_key() -> None:

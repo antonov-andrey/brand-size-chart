@@ -1,5 +1,6 @@
 """Tests for Codex-owned browser stage contracts."""
 
+import json
 import subprocess
 from pathlib import Path
 
@@ -17,6 +18,7 @@ from brand_size_chart.model import (
     SourceDiscoveryResult,
     StageVerification,
     TableExtraction,
+    TableExtractionBatchResult,
 )
 from brand_size_chart.stage.base import MAX_STAGE_ATTEMPT_COUNT
 from brand_size_chart.workflow import base as workflow_base
@@ -33,6 +35,134 @@ def _brand_input_get() -> BrandInput:
         parsed_brand_name="Defacto",
         raw_brand_name="Defacto",
         source_line_number=1,
+    )
+
+
+def _brand_size_chart_get(*, description: str, size_label: str) -> BrandSizeChart:
+    """Return one populated size chart for table-extraction tests.
+
+    Args:
+        description: Chart description.
+        size_label: Source row size label.
+
+    Returns:
+        Size chart with the required unit=size row measurement.
+    """
+
+    return BrandSizeChart(
+        description=description,
+        row_list=[
+            BrandSizeChartRow(
+                measurement_list=[
+                    BrandSizeChartMeasurement(
+                        max_value=size_label,
+                        min_value=size_label,
+                        name="SIZE",
+                        unit="size",
+                    ),
+                    BrandSizeChartMeasurement(
+                        max_value="90",
+                        min_value="88",
+                        name="chest",
+                        unit="cm",
+                    ),
+                ],
+                size_label=size_label,
+            )
+        ],
+    )
+
+
+def _source_discovery_get(
+    *,
+    size_group_key: str,
+    source_title: str,
+    source_type: str = "official_brand_size_guide",
+    source_url: str = "https://defacto.example/size",
+) -> SourceDiscovery:
+    """Return one verified source discovery for table-extraction tests.
+
+    Args:
+        size_group_key: Discovered size group key.
+        source_title: Discovered source title.
+        source_type: Source type key.
+        source_url: Source URL.
+
+    Returns:
+        Source discovery matching the supplied identity.
+    """
+
+    return SourceDiscovery(
+        confidence=1.0,
+        country_code_list=["TR"],
+        evidence_path_list=[],
+        size_group_key=size_group_key,
+        source_priority=600,
+        source_title=source_title,
+        source_type=source_type,
+        source_url=source_url,
+    )
+
+
+def _table_evidence_path_get(*, result_dir: Path, source_type: str, size_group_key: str, suffix: str = "json") -> Path:
+    """Return one browser evidence artifact path for batch table extraction.
+
+    Args:
+        result_dir: Root result directory.
+        source_type: Source type key.
+        size_group_key: Size group key.
+        suffix: Evidence file suffix.
+
+    Returns:
+        Browser evidence artifact path.
+    """
+
+    return (
+        result_dir
+        / ".playwright-mcp"
+        / "current"
+        / "brand_size_chart_audit"
+        / "brand"
+        / "defacto"
+        / "source_type"
+        / source_type
+        / "table_extract"
+        / "evidence"
+        / f"{size_group_key}.{suffix}"
+    )
+
+
+def _table_extraction_get(
+    *,
+    evidence_path: Path,
+    result_dir: Path,
+    size_group_key: str,
+    source_title: str,
+    source_type: str = "official_brand_size_guide",
+    source_url: str = "https://defacto.example/size",
+) -> TableExtraction:
+    """Return one valid table extraction for batch tests.
+
+    Args:
+        evidence_path: Browser evidence artifact path.
+        result_dir: Root result directory.
+        size_group_key: Extracted size group key.
+        source_title: Extracted source title.
+        source_type: Source type key.
+        source_url: Source URL.
+
+    Returns:
+        Table extraction with valid chart rows and evidence.
+    """
+
+    return TableExtraction(
+        applicability_status="priority_country_official",
+        chart=_brand_size_chart_get(description=source_title, size_label="M"),
+        evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
+        size_group_key=size_group_key,
+        source_title=source_title,
+        source_type=source_type,
+        source_url=source_url,
     )
 
 
@@ -710,22 +840,26 @@ def test_source_discovery_retries_then_fails_empty_skipped_result(monkeypatch: o
     assert "Empty source discovery" in str(discovery_call_list[1]["prompt_text"])
 
 
-def test_table_extraction_calls_codex_browser_stage_and_requires_evidence(monkeypatch: object, tmp_path: Path) -> None:
-    """Run table extraction through Codex browser access and require a written evidence artifact."""
+def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypatch: object, tmp_path: Path) -> None:
+    """Run one batch table extract through Codex browser access and write chart artifacts."""
     call_list: list[dict[str, object]] = []
     source_type_dir = (
         tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "source_type" / "official_marketplace_product_page"
     )
-    source_discovery = SourceDiscovery(
-        confidence=1.0,
-        country_code_list=["TR"],
-        evidence_path_list=[],
-        size_group_key="women_upper",
-        source_priority=300,
-        source_title="Official marketplace product page size answer",
-        source_type="official_marketplace_product_page",
-        source_url="https://www.trendyol.com/defacto/example-p-1",
-    )
+    source_discovery_list = [
+        _source_discovery_get(
+            size_group_key="women_upper",
+            source_title="Official marketplace product page upper size answer",
+            source_type="official_marketplace_product_page",
+            source_url="https://www.trendyol.com/defacto/example-p-1",
+        ),
+        _source_discovery_get(
+            size_group_key="women_lower",
+            source_title="Official marketplace product page lower size answer",
+            source_type="official_marketplace_product_page",
+            source_url="https://www.trendyol.com/defacto/example-p-1",
+        ),
+    ]
 
     def fake_codex_stage_run(
         *,
@@ -751,6 +885,7 @@ def test_table_extraction_calls_codex_browser_stage_and_requires_evidence(monkey
         Returns:
             Fake validated stage result.
         """
+        _ = stage_dir
         call_list.append(
             {
                 "allow_user_config": allow_user_config,
@@ -760,93 +895,292 @@ def test_table_extraction_calls_codex_browser_stage_and_requires_evidence(monkey
                 "stage_name": stage_name,
             }
         )
-        evidence_path = (
-            result_dir
-            / ".playwright-mcp"
-            / "current"
-            / "brand_size_chart_audit"
-            / "brand"
-            / "defacto"
-            / "source_type"
-            / "official_marketplace_product_page"
-            / "size_chart"
-            / "women_upper"
-            / "table_extraction"
-            / "evidence"
-            / "women_upper.json"
-        )
-        evidence_path.parent.mkdir(parents=True, exist_ok=True)
-        evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
-        if model_class is TableExtraction:
-            return TableExtraction(
-                applicability_status="priority_country_official",
-                chart=BrandSizeChart(
-                    description="Defacto women size chart.",
-                    row_list=[
-                        BrandSizeChartRow(
-                            measurement_list=[
-                                BrandSizeChartMeasurement(
-                                    max_value="M",
-                                    min_value="M",
-                                    name="SIZE",
-                                    unit="size",
-                                ),
-                                BrandSizeChartMeasurement(
-                                    max_value="90",
-                                    min_value="88",
-                                    name="chest",
-                                    unit="cm",
-                                ),
-                            ],
-                            size_label="M",
-                        )
-                    ],
-                ),
-                evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
-                size_group_key="women_upper",
-                source_title="Official marketplace product page size answer",
+        if model_class is TableExtractionBatchResult:
+            evidence_path_by_size_group_key_map = {
+                source_discovery.size_group_key: _table_evidence_path_get(
+                    result_dir=result_dir,
+                    source_type=source_discovery.source_type,
+                    size_group_key=source_discovery.size_group_key,
+                )
+                for source_discovery in source_discovery_list
+            }
+            for evidence_path in evidence_path_by_size_group_key_map.values():
+                evidence_path.parent.mkdir(parents=True, exist_ok=True)
+                evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
+            return TableExtractionBatchResult(
+                message="browser extraction completed",
                 source_type="official_marketplace_product_page",
-                source_url="https://www.trendyol.com/defacto/example-p-1",
+                status="success",
+                table_extraction_list=[
+                    _table_extraction_get(
+                        evidence_path=evidence_path_by_size_group_key_map[source_discovery.size_group_key],
+                        result_dir=result_dir,
+                        size_group_key=source_discovery.size_group_key,
+                        source_title=source_discovery.source_title,
+                        source_type=source_discovery.source_type,
+                        source_url=source_discovery.source_url,
+                    )
+                    for source_discovery in source_discovery_list
+                ],
             )
         return StageVerification(
             artifact_path_list=[],
-            stage_key="table_extraction",
+            stage_key="table_extract",
             status="success",
             message="verified",
         )
 
-    result = workflow_base.table_stage_run(
+    result = workflow_base.table_extract_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(),
         result_dir=tmp_path,
         secret_path=tmp_path / "secret",
-        source_discovery=source_discovery,
+        source_discovery_list=source_discovery_list,
         source_type="official_marketplace_product_page",
         source_type_dir=source_type_dir,
     )
 
-    assert result.chart.row_list[0].size_label == "M"
-    assert call_list[0]["allow_user_config"] is True
-    assert call_list[0]["browser_runtime_mcp_url"] == "http://127.0.0.1:12000/mcp"
-    assert "Use the configured browser" in str(call_list[0]["prompt_text"])
+    table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionBatchResult]
+    assert [table_extraction.size_group_key for table_extraction in result.table_extraction_list] == [
+        "women_upper",
+        "women_lower",
+    ]
+    assert len(table_extract_call_list) == 1
+    assert table_extract_call_list[0]["allow_user_config"] is True
+    assert table_extract_call_list[0]["browser_runtime_mcp_url"] == "http://127.0.0.1:12000/mcp"
+    assert table_extract_call_list[0]["stage_name"] == "table_extract"
+    assert "Use the configured browser" in str(table_extract_call_list[0]["prompt_text"])
     assert (
         f"Browser evidence write directory: "
-        f"{tmp_path / '.playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/official_marketplace_product_page/size_chart/women_upper/table_extraction/evidence'}"
-        in str(call_list[0]["prompt_text"])
+        f"{tmp_path / '.playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/official_marketplace_product_page/table_extract/evidence/women_upper'}"
+        in str(table_extract_call_list[0]["prompt_text"])
     )
     assert (
         "Evidence reference directory: "
         ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
-        "official_marketplace_product_page/size_chart/women_upper/table_extraction/evidence"
-        in str(call_list[0]["prompt_text"])
+        "official_marketplace_product_page/table_extract/evidence/women_lower"
+        in str(table_extract_call_list[0]["prompt_text"])
     )
-    assert "Target size_group_key: women_upper" in str(call_list[0]["prompt_text"])
-    assert "Target source title: Official marketplace product page size answer" in str(call_list[0]["prompt_text"])
+    assert "1. size_group_key=women_upper" in str(table_extract_call_list[0]["prompt_text"])
+    assert "2. size_group_key=women_lower" in str(table_extract_call_list[0]["prompt_text"])
+    assert "Target source title: Official marketplace product page upper size answer" in str(
+        table_extract_call_list[0]["prompt_text"]
+    )
+    assert "Target source title: Official marketplace product page lower size answer" in str(
+        table_extract_call_list[0]["prompt_text"]
+    )
     assert "Do not extract a default, current, product-category, adjacent, or differently named table" in str(
-        call_list[0]["prompt_text"]
+        table_extract_call_list[0]["prompt_text"]
     )
+    batch_result_payload = json.loads(
+        (
+            tmp_path
+            / "brand_size_chart_audit/brand/defacto/source_type/official_marketplace_product_page/table_extract/result.json"
+        ).read_text(encoding="utf-8")
+    )
+    women_upper_chart_payload = json.loads(
+        (
+            tmp_path
+            / "brand_size_chart_audit/brand/defacto/source_type/official_marketplace_product_page/table_extract/chart/women_upper.json"
+        ).read_text(encoding="utf-8")
+    )
+    women_lower_chart_payload = json.loads(
+        (
+            tmp_path
+            / "brand_size_chart_audit/brand/defacto/source_type/official_marketplace_product_page/table_extract/chart/women_lower.json"
+        ).read_text(encoding="utf-8")
+    )
+    assert batch_result_payload["table_extraction_list"][0]["size_group_key"] == "women_upper"
+    assert women_upper_chart_payload == result.table_extraction_list[0].chart.model_dump(mode="json")
+    assert women_lower_chart_payload == result.table_extraction_list[1].chart.model_dump(mode="json")
+
+
+def test_table_extract_batch_rejects_missing_discovery(monkeypatch: object, tmp_path: Path) -> None:
+    """Reject and retry a batch extraction missing one discovered table."""
+    call_list: list[dict[str, object]] = []
+    source_discovery_list = [
+        _source_discovery_get(size_group_key="women_upper", source_title="Women upper"),
+        _source_discovery_get(size_group_key="women_lower", source_title="Women lower"),
+    ]
+
+    def fake_codex_stage_run(
+        *,
+        allow_user_config: bool,
+        browser_runtime_mcp_url: str,
+        model_class: type[BaseModel],
+        prompt_text: str,
+        result_dir: Path,
+        stage_dir: Path,
+        stage_name: str,
+    ) -> BaseModel:
+        """Return one incomplete batch and then a complete batch.
+
+        Args:
+            allow_user_config: Whether Codex loads configured MCP tools.
+            browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
+            model_class: Expected stage result model.
+            prompt_text: Prompt text passed to Codex.
+            result_dir: Root result directory.
+            stage_dir: Stage artifact directory.
+            stage_name: Stage name.
+
+        Returns:
+            Fake batch extraction or verification result.
+        """
+
+        _ = allow_user_config
+        _ = browser_runtime_mcp_url
+        _ = stage_dir
+        _ = stage_name
+        call_list.append({"model_class": model_class, "prompt_text": prompt_text})
+        if model_class is StageVerification:
+            return StageVerification(
+                artifact_path_list=[],
+                message="verified",
+                stage_key="table_extract",
+                status="success",
+            )
+
+        batch_call_count = len([call for call in call_list if call["model_class"] is TableExtractionBatchResult])
+        if batch_call_count == 2:
+            assert "missing" in prompt_text.lower()
+            assert "women_lower" in prompt_text
+        extraction_list = []
+        selected_discovery_list = source_discovery_list if batch_call_count == 2 else source_discovery_list[:1]
+        for source_discovery in selected_discovery_list:
+            evidence_path = _table_evidence_path_get(
+                result_dir=result_dir,
+                source_type=source_discovery.source_type,
+                size_group_key=source_discovery.size_group_key,
+            )
+            evidence_path.parent.mkdir(parents=True, exist_ok=True)
+            evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
+            extraction_list.append(
+                _table_extraction_get(
+                    evidence_path=evidence_path,
+                    result_dir=result_dir,
+                    size_group_key=source_discovery.size_group_key,
+                    source_title=source_discovery.source_title,
+                    source_type=source_discovery.source_type,
+                    source_url=source_discovery.source_url,
+                )
+            )
+        return TableExtractionBatchResult(
+            message="browser extraction completed",
+            source_type="official_brand_size_guide",
+            status="success",
+            table_extraction_list=extraction_list,
+        )
+
+    result = workflow_base.table_extract_result_get(
+        brand_input=_brand_input_get(),
+        browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
+        codex_stage_run_callable=fake_codex_stage_run,
+        prompt_scope=PromptScope(),
+        result_dir=tmp_path,
+        secret_path=tmp_path / "secret",
+        source_discovery_list=source_discovery_list,
+        source_type="official_brand_size_guide",
+        source_type_dir=tmp_path / "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide",
+    )
+
+    table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionBatchResult]
+    assert [table_extraction.size_group_key for table_extraction in result.table_extraction_list] == [
+        "women_upper",
+        "women_lower",
+    ]
+    assert len(table_extract_call_list) == 2
+
+
+def test_table_extract_batch_rejects_extra_discovery(monkeypatch: object, tmp_path: Path) -> None:
+    """Reject and retry a batch extraction that invents an undiscovered table."""
+    call_list: list[dict[str, object]] = []
+    source_discovery_list = [_source_discovery_get(size_group_key="women_upper", source_title="Women upper")]
+
+    def fake_codex_stage_run(
+        *,
+        allow_user_config: bool,
+        browser_runtime_mcp_url: str,
+        model_class: type[BaseModel],
+        prompt_text: str,
+        result_dir: Path,
+        stage_dir: Path,
+        stage_name: str,
+    ) -> BaseModel:
+        """Return one batch with an extra table and then a valid batch.
+
+        Args:
+            allow_user_config: Whether Codex loads configured MCP tools.
+            browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
+            model_class: Expected stage result model.
+            prompt_text: Prompt text passed to Codex.
+            result_dir: Root result directory.
+            stage_dir: Stage artifact directory.
+            stage_name: Stage name.
+
+        Returns:
+            Fake batch extraction or verification result.
+        """
+
+        _ = allow_user_config
+        _ = browser_runtime_mcp_url
+        _ = stage_dir
+        _ = stage_name
+        call_list.append({"model_class": model_class, "prompt_text": prompt_text})
+        if model_class is StageVerification:
+            return StageVerification(
+                artifact_path_list=[],
+                message="verified",
+                stage_key="table_extract",
+                status="success",
+            )
+
+        batch_call_count = len([call for call in call_list if call["model_class"] is TableExtractionBatchResult])
+        if batch_call_count == 2:
+            assert "extra" in prompt_text.lower()
+            assert "women_extra" in prompt_text
+        selected_size_group_key_list = ["women_upper"] if batch_call_count == 2 else ["women_upper", "women_extra"]
+        extraction_list = []
+        for size_group_key in selected_size_group_key_list:
+            evidence_path = _table_evidence_path_get(
+                result_dir=result_dir,
+                source_type="official_brand_size_guide",
+                size_group_key=size_group_key,
+            )
+            evidence_path.parent.mkdir(parents=True, exist_ok=True)
+            evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
+            extraction_list.append(
+                _table_extraction_get(
+                    evidence_path=evidence_path,
+                    result_dir=result_dir,
+                    size_group_key=size_group_key,
+                    source_title="Women upper" if size_group_key == "women_upper" else "Women extra",
+                )
+            )
+        return TableExtractionBatchResult(
+            message="browser extraction completed",
+            source_type="official_brand_size_guide",
+            status="success",
+            table_extraction_list=extraction_list,
+        )
+
+    result = workflow_base.table_extract_result_get(
+        brand_input=_brand_input_get(),
+        browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
+        codex_stage_run_callable=fake_codex_stage_run,
+        prompt_scope=PromptScope(),
+        result_dir=tmp_path,
+        secret_path=tmp_path / "secret",
+        source_discovery_list=source_discovery_list,
+        source_type="official_brand_size_guide",
+        source_type_dir=tmp_path / "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide",
+    )
+
+    table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionBatchResult]
+    assert [table_extraction.size_group_key for table_extraction in result.table_extraction_list] == ["women_upper"]
+    assert len(table_extract_call_list) == 2
 
 
 def test_source_discovery_rejects_skipped_result_even_when_verification_passes(
@@ -1004,21 +1338,12 @@ def test_source_discovery_rejects_duplicate_size_group_key(monkeypatch: object, 
     assert "women_upper" in message
 
 
-def test_table_extraction_rejects_identity_change(monkeypatch: object, tmp_path: Path) -> None:
-    """Reject table extraction that changes the discovery-owned identity."""
+def test_table_extract_batch_rejects_identity_change(monkeypatch: object, tmp_path: Path) -> None:
+    """Reject batch table extraction that changes a discovery-owned identity."""
     source_type_dir = (
         tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "source_type" / "official_brand_size_guide"
     )
-    source_discovery = SourceDiscovery(
-        confidence=1.0,
-        country_code_list=["TR"],
-        evidence_path_list=[],
-        size_group_key="women_upper",
-        source_priority=600,
-        source_title="Women upper",
-        source_type="official_brand_size_guide",
-        source_url="https://defacto.example/size",
-    )
+    source_discovery_list = [_source_discovery_get(size_group_key="women_upper", source_title="Women upper")]
 
     def fake_codex_stage_run(
         *,
@@ -1048,46 +1373,45 @@ def test_table_extraction_rejects_identity_change(monkeypatch: object, tmp_path:
         _ = browser_runtime_mcp_url
         _ = prompt_text
         _ = stage_name
-        evidence_path = stage_dir / "evidence" / "table.md"
+        _ = stage_dir
+        evidence_path = _table_evidence_path_get(
+            result_dir=result_dir,
+            source_type="official_brand_size_guide",
+            size_group_key="renamed_upper",
+            suffix="md",
+        )
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("table evidence", encoding="utf-8")
-        if model_class is TableExtraction:
-            return TableExtraction(
-                applicability_status="priority_country_official",
-                chart=BrandSizeChart(
-                    description="Women upper",
-                    row_list=[
-                        BrandSizeChartRow(
-                            measurement_list=[
-                                BrandSizeChartMeasurement(max_value="M", min_value="M", name="SIZE", unit="size"),
-                                BrandSizeChartMeasurement(max_value="90", min_value="88", name="chest", unit="cm"),
-                            ],
-                            size_label="M",
-                        )
-                    ],
-                ),
-                evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
-                size_group_key="renamed_upper",
-                source_title="Women upper",
+        if model_class is TableExtractionBatchResult:
+            return TableExtractionBatchResult(
+                message="browser extraction completed",
                 source_type="official_brand_size_guide",
-                source_url="https://defacto.example/size",
+                status="success",
+                table_extraction_list=[
+                    _table_extraction_get(
+                        evidence_path=evidence_path,
+                        result_dir=result_dir,
+                        size_group_key="renamed_upper",
+                        source_title="Women upper",
+                    )
+                ],
             )
         return StageVerification(
             artifact_path_list=[],
             message="verified",
-            stage_key="table_extraction",
+            stage_key="table_extract",
             status="success",
         )
 
     try:
-        workflow_base.table_stage_run(
+        workflow_base.table_extract_result_get(
             brand_input=_brand_input_get(),
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
             codex_stage_run_callable=fake_codex_stage_run,
             prompt_scope=PromptScope(),
             result_dir=tmp_path,
             secret_path=tmp_path / "secret",
-            source_discovery=source_discovery,
+            source_discovery_list=source_discovery_list,
             source_type="official_brand_size_guide",
             source_type_dir=source_type_dir,
         )
@@ -1098,6 +1422,7 @@ def test_table_extraction_rejects_identity_change(monkeypatch: object, tmp_path:
 
     assert "size_group_key" in message
     assert "women_upper" in message
+    assert "renamed_upper" in message
 
 
 def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, tmp_path: Path) -> None:

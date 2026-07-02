@@ -14,6 +14,7 @@ from brand_size_chart.model import (
     SourceDiscovery,
     SourceDiscoveryResult,
     TableExtraction,
+    TableExtractionBatchResult,
 )
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
 from brand_size_chart.stage import (
@@ -270,7 +271,7 @@ def stage_prompt_text_get(
     )
 
 
-def table_stage_run(
+def table_extract_result_get(
     *,
     brand_input: BrandInput,
     browser_runtime_mcp_url: str,
@@ -278,11 +279,11 @@ def table_stage_run(
     prompt_scope: PromptScope,
     result_dir: Path,
     secret_path: Path,
-    source_discovery: SourceDiscovery,
+    source_discovery_list: list[SourceDiscovery],
     source_type: str,
     source_type_dir: Path,
-) -> TableExtraction:
-    """Run table extraction plus verification for one table.
+) -> TableExtractionBatchResult:
+    """Run batch table extraction plus verification for one source type.
 
     Args:
         brand_input: Parsed brand input.
@@ -291,12 +292,12 @@ def table_stage_run(
         prompt_scope: Parsed prompt scope.
         result_dir: Root result directory.
         secret_path: Secret DataSource path.
-        source_discovery: Verified source discovery.
+        source_discovery_list: Verified source discoveries.
         source_type: Source type key.
         source_type_dir: Source-type audit directory.
 
     Returns:
-        Verified table extraction.
+        Verified batch table extraction.
     """
     return TableExtractionStage(
         brand_input=brand_input,
@@ -305,7 +306,7 @@ def table_stage_run(
         prompt_scope=prompt_scope,
         result_dir=result_dir,
         secret_path=secret_path,
-        source_discovery=source_discovery,
+        source_discovery_list=source_discovery_list,
         source_type=source_type,
         source_type_dir=source_type_dir,
     ).run()
@@ -325,5 +326,5 @@ __all__ = [
     "source_type_list_get",
     "source_type_prompt_scope_get",
     "stage_prompt_text_get",
-    "table_stage_run",
+    "table_extract_result_get",
 ]
