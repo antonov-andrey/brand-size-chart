@@ -23,17 +23,19 @@ def test_model_package_exports_existing_public_models() -> None:
     from brand_size_chart.model import PromptScope
     from brand_size_chart.model import SourceDiscoveryResult
     from brand_size_chart.model import TableExtraction
+    from brand_size_chart.model import TableExtractionBatchResult
 
     assert BrandInput.__module__ == "brand_size_chart.model.brand"
     assert BrandSizeChart.__module__ == "brand_size_chart.model.chart"
     assert PromptScope.__module__ == "brand_size_chart.model.prompt"
     assert SourceDiscoveryResult.__module__ == "brand_size_chart.model.source"
     assert TableExtraction.__module__ == "brand_size_chart.model.source"
+    assert TableExtractionBatchResult.__module__ == "brand_size_chart.model.source"
 
 
 def test_table_extraction_batch_result_is_public_schema_model() -> None:
     """Expose batch table-extraction results through the public schema registry."""
-    from brand_size_chart.model.source import TableExtractionBatchResult
+    from brand_size_chart.model import TableExtractionBatchResult
 
     assert TableExtractionBatchResult.__module__ == "brand_size_chart.model.source"
     assert schema_model_map_get()["table_extraction_batch_result"] is TableExtractionBatchResult

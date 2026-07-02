@@ -236,6 +236,10 @@ def test_table_extract_layout_uses_one_source_type_batch_dir(tmp_path: Path) -> 
         .as_posix()
         == "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/table_extract/chart/women_upper.json"
     )
+    assert (
+        layout.table_extract_result_path(brand_input, "official_brand_size_guide").relative_to(tmp_path).as_posix()
+        == "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/table_extract/result.json"
+    )
 
 
 def test_artifact_reference_validator_rejects_existing_traversal_evidence_path(tmp_path: Path) -> None:
@@ -293,6 +297,19 @@ def test_artifact_materializer_preserves_external_reference_inside_allowed_root(
     materializer = ArtifactMaterializer(result_dir=result_dir, allowed_root_list=[external_root])
 
     assert materializer.reference_list_materialize([str(external_file)]) == [".tool-output/source.json"]
+
+
+def test_artifact_materializer_resolves_relative_paths_from_result_dir(tmp_path: Path) -> None:
+    """Materialize result-dir-relative references without depending on process CWD."""
+    from brand_size_chart.artifact import ArtifactMaterializer
+
+    result_dir = tmp_path / "result"
+    external_file = result_dir / ".tool-output" / "source.json"
+    external_file.parent.mkdir(parents=True)
+    external_file.write_text("{}\n", encoding="utf-8")
+    materializer = ArtifactMaterializer(result_dir=result_dir, allowed_root_list=[Path(".tool-output")])
+
+    assert materializer.reference_list_materialize([".tool-output/source.json"]) == [".tool-output/source.json"]
 
 
 def test_stage_validators_live_under_validator_package() -> None:
