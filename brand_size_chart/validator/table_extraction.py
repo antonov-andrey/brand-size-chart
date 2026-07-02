@@ -61,10 +61,10 @@ class TableExtractionValidator(MechanicalValidator):
         if table_extraction_batch_result.status != "success":
             raise RuntimeError(f"table_extract status must be success: {table_extraction_batch_result.status}")
         source_type_set = {source_discovery.source_type for source_discovery in source_discovery_list}
-        if source_type_set and table_extraction_batch_result.source_type not in source_type_set:
+        if source_type_set != {table_extraction_batch_result.source_type}:
             raise RuntimeError(
-                f"table_extract source_type mismatch: {table_extraction_batch_result.source_type} "
-                f"not in {sorted(source_type_set)}"
+                f"table_extract source_type set mismatch: {sorted(source_type_set)} "
+                f"!= {[table_extraction_batch_result.source_type]}"
             )
         source_discovery_by_size_group_key_map = self._source_discovery_by_size_group_key_map_get(source_discovery_list)
         table_extraction_by_size_group_key_map = self._table_extraction_by_size_group_key_map_get(

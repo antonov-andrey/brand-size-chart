@@ -17,7 +17,6 @@ PROMPT_TEMPLATE_NAME_BY_STAGE_KEY_MAP = MappingProxyType(
         "source_discover": "source_discover.md.j2",
         "source_discovery": "source_discover.md.j2",
         "table_extract": "table_extract.md.j2",
-        "table_extraction": "table_extract.md.j2",
         "workflow_run_prompt_apply": "workflow_run_prompt_apply.md.j2",
     }
 )
@@ -27,7 +26,6 @@ PROMPT_TEMPLATE_NAME_BY_STAGE_PROMPT_MAP = MappingProxyType(
         "canonical_select": "canonical_select.md.j2",
         "coverage_decide": "coverage_decide.md.j2",
         "discovery": "source_discover.md.j2",
-        "extraction": "table_extract.md.j2",
         "selection": "canonical_select.md.j2",
         "source_discover": "source_discover.md.j2",
         "table_extract": "table_extract.md.j2",
@@ -42,13 +40,11 @@ VERIFY_TEMPLATE_NAME_BY_STAGE_KEY_MAP = MappingProxyType(
         "source_discover": "source_discover_verify.md.j2",
         "source_discovery": "source_discover_verify.md.j2",
         "table_extract": "table_extract_verify.md.j2",
-        "table_extraction": "table_extract_verify.md.j2",
         "workflow_run_prompt_apply": "workflow_run_prompt_apply_verify.md.j2",
     }
 )
 SIZE_GROUP_KEY_PROMPT_NAME_SET = {
     "discovery",
-    "extraction",
     "selection",
     "verification",
 }

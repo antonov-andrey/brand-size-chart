@@ -144,6 +144,8 @@ class TableExtractionStage:
                         f"{discovery_index}. size_group_key={source_discovery.size_group_key}",
                         f"   Source title: {source_discovery.source_title}",
                         f"   Source URL: {source_discovery.source_url}",
+                        f"   Source discovery source_type: {source_discovery.source_type}",
+                        f"   Source discovery product_type_hint_list: {source_discovery.product_type_hint_list}",
                         f"   Target size_group_key: {source_discovery.size_group_key}",
                         f"   Target source title: {source_discovery.source_title}",
                         f"   Source discovery country_code_list: {source_discovery.country_code_list}",
@@ -171,16 +173,8 @@ class TableExtractionStage:
             Browser evidence directory.
         """
 
-        return (
-            self._result_dir
-            / ".playwright-mcp"
-            / "current"
-            / "brand_size_chart_audit"
-            / "brand"
-            / self._brand_input.parsed_brand_key
-            / "source_type"
-            / source_discovery.source_type
-            / "table_extract"
-            / "evidence"
-            / source_discovery.size_group_key
+        return self._artifact_layout.table_extract_evidence_dir(
+            self._brand_input,
+            source_discovery.source_type,
+            source_discovery.size_group_key,
         )

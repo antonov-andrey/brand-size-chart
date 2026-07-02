@@ -140,6 +140,16 @@ def test_workflow_has_no_per_table_child_workflow() -> None:
     assert "brand_size_chart_table" not in workflow_source_text
 
 
+def test_table_extract_stage_has_no_legacy_prompt_alias() -> None:
+    """Reject old table-extraction prompt aliases after batch stage migration."""
+    from brand_size_chart.stage import base as stage_base
+
+    assert "table_extraction" not in stage_base.PROMPT_TEMPLATE_NAME_BY_STAGE_KEY_MAP
+    assert "table_extraction" not in stage_base.VERIFY_TEMPLATE_NAME_BY_STAGE_KEY_MAP
+    assert "extraction" not in stage_base.PROMPT_TEMPLATE_NAME_BY_STAGE_PROMPT_MAP
+    assert "extraction" not in stage_base.SIZE_GROUP_KEY_PROMPT_NAME_SET
+
+
 def test_dbos_workflow_classes_are_class_owned() -> None:
     """Ensure DBOS workflows are owned by class instance methods."""
     method_expectation_list = [
@@ -265,12 +275,9 @@ def test_artifact_layout_owns_current_paths(tmp_path: Path) -> None:
     assert (
         layout.brand_audit_dir(brand_input).relative_to(tmp_path).as_posix() == "brand_size_chart_audit/brand/defacto"
     )
-    assert (
-        layout.table_extraction_dir(brand_input, "official_brand_size_guide", "women_upper")
-        .relative_to(tmp_path)
-        .as_posix()
-        == "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/size_chart/women_upper/table_extraction"
-    )
+    assert hasattr(layout, "table_extraction_dir") is False
+    assert hasattr(layout, "table_extraction_evidence_dir") is False
+    assert hasattr(layout, "table_extraction_result_path") is False
 
 
 def test_table_extract_layout_uses_one_source_type_batch_dir(tmp_path: Path) -> None:
@@ -298,6 +305,12 @@ def test_table_extract_layout_uses_one_source_type_batch_dir(tmp_path: Path) -> 
     assert (
         layout.table_extract_result_path(brand_input, "official_brand_size_guide").relative_to(tmp_path).as_posix()
         == "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/table_extract/result.json"
+    )
+    assert layout.table_extract_evidence_dir(brand_input, "official_brand_size_guide", "women_upper").relative_to(
+        tmp_path
+    ).as_posix() == (
+        ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
+        "official_brand_size_guide/table_extract/evidence/women_upper"
     )
 
 
@@ -391,8 +404,8 @@ def test_table_extraction_validator_rejects_source_title_mismatch(tmp_path: Path
     from brand_size_chart.validator.table_extraction import TableExtractionValidator
 
     evidence_path = (
-        tmp_path
-        / "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/size_chart/women_upper/table_extraction/evidence/table.json"
+        tmp_path / ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
+        "official_brand_size_guide/table_extract/evidence/women_upper/table.json"
     )
     evidence_path.parent.mkdir(parents=True)
     evidence_path.write_text("{}\n", encoding="utf-8")
@@ -444,6 +457,100 @@ def test_table_extraction_validator_rejects_source_title_mismatch(tmp_path: Path
 
     assert "table_extraction source_title mismatch" in message
     assert "Kadın Üst Beden Tablosu" in message
+
+
+def test_table_extraction_validator_rejects_mixed_source_type_batch(tmp_path: Path) -> None:
+    """Require one batch extraction to belong to exactly one source type."""
+    from brand_size_chart.validator.table_extraction import TableExtractionValidator
+
+    first_evidence_path = (
+        tmp_path / ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
+        "official_brand_size_guide/table_extract/evidence/women_upper/table.json"
+    )
+    second_evidence_path = (
+        tmp_path / ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
+        "official_brand_product_page/table_extract/evidence/women_lower/table.json"
+    )
+    first_evidence_path.parent.mkdir(parents=True)
+    second_evidence_path.parent.mkdir(parents=True)
+    first_evidence_path.write_text("{}\n", encoding="utf-8")
+    second_evidence_path.write_text("{}\n", encoding="utf-8")
+    first_discovery = SourceDiscovery(
+        confidence=1.0,
+        country_code_list=["TR"],
+        evidence_path_list=[],
+        size_group_key="women_upper",
+        source_priority=600,
+        source_title="Women upper",
+        source_type="official_brand_size_guide",
+        source_url="https://www.defacto.com.tr/size-guide",
+    )
+    second_discovery = SourceDiscovery(
+        confidence=1.0,
+        country_code_list=["TR"],
+        evidence_path_list=[],
+        size_group_key="women_lower",
+        source_priority=500,
+        source_title="Women lower",
+        source_type="official_brand_product_page",
+        source_url="https://www.defacto.com.tr/product",
+    )
+    first_extraction = TableExtraction(
+        applicability_status="priority_country_official",
+        chart=BrandSizeChart(
+            description="Women upper",
+            row_list=[
+                BrandSizeChartRow(
+                    measurement_list=[
+                        BrandSizeChartMeasurement(name="SIZE", min_value="S", max_value="S", unit="size")
+                    ],
+                    size_label="S",
+                )
+            ],
+        ),
+        evidence_path_list=[first_evidence_path.relative_to(tmp_path).as_posix()],
+        size_group_key="women_upper",
+        source_title="Women upper",
+        source_type="official_brand_size_guide",
+        source_url="https://www.defacto.com.tr/size-guide",
+    )
+    second_extraction = TableExtraction(
+        applicability_status="priority_country_official",
+        chart=BrandSizeChart(
+            description="Women lower",
+            row_list=[
+                BrandSizeChartRow(
+                    measurement_list=[
+                        BrandSizeChartMeasurement(name="SIZE", min_value="M", max_value="M", unit="size")
+                    ],
+                    size_label="M",
+                )
+            ],
+        ),
+        evidence_path_list=[second_evidence_path.relative_to(tmp_path).as_posix()],
+        size_group_key="women_lower",
+        source_title="Women lower",
+        source_type="official_brand_product_page",
+        source_url="https://www.defacto.com.tr/product",
+    )
+
+    try:
+        TableExtractionValidator(tmp_path).validate(
+            source_discovery_list=[first_discovery, second_discovery],
+            table_extraction_batch_result=TableExtractionBatchResult(
+                message="browser extraction completed",
+                source_type="official_brand_size_guide",
+                status="success",
+                table_extraction_list=[first_extraction, second_extraction],
+            ),
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        message = ""
+
+    assert "source_type set mismatch" in message
+    assert "official_brand_product_page" in message
 
 
 def test_semantic_stages_live_under_stage_package() -> None:
@@ -679,7 +786,7 @@ def test_browser_evidence_layout_uses_playwright_mcp_namespace(tmp_path: Path) -
     )
 
     source_evidence_path = layout.source_discovery_evidence_dir(brand_input, "official_brand_size_guide")
-    table_evidence_path = layout.table_extraction_evidence_dir(
+    table_evidence_path = layout.table_extract_evidence_dir(
         brand_input,
         "official_brand_size_guide",
         "women_upper",
@@ -691,7 +798,7 @@ def test_browser_evidence_layout_uses_playwright_mcp_namespace(tmp_path: Path) -
     )
     assert layout.artifact_path(table_evidence_path) == (
         ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
-        "official_brand_size_guide/size_chart/women_upper/table_extraction/evidence"
+        "official_brand_size_guide/table_extract/evidence/women_upper"
     )
 
 

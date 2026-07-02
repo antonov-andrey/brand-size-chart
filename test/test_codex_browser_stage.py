@@ -75,6 +75,7 @@ def _brand_size_chart_get(*, description: str, size_label: str) -> BrandSizeChar
 
 def _source_discovery_get(
     *,
+    product_type_hint_list: list[str] | None = None,
     size_group_key: str,
     source_title: str,
     source_type: str = "official_brand_size_guide",
@@ -83,6 +84,7 @@ def _source_discovery_get(
     """Return one verified source discovery for table-extraction tests.
 
     Args:
+        product_type_hint_list: Product types that the discovered table can cover.
         size_group_key: Discovered size group key.
         source_title: Discovered source title.
         source_type: Source type key.
@@ -96,6 +98,7 @@ def _source_discovery_get(
         confidence=1.0,
         country_code_list=["TR"],
         evidence_path_list=[],
+        product_type_hint_list=product_type_hint_list or [],
         size_group_key=size_group_key,
         source_priority=600,
         source_title=source_title,
@@ -848,12 +851,14 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
     )
     source_discovery_list = [
         _source_discovery_get(
+            product_type_hint_list=["women blouses"],
             size_group_key="women_upper",
             source_title="Official marketplace product page upper size answer",
             source_type="official_marketplace_product_page",
             source_url="https://www.trendyol.com/defacto/example-p-1",
         ),
         _source_discovery_get(
+            product_type_hint_list=["women trousers"],
             size_group_key="women_lower",
             source_title="Official marketplace product page lower size answer",
             source_type="official_marketplace_product_page",
@@ -965,6 +970,15 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
     )
     assert "1. size_group_key=women_upper" in str(table_extract_call_list[0]["prompt_text"])
     assert "2. size_group_key=women_lower" in str(table_extract_call_list[0]["prompt_text"])
+    assert "Source discovery source_type: official_marketplace_product_page" in str(
+        table_extract_call_list[0]["prompt_text"]
+    )
+    assert "Source discovery product_type_hint_list: ['women blouses']" in str(
+        table_extract_call_list[0]["prompt_text"]
+    )
+    assert "Source discovery product_type_hint_list: ['women trousers']" in str(
+        table_extract_call_list[0]["prompt_text"]
+    )
     assert "Target source title: Official marketplace product page upper size answer" in str(
         table_extract_call_list[0]["prompt_text"]
     )

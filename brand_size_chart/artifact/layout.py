@@ -275,8 +275,8 @@ class ArtifactLayout:
 
         return self.stage_result_path(self.table_extract_dir(brand_input, source_type))
 
-    def table_extraction_dir(self, brand_input: BrandInput, source_type: str, size_group_key: str) -> Path:
-        """Return table-extraction audit directory for one size group.
+    def table_extract_evidence_dir(self, brand_input: BrandInput, source_type: str, size_group_key: str) -> Path:
+        """Return batch table-extract evidence directory for one size group.
 
         Args:
             brand_input: Parsed brand input.
@@ -284,21 +284,7 @@ class ArtifactLayout:
             size_group_key: Size group key.
 
         Returns:
-            Table-extraction stage directory.
-        """
-
-        return self.source_type_dir(brand_input, source_type) / "size_chart" / size_group_key / "table_extraction"
-
-    def table_extraction_evidence_dir(self, brand_input: BrandInput, source_type: str, size_group_key: str) -> Path:
-        """Return table-extraction evidence directory for one size group.
-
-        Args:
-            brand_input: Parsed brand input.
-            source_type: Source type key.
-            size_group_key: Size group key.
-
-        Returns:
-            Table-extraction evidence directory.
+            Batch table-extract evidence directory.
         """
 
         return (
@@ -310,25 +296,10 @@ class ArtifactLayout:
             / brand_input.parsed_brand_key
             / "source_type"
             / source_type
-            / "size_chart"
-            / size_group_key
-            / "table_extraction"
+            / "table_extract"
             / "evidence"
+            / size_group_key
         )
-
-    def table_extraction_result_path(self, brand_input: BrandInput, source_type: str, size_group_key: str) -> Path:
-        """Return table-extraction result path for one size group.
-
-        Args:
-            brand_input: Parsed brand input.
-            source_type: Source type key.
-            size_group_key: Size group key.
-
-        Returns:
-            Table-extraction result artifact path.
-        """
-
-        return self.stage_result_path(self.table_extraction_dir(brand_input, source_type, size_group_key))
 
     def workflow_run_prompt_apply_dir(self) -> Path:
         """Return workflow-run prompt application audit directory.
