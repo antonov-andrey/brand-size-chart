@@ -113,6 +113,7 @@ class SemanticStage:
         self._browser_runtime_mcp_url = browser_runtime_mcp_url
         self._codex_stage_run = codex_stage_run_callable
         self._prompt_name = prompt_name
+        self._prompt_renderer = PromptRenderer()
         self._prompt_scope = prompt_scope
         self._result_dir = result_dir
         self._stage_dir = stage_dir
@@ -152,15 +153,12 @@ class SemanticStage:
                     allow_user_config=self._browser_access,
                     browser_runtime_mcp_url=self._browser_runtime_mcp_url,
                     model_class=model_class,
-                    prompt_text=stage_prompt_text_get(
+                    prompt_text=self._stage_prompt_text_get(
                         attempt_index=attempt_index,
                         draft_result_json_text=draft_result_json_text,
                         feedback_list=feedback_list,
                         prompt_context=prompt_context,
-                        prompt_name=self._prompt_name,
-                        prompt_scope=self._prompt_scope,
                         previous_result_json_text=previous_result_json_text,
-                        stage_key=self._stage_key,
                     ),
                     result_dir=self._result_dir,
                     stage_dir=self._stage_dir,
@@ -238,7 +236,7 @@ class SemanticStage:
             stage_key=self._stage_key,
             status="success",
         )
-        verification_prompt = PromptRenderer().render(
+        verification_prompt = self._prompt_renderer.render(
             verify_prompt_template_name_get(self._stage_key),
             {
                 "artifact_path_list": artifact_path_list,
@@ -259,4 +257,43 @@ class SemanticStage:
                 stage_dir=self._stage_dir,
                 stage_name=f"{self._stage_key}_verification",
             ),
+        )
+
+    def _stage_prompt_text_get(
+        self,
+        *,
+        attempt_index: int,
+        draft_result_json_text: str,
+        feedback_list: list[str],
+        prompt_context: str,
+        previous_result_json_text: str,
+    ) -> str:
+        """Build one main-stage prompt with the stage-owned renderer.
+
+        Args:
+            attempt_index: Stage attempt index.
+            draft_result_json_text: Deterministic draft result JSON.
+            feedback_list: Verification feedback from previous attempts.
+            prompt_context: Stage-specific context.
+            previous_result_json_text: Previous attempt result JSON, when present.
+
+        Returns:
+            Complete prompt text.
+        """
+
+        return self._prompt_renderer.render(
+            prompt_template_name_get(prompt_name=self._prompt_name, stage_key=self._stage_key),
+            {
+                "attempt_index": attempt_index,
+                "draft_result_json_text": draft_result_json_text,
+                "feedback_list": feedback_list,
+                "previous_result_json_text": previous_result_json_text,
+                "prompt_context": prompt_context,
+                "shared_instruction": self._prompt_scope.shared_instruction if self._prompt_scope else "",
+                "stage_instruction_text": _stage_instruction_text_get(
+                    prompt_scope=self._prompt_scope,
+                    stage_key=self._stage_key,
+                ),
+                "stage_key": self._stage_key,
+            },
         )

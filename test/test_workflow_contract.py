@@ -24,6 +24,7 @@ from brand_size_chart.model import SourceDiscoveryResult
 from brand_size_chart.model import SourceTypeSummary
 from brand_size_chart.model import StageVerification
 from brand_size_chart.model import TableExtraction
+from brand_size_chart.prompt.renderer import PromptRenderer
 from brand_size_chart.source_type import (
     PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET,
     SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP,
@@ -44,19 +45,38 @@ def _workflow_package_source_text_get() -> str:
 
 
 def _prompt_template_text_get(template_name: str) -> str:
-    """Return one prompt template source text.
+    """Return one rendered prompt template text.
 
     Args:
         template_name: Prompt template file name.
 
     Returns:
-        Prompt template text.
+        Rendered prompt template text.
     """
-    partial_text = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in sorted(Path("brand_size_chart/prompt/template/partial").glob("*.md.j2"))
+
+    return PromptRenderer().render(
+        template_name,
+        {
+            "artifact_path_list": ["brand_size_chart_audit/brand/defacto/source_type/source/result.json"],
+            "attempt_index": 2,
+            "draft_result_json_text": '{"status":"success"}',
+            "draft_verification_json_text": '{"status":"success"}',
+            "feedback_list": ["feedback"],
+            "previous_result_json_text": '{"status":"failed"}',
+            "prompt_context": (
+                "Brand: Defacto\n"
+                "Source type: official_brand_size_guide\n"
+                "Priority country code: TR\n"
+                "Browser evidence write directory: /tmp/evidence\n"
+                "Evidence reference directory: .playwright-mcp/current/evidence\n"
+                "Verified table summary:\n- women_upper"
+            ),
+            "shared_instruction": "shared instruction",
+            "stage_instruction_text": "- stage instruction",
+            "stage_key": template_name.removesuffix(".md.j2"),
+            "stage_result_json_text": '{"status":"success"}',
+        },
     )
-    return f"{Path('brand_size_chart/prompt/template', template_name).read_text(encoding='utf-8')}\n{partial_text}"
 
 
 def _prompt_template_tree_text_get() -> str:
@@ -1512,17 +1532,17 @@ def test_prompt_scope_stage_retries_unknown_source_type_allow_phrase(monkeypatch
 
 def test_source_discovery_prompt_makes_table_forms_universal() -> None:
     """Search every source type for size charts in any browser-visible form."""
-    discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8").lower()
+    source_discover_template = _prompt_template_text_get("source_discover.md.j2").lower()
 
-    assert "html table" in discovery_prompt
-    assert "modal" in discovery_prompt
-    assert "widget" in discovery_prompt
-    assert "pdf" in discovery_prompt
-    assert "image" in discovery_prompt
-    assert "help" in discovery_prompt
-    assert "faq" in discovery_prompt
-    assert "q&a" in discovery_prompt
-    assert "for `official_brand_size_guide`" not in discovery_prompt
+    assert "html table" in source_discover_template
+    assert "modal" in source_discover_template
+    assert "widget" in source_discover_template
+    assert "pdf" in source_discover_template
+    assert "image" in source_discover_template
+    assert "help" in source_discover_template
+    assert "faq" in source_discover_template
+    assert "q&a" in source_discover_template
+    assert "for `official_brand_size_guide`" not in source_discover_template
 
 
 def test_source_discovery_prompt_uses_split_evidence_paths() -> None:
@@ -1536,20 +1556,20 @@ def test_source_discovery_prompt_uses_split_evidence_paths() -> None:
 
 def test_size_group_key_contract_is_prompt_and_design_owned() -> None:
     """Keep size-group naming as a semantic prompt/design contract."""
-    size_group_prompt = Path("brand_size_chart/prompt/size_group_key.md").read_text(encoding="utf-8")
+    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
     design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
     workflow_text = _workflow_package_source_text_get()
 
-    assert "{sex}_{product_group_or_type}" in size_group_prompt
-    assert "{sex}_{sex_suffix}_{product_group_or_type}" in size_group_prompt
-    assert "{min}_{max}_{month|year}" in size_group_prompt
-    assert "Approved non-age `sex_suffix` terms" in size_group_prompt
-    assert "Do not list or invent concrete approved age intervals" in size_group_prompt
-    assert "child_3_8" not in size_group_prompt
-    assert "youth_8_14" not in size_group_prompt
+    assert "{sex}_{product_group_or_type}" in source_discover_template
+    assert "{sex}_{sex_suffix}_{product_group_or_type}" in source_discover_template
+    assert "{min}_{max}_{month|year}" in source_discover_template
+    assert "Approved non-age `sex_suffix` terms" in source_discover_template
+    assert "Do not list or invent concrete approved age intervals" in source_discover_template
+    assert "child_3_8" not in source_discover_template
+    assert "youth_8_14" not in source_discover_template
     assert "child_3_8" not in design_text
     assert "youth_8_14" not in design_text
-    assert "Never use `size_chart`" in size_group_prompt
+    assert "Never use `size_chart`" in source_discover_template
     assert "Semantic verification must reject alternative names" in design_text
     assert "women_size_chart" not in workflow_text
     assert "men_shoes_size_chart" not in workflow_text
@@ -1557,12 +1577,8 @@ def test_size_group_key_contract_is_prompt_and_design_owned() -> None:
 
 def test_source_discovery_checks_official_host_variants() -> None:
     """Search all browser-visible official host variants before failing source discovery."""
-    discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
     source_discover_template = _prompt_template_text_get("source_discover.md.j2")
 
-    assert "official host variants" in discovery_prompt
-    assert "country-code brand domains" in discovery_prompt
-    assert "Do not stop after one official domain variant fails" in discovery_prompt
     assert "official host variants" in source_discover_template
     assert "country-code " in source_discover_template
     assert "brand domains" in source_discover_template
@@ -1571,38 +1587,27 @@ def test_source_discovery_checks_official_host_variants() -> None:
 
 def test_source_discovery_searches_localized_size_terms_without_route_templates() -> None:
     """Find official size guides through localized browser search rather than hardcoded URL guesses."""
-    discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
     source_discover_template = _prompt_template_text_get("source_discover.md.j2")
 
-    assert "browser-visible language and market" in discovery_prompt
-    assert "localized size-chart term searches" in discovery_prompt
-    assert "beden rehberi" in discovery_prompt
-    assert "URL templates" in discovery_prompt
     assert "browser-visible language and market" in source_discover_template
     assert "localized size-chart term searches" in source_discover_template
     assert "beden rehberi" in source_discover_template
-    assert "/statik/beden-rehberi" not in discovery_prompt
+    assert "URL templates" in source_discover_template
     assert "/statik/beden-rehberi" not in source_discover_template
 
 
 def test_table_extraction_preserves_size_system_columns() -> None:
     """Represent size-system columns with an explicit non-empty unit."""
-    extraction_prompt = Path("brand_size_chart/prompt/extraction.md").read_text(encoding="utf-8")
     table_extract_template = _prompt_template_text_get("table_extract.md.j2")
 
-    assert "For size-system or label-equivalence columns" in extraction_prompt
-    assert "use unit='size'" in extraction_prompt
     assert "For size-system " in table_extract_template
     assert "use unit='size'" in table_extract_template
 
 
 def test_table_extraction_preserves_physical_units_and_omits_blank_cells() -> None:
     """Keep physical measurement units and avoid empty measurement values."""
-    extraction_prompt = Path("brand_size_chart/prompt/extraction.md").read_text(encoding="utf-8")
     table_extract_template = _prompt_template_text_get("table_extract.md.j2")
 
-    assert "Do not emit measurement entries for blank source cells" in extraction_prompt
-    assert "must keep their physical source unit" in extraction_prompt
     assert "Do not emit measurement entries for blank source cells" in table_extract_template
     assert "must keep their physical source unit" in table_extract_template
 
@@ -1618,36 +1623,35 @@ def test_coverage_decision_prompt_receives_verified_table_summary() -> None:
 
 def test_source_discovery_prompt_preserves_partial_candidates() -> None:
     """Keep evidence-backed candidates successful even when requested product-type coverage is incomplete."""
-    discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
+    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
 
-    assert "If at least one concrete candidate is evidence-backed, return status='success'" in discovery_prompt
-    assert "missing requested product types in error_list" in discovery_prompt
+    assert "If at least one concrete table candidate is evidence-backed, return status='success'" in (
+        source_discover_template
+    )
+    assert "missing requested product types in error_list" in source_discover_template
 
 
 def test_source_discovery_product_types_do_not_filter_tables() -> None:
     """Keep full source-surface table discovery separate from requested product-type coverage."""
-    discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
-    verification_prompt = Path("brand_size_chart/prompt/verification.md").read_text(encoding="utf-8")
     source_discover_template = _prompt_template_text_get("source_discover.md.j2")
+    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
     design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
 
     expected_text = "Requested product types are coverage targets only"
-    assert expected_text in discovery_prompt
-    assert expected_text in verification_prompt
     assert expected_text in source_discover_template
+    assert expected_text in source_discover_verify_template
     assert "`product_type_request_list` defines coverage targets" in design_text
     assert "must not filter `source_discover` candidates" in design_text
 
 
 def test_source_discovery_returns_unique_size_group_key_candidates() -> None:
     """Keep duplicate locale tables as evidence instead of duplicate source candidates."""
-    discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
-    verification_prompt = Path("brand_size_chart/prompt/verification.md").read_text(encoding="utf-8")
     source_discover_template = _prompt_template_text_get("source_discover.md.j2")
+    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
     design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
 
-    assert "return at most one `discovered_source_list` item for one `size_group_key`" in discovery_prompt
-    assert "must not require a second `discovered_source_list` item" in verification_prompt
+    assert "return at most one discovered_source_list item for one size_group_key" in source_discover_template
+    assert "must not require a second discovered_source_list item" in source_discover_verify_template
     assert "return at most one discovered_source_list" in source_discover_template
     assert "item for one size_group_key" in source_discover_template
     assert "one `size_group_key` may appear at most once in `discovered_source_list`" in design_text
@@ -1655,22 +1659,19 @@ def test_source_discovery_returns_unique_size_group_key_candidates() -> None:
 
 def test_source_discovery_locale_policy_is_priority_global_europe_without_vague_candidate_wording() -> None:
     """Use one explicit country-selection ladder instead of vague other-locale candidate rules."""
-    apply_prompt = Path("brand_size_chart/prompt/apply.md").read_text(encoding="utf-8")
-    discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
-    verification_prompt = Path("brand_size_chart/prompt/verification.md").read_text(encoding="utf-8")
+    apply_prompt = _prompt_template_text_get("workflow_run_prompt_apply.md.j2")
     source_discovery_stage_text = Path("brand_size_chart/stage/source_discovery.py").read_text(encoding="utf-8")
     source_discover_template = _prompt_template_text_get("source_discover.md.j2")
+    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
     design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-    combined_text = "\n".join(
-        [apply_prompt, discovery_prompt, verification_prompt, source_discover_template, design_text]
-    )
+    combined_text = "\n".join([apply_prompt, source_discover_template, source_discover_verify_template, design_text])
 
     assert "`priority_country_code`" in apply_prompt
     assert "Priority country code:" in source_discovery_stage_text
-    assert "priority country tables exist" in discovery_prompt
-    assert "global tables" in discovery_prompt
-    assert "European country tables" in discovery_prompt
-    assert "priority country tables exist" in verification_prompt
+    assert "priority country tables exist" in source_discover_template
+    assert "global tables" in source_discover_template
+    assert "European country tables" in source_discover_template
+    assert "priority country tables exist" in source_discover_verify_template
     assert "`priority_country_code` defines the market priority" in design_text
     for forbidden_text in ["comparison/" + "evidence/" + "blocker", "other " + "locales"]:
         assert forbidden_text not in combined_text
@@ -1678,13 +1679,8 @@ def test_source_discovery_locale_policy_is_priority_global_europe_without_vague_
 
 def test_source_discovery_prompt_requires_canonical_inventory_on_retry() -> None:
     """Require retry attempts to update the canonical source-surface inventory."""
-    discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
     source_discover_template = _prompt_template_text_get("source_discover.md.j2")
 
-    assert "canonical source-surface inventory artifact" in discovery_prompt
-    assert "source_surface_inventory.json" in discovery_prompt
-    assert "overwrite the canonical inventory artifact" in discovery_prompt
-    assert "attempt-only inventory names are allowed only as extra diagnostics" in discovery_prompt
     assert "First build one canonical" in source_discover_template
     assert "source_surface_inventory.json" in source_discover_template
     assert "browser-backed source-surface inventory artifact" in source_discover_template
@@ -1693,32 +1689,26 @@ def test_source_discovery_prompt_requires_canonical_inventory_on_retry() -> None
 
 def test_source_discovery_prompt_requires_market_localized_term_families() -> None:
     """Require all local size-guide/search-term families before an absence result."""
-    discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
-    verification_prompt = Path("brand_size_chart/prompt/verification.md").read_text(encoding="utf-8")
+    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
+    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
 
     expected_text = "run separate browser-visible searches for both `beden rehberi` and `beden tablosu`"
-    assert expected_text in discovery_prompt
-    assert expected_text in verification_prompt
+    assert expected_text in source_discover_template
+    assert expected_text in source_discover_verify_template
 
 
 def test_source_discovery_candidate_urls_exclude_helper_surfaces() -> None:
     """Keep sitemap and navigation helper surfaces out of concrete candidate URLs."""
-    discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
     source_discover_template = _prompt_template_text_get("source_discover.md.j2")
 
-    assert "`candidate_urls` must contain only concrete source candidates" in discovery_prompt
-    assert "helper surfaces are discovery surfaces, not candidate URLs" in discovery_prompt
     assert "candidate_urls must contain only concrete source candidates" in source_discover_template
     assert "helper surfaces are discovery surfaces, not candidate URLs" in source_discover_template
 
 
 def test_source_discovery_candidate_urls_exclude_broad_product_lists() -> None:
     """Keep broad search-result product inventories separate from selected source candidates."""
-    discovery_prompt = Path("brand_size_chart/prompt/discovery.md").read_text(encoding="utf-8")
     source_discover_template = _prompt_template_text_get("source_discover.md.j2")
 
-    assert "broad search-result or category product URL inventories" in discovery_prompt
-    assert "search_result_url_list" in discovery_prompt
     assert "broad search-result or category product URL inventories" in source_discover_template
     assert "search_result_url_list" in source_discover_template
 
