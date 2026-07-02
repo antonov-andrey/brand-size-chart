@@ -181,7 +181,7 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
             prompt_scope=prompt_scope,
             result_dir=result_dir_path,
             source_type=source_type,
-            stage_dir=artifact_layout.coverage_decision_dir(brand_input, source_type),
+            stage_dir=artifact_layout.coverage_decide_dir(brand_input, source_type),
             table_extraction_list=table_extraction_list,
         )
         return coverage_result.model_dump(mode="json")
@@ -232,7 +232,7 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
             prompt_scope=prompt_scope,
             result_dir=result_dir_path,
             source_type="final_selection",
-            stage_dir=artifact_layout.brand_coverage_decision_dir(brand_input),
+            stage_dir=artifact_layout.brand_coverage_decide_dir(brand_input),
             table_extraction_list=table_extraction_list,
         )
         canonical_selection_result = CanonicalSelectionStage(
@@ -240,7 +240,7 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
             codex_stage_run_callable=codex_stage_run,
             prompt_scope=prompt_scope,
             result_dir=result_dir_path,
-            stage_dir=artifact_layout.canonical_selection_dir(brand_input),
+            stage_dir=artifact_layout.canonical_select_dir(brand_input),
             table_extraction_list=table_extraction_list,
         ).run()
         table_extraction_by_identity_key_map = {
@@ -260,7 +260,7 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
             )
             if table_extraction_identity_key not in table_extraction_by_identity_key_map:
                 raise RuntimeError(
-                    "canonical_selection selected missing table_extraction: "
+                    "canonical_select selected missing table_extraction: "
                     f"{selection.size_group_key} {selection.selected_source_type} {selection.selected_source_url}"
                 )
             table_extraction = table_extraction_by_identity_key_map[table_extraction_identity_key]

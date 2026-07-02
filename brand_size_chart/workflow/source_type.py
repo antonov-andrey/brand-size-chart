@@ -235,8 +235,8 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
         evidence_manifest_path_list = [
             artifact_layout.artifact_path(artifact_path)
             for artifact_path in [
-                artifact_layout.stage_result_path(artifact_layout.source_discovery_dir(brand_input, source_type)),
-                artifact_layout.stage_verification_path(artifact_layout.source_discovery_dir(brand_input, source_type)),
+                artifact_layout.stage_result_path(artifact_layout.source_discover_dir(brand_input, source_type)),
+                artifact_layout.stage_verification_path(artifact_layout.source_discover_dir(brand_input, source_type)),
             ]
             if artifact_path.is_file()
         ]

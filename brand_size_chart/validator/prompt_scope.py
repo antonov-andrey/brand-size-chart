@@ -7,9 +7,9 @@ from brand_size_chart.source import SOURCE_TYPE_REGISTRY
 from brand_size_chart.validator.base import MechanicalValidator
 
 STAGE_KEY_SET = {
-    "canonical_selection",
-    "coverage_decision",
-    "source_discovery",
+    "canonical_select",
+    "coverage_decide",
+    "source_discover",
     "table_extract",
     "workflow_run_prompt_apply",
 }

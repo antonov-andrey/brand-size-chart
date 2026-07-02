@@ -42,4 +42,4 @@ class CoverageDecisionValidator(MechanicalValidator):
         uncovered_product_type_set = set(coverage_decision_result.uncovered_product_type_list)
         if not uncovered_product_type_set.issubset(requested_product_type_set):
             unexpected_product_type_list = sorted(uncovered_product_type_set - requested_product_type_set)
-            raise RuntimeError(f"coverage_decision returned unexpected product types: {unexpected_product_type_list}")
+            raise RuntimeError(f"coverage_decide returned unexpected product types: {unexpected_product_type_list}")

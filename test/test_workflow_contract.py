@@ -1,5 +1,6 @@
 """Tests for cross-project workflow contract metadata."""
 
+import ast
 from contextlib import nullcontext
 import json
 from pathlib import Path
@@ -32,6 +33,20 @@ from brand_size_chart.source_type import (
     SOURCE_TYPE_PRIORITY_BY_KEY_MAP,
 )
 from brand_size_chart.workflow import base as workflow_base
+
+ACTION_STAGE_KEY_SET = {
+    "canonical_select",
+    "coverage_decide",
+    "source_discover",
+    "table_extract",
+    "workflow_run_prompt_apply",
+}
+FORBIDDEN_STAGE_KEY_SET = {
+    "canonical_selection",
+    "coverage_decision",
+    "source_discovery",
+    "table_extraction",
+}
 
 
 def _workflow_package_source_text_get() -> str:
@@ -89,6 +104,135 @@ def _prompt_template_tree_text_get() -> str:
     return "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(Path("brand_size_chart/prompt/template").rglob("*.md.j2"))
     )
+
+
+def _json_stage_value_error_list_get(path: Path, payload: object) -> list[str]:
+    """Return generated-schema stage enum or const values that still use noun stage keys.
+
+    Args:
+        path: JSON schema file path.
+        payload: Parsed JSON payload or nested value.
+
+    Returns:
+        Schema stage value error list.
+    """
+
+    if isinstance(payload, dict):
+        error_list: list[str] = []
+        for key, value in payload.items():
+            if key in {"const", "enum"}:
+                value_list = value if isinstance(value, list) else [value]
+                for item in value_list:
+                    if item in FORBIDDEN_STAGE_KEY_SET:
+                        error_list.append(f"{path}: generated schema stage value {item!r}")
+                continue
+            error_list.extend(_json_stage_value_error_list_get(path, value))
+        return error_list
+    if isinstance(payload, list):
+        error_list = []
+        for item in payload:
+            error_list.extend(_json_stage_value_error_list_get(path, item))
+        return error_list
+    return []
+
+
+def _python_stage_literal_error_list_get(path: Path) -> list[str]:
+    """Return live runtime string constants that still use noun stage keys.
+
+    Args:
+        path: Python file path.
+
+    Returns:
+        Stage literal error list.
+    """
+
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=path.as_posix())
+    error_list = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
+            continue
+        if node.value in FORBIDDEN_STAGE_KEY_SET:
+            error_list.append(f"{path}:{node.lineno}: forbidden stage key {node.value!r}")
+        for stage_key in FORBIDDEN_STAGE_KEY_SET:
+            if f"/{stage_key}" in node.value or f"{stage_key}/" in node.value:
+                error_list.append(f"{path}:{node.lineno}: forbidden stage path segment {stage_key!r}")
+    return error_list
+
+
+def test_stage_names_use_action_verbs() -> None:
+    """Keep live stage keys, prompt template names, and generated schema stage values on action verbs."""
+    from brand_size_chart.stage import base as stage_base
+    from brand_size_chart.validator import prompt_scope
+
+    layout = ArtifactLayout(Path("/tmp/result"))
+    brand_input = BrandInput(
+        parsed_brand_key="defacto",
+        parsed_brand_name="Defacto",
+        raw_brand_name="Defacto",
+        source_line_number=1,
+    )
+    scanned_python_path_list = [
+        *sorted(Path("brand_size_chart/artifact").glob("*.py")),
+        *sorted(Path("brand_size_chart/stage").glob("*.py")),
+        *sorted(Path("brand_size_chart/workflow").glob("*.py")),
+        Path("brand_size_chart/validator/prompt_scope.py"),
+    ]
+    fixture_root = Path("test/fixtures")
+    if fixture_root.exists():
+        scanned_python_path_list.extend(sorted(fixture_root.rglob("*.py")))
+
+    error_list = []
+    error_list.extend(
+        f"prompt map still accepts {stage_key!r}"
+        for stage_key in FORBIDDEN_STAGE_KEY_SET
+        if stage_key in stage_base.PROMPT_TEMPLATE_NAME_BY_STAGE_KEY_MAP
+        or stage_key in stage_base.VERIFY_TEMPLATE_NAME_BY_STAGE_KEY_MAP
+    )
+    error_list.extend(
+        f"prompt scope still accepts {stage_key!r}"
+        for stage_key in FORBIDDEN_STAGE_KEY_SET
+        if stage_key in prompt_scope.STAGE_KEY_SET
+    )
+    error_list.extend(
+        f"prompt template file still uses {stage_key!r}: {path}"
+        for path in sorted(Path("brand_size_chart/prompt/template").glob("*.md.j2"))
+        for stage_key in FORBIDDEN_STAGE_KEY_SET
+        if stage_key in path.name
+    )
+    for schema_path in sorted(Path("brand_size_chart/schema").glob("*.schema.json")):
+        error_list.extend(_json_stage_value_error_list_get(schema_path, json.loads(schema_path.read_text())))
+    for path in scanned_python_path_list:
+        error_list.extend(_python_stage_literal_error_list_get(path))
+
+    assert stage_base.PROMPT_TEMPLATE_NAME_BY_STAGE_KEY_MAP.keys() == ACTION_STAGE_KEY_SET
+    assert stage_base.VERIFY_TEMPLATE_NAME_BY_STAGE_KEY_MAP.keys() == ACTION_STAGE_KEY_SET
+    assert prompt_scope.STAGE_KEY_SET == ACTION_STAGE_KEY_SET
+    assert hasattr(layout, "source_discovery_dir") is False
+    assert hasattr(layout, "source_discovery_evidence_dir") is False
+    assert hasattr(layout, "coverage_decision_dir") is False
+    assert hasattr(layout, "canonical_selection_dir") is False
+    assert (
+        layout.source_discover_dir(brand_input, "official_brand_size_guide").as_posix()
+        == "/tmp/result/brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/source_discover"
+    )
+    assert (
+        layout.source_discover_evidence_dir(brand_input, "official_brand_size_guide").as_posix()
+        == "/tmp/result/.playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
+        "official_brand_size_guide/source_discover/evidence"
+    )
+    assert (
+        layout.coverage_decide_dir(brand_input, "official_brand_size_guide").as_posix()
+        == "/tmp/result/brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/coverage_decide"
+    )
+    assert (
+        layout.brand_coverage_decide_dir(brand_input).as_posix()
+        == "/tmp/result/brand_size_chart_audit/brand/defacto/coverage_decide"
+    )
+    assert (
+        layout.canonical_select_dir(brand_input).as_posix()
+        == "/tmp/result/brand_size_chart_audit/brand/defacto/canonical_select"
+    )
+    assert error_list == []
 
 
 def test_model_is_package_not_monolithic_module() -> None:
@@ -325,7 +469,7 @@ def test_artifact_reference_validator_rejects_existing_traversal_evidence_path(t
     try:
         ArtifactReferenceValidator(result_dir).evidence_path_list_validate(
             evidence_path_list=["../outside.json"],
-            stage_key="source_discovery",
+            stage_key="source_discover",
         )
     except RuntimeError as exc:
         message = str(exc)
@@ -626,9 +770,9 @@ def test_coverage_decision_validation_retries_inside_semantic_stage(tmp_path: Pa
         call_list.append({"model_class": model_class, "prompt_text": prompt_text})
         if model_class is StageVerification:
             return StageVerification(
-                artifact_path_list=["brand_size_chart_audit/brand/defacto/coverage_decision/result.json"],
+                artifact_path_list=["brand_size_chart_audit/brand/defacto/coverage_decide/result.json"],
                 message="verified",
-                stage_key="coverage_decision",
+                stage_key="coverage_decide",
                 status="success",
             )
         coverage_call_count = len([call for call in call_list if call["model_class"] is CoverageDecisionResult])
@@ -642,7 +786,7 @@ def test_coverage_decision_validation_retries_inside_semantic_stage(tmp_path: Pa
                 uncovered_product_type_list=["unexpected_product"],
             )
 
-        assert "coverage_decision returned unexpected product types" in prompt_text
+        assert "coverage_decide returned unexpected product types" in prompt_text
         return CoverageDecisionResult(
             coverage_decision_list=[
                 CoverageDecision(is_covered=True, reason="Verified source table exists.", size_group_key="women")
@@ -663,7 +807,7 @@ def test_coverage_decision_validation_retries_inside_semantic_stage(tmp_path: Pa
         prompt_scope=PromptScope(product_type_request_list=["women shoes"]),
         result_dir=tmp_path,
         source_type="official_brand_size_guide",
-        stage_dir=tmp_path / "coverage_decision",
+        stage_dir=tmp_path / "coverage_decide",
         table_extraction_list=[
             TableExtraction(
                 applicability_status="priority_country_official",
@@ -785,7 +929,7 @@ def test_browser_evidence_layout_uses_playwright_mcp_namespace(tmp_path: Path) -
         source_line_number=1,
     )
 
-    source_evidence_path = layout.source_discovery_evidence_dir(brand_input, "official_brand_size_guide")
+    source_evidence_path = layout.source_discover_evidence_dir(brand_input, "official_brand_size_guide")
     table_evidence_path = layout.table_extract_evidence_dir(
         brand_input,
         "official_brand_size_guide",
@@ -794,7 +938,7 @@ def test_browser_evidence_layout_uses_playwright_mcp_namespace(tmp_path: Path) -
 
     assert layout.artifact_path(source_evidence_path) == (
         ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
-        "official_brand_size_guide/source_discovery/evidence"
+        "official_brand_size_guide/source_discover/evidence"
     )
     assert layout.artifact_path(table_evidence_path) == (
         ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
@@ -911,11 +1055,11 @@ def test_source_discovery_rejects_non_priority_country_when_priority_country_exi
     evidence_path = (
         tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "source_type" / "official_brand_size_guide"
     )
-    evidence_path = evidence_path / "source_discovery" / "evidence" / "source_surface_inventory.json"
+    evidence_path = evidence_path / "source_discover" / "evidence" / "source_surface_inventory.json"
     evidence_path.parent.mkdir(parents=True)
     evidence_path.write_text("{}", encoding="utf-8")
     artifact_layout = ArtifactLayout(tmp_path)
-    source_discovery_result = SourceDiscoveryResult(
+    source_discover_result = SourceDiscoveryResult(
         discovered_source_list=[
             SourceDiscovery(
                 confidence=0.9,
@@ -945,7 +1089,7 @@ def test_source_discovery_rejects_non_priority_country_when_priority_country_exi
 
     try:
         SourceDiscoveryValidator(result_dir=tmp_path, stage_dir=evidence_path.parents[1]).validate(
-            discovery_result=source_discovery_result,
+            discovery_result=source_discover_result,
             expected_source_priority=600,
             expected_source_type="official_brand_size_guide",
             prompt_scope=PromptScope(priority_country_code="TR"),
@@ -1104,7 +1248,7 @@ def test_canonical_selection_rejects_missing_verified_tables() -> None:
     else:
         message = ""
 
-    assert "canonical_selection missing eligible size_group_key" in message
+    assert "canonical_select missing eligible size_group_key" in message
     assert "women_upper" in message
 
 
@@ -1153,7 +1297,7 @@ def test_table_extraction_draft_ignores_discovery_evidence_chart_payload(tmp_pat
 
     evidence_path = (
         tmp_path
-        / "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/source_discovery/evidence/table.json"
+        / "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/source_discover/evidence/table.json"
     )
     evidence_path.parent.mkdir(parents=True)
     evidence_table = TableExtraction(
@@ -1338,10 +1482,10 @@ def test_stage_prompt_text_includes_draft_result() -> None:
         draft_result_json_text='{"canonical_selection_list":[{"size_group_key":"women_upper"}]}',
         feedback_list=[],
         prompt_context="Brand: Defacto",
-        prompt_name="selection",
+        prompt_name="canonical_select",
         prompt_scope=PromptScope(),
         previous_result_json_text="",
-        stage_key="canonical_selection",
+        stage_key="canonical_select",
     )
 
     assert "Draft stage result JSON:" in prompt_text
@@ -1869,14 +2013,14 @@ def test_source_discovery_returns_unique_size_group_key_candidates() -> None:
 def test_source_discovery_locale_policy_is_priority_global_europe_without_vague_candidate_wording() -> None:
     """Use one explicit country-selection ladder instead of vague other-locale candidate rules."""
     apply_prompt = _prompt_template_text_get("workflow_run_prompt_apply.md.j2")
-    source_discovery_stage_text = Path("brand_size_chart/stage/source_discovery.py").read_text(encoding="utf-8")
+    source_discover_stage_text = Path("brand_size_chart/stage/source_discovery.py").read_text(encoding="utf-8")
     source_discover_template = _prompt_template_text_get("source_discover.md.j2")
     source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
     design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
     combined_text = "\n".join([apply_prompt, source_discover_template, source_discover_verify_template, design_text])
 
     assert "`priority_country_code`" in apply_prompt
-    assert "Priority country code:" in source_discovery_stage_text
+    assert "Priority country code:" in source_discover_stage_text
     assert "priority country tables exist" in source_discover_template
     assert "global tables" in source_discover_template
     assert "European country tables" in source_discover_template

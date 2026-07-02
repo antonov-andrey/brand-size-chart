@@ -52,11 +52,11 @@ class CoverageDecisionStage:
 
         coverage_decision_result = SemanticStage(
             codex_stage_run_callable=self._codex_stage_run,
-            prompt_name="selection",
+            prompt_name="coverage_decide",
             prompt_scope=self._prompt_scope,
             result_dir=self._result_dir,
             stage_dir=self._stage_dir,
-            stage_key="coverage_decision",
+            stage_key="coverage_decide",
         ).run(
             draft_result=self.draft_result_get(
                 prompt_scope=self._prompt_scope,

@@ -218,7 +218,7 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
             / "defacto"
             / "source_type"
             / "official_marketplace_product_page"
-            / "source_discovery"
+            / "source_discover"
             / "evidence"
             / "marketplace_product_page.json"
         )
@@ -244,7 +244,7 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
             )
         return StageVerification(
             artifact_path_list=[],
-            stage_key="source_discovery",
+            stage_key="source_discover",
             status="success",
             message="verified",
         )
@@ -270,13 +270,13 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
     assert "Use the configured browser" in str(call_list[0]["prompt_text"])
     assert (
         f"Browser evidence write directory: "
-        f"{tmp_path / '.playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/official_marketplace_product_page/source_discovery/evidence'}"
+        f"{tmp_path / '.playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/official_marketplace_product_page/source_discover/evidence'}"
         in str(call_list[0]["prompt_text"])
     )
     assert (
         "Evidence reference directory: "
         ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
-        "official_marketplace_product_page/source_discovery/evidence" in str(call_list[0]["prompt_text"])
+        "official_marketplace_product_page/source_discover/evidence" in str(call_list[0]["prompt_text"])
     )
     assert "women shoes" in str(call_list[0]["prompt_text"])
     assert "run separate browser-visible searches for both `beden rehberi` and `beden tablosu`" in str(
@@ -382,13 +382,13 @@ def test_source_discovery_retries_page_level_size_group_key(monkeypatch: object,
                 artifact_path_list=[],
                 error_list=["SourceDiscovery.size_group_key contains aggregate token."],
                 feedback_list=["SourceDiscovery.size_group_key contains aggregate token."],
-                stage_key="source_discovery",
+                stage_key="source_discover",
                 status="failed",
                 message="Aggregate source discovery must be fixed by the main stage.",
             )
         return StageVerification(
             artifact_path_list=[],
-            stage_key="source_discovery",
+            stage_key="source_discover",
             status="success",
             message="verified",
         )
@@ -493,13 +493,13 @@ def test_source_discovery_retry_prompt_includes_previous_result(monkeypatch: obj
                 artifact_path_list=[],
                 error_list=["Inventory is incomplete."],
                 feedback_list=["Inventory is incomplete."],
-                stage_key="source_discovery",
+                stage_key="source_discover",
                 status="failed",
                 message="Discovery inventory must be completed.",
             )
         return StageVerification(
             artifact_path_list=[],
-            stage_key="source_discovery",
+            stage_key="source_discover",
             status="success",
             message="verified",
         )
@@ -568,7 +568,7 @@ def test_source_discovery_retries_after_mechanical_guard_failure(monkeypatch: ob
                 message="No concrete tables found.",
             )
         if model_class is SourceDiscoveryResult:
-            assert "failed source_discovery must include concrete error_list blockers" in prompt_text
+            assert "failed source_discover must include concrete error_list blockers" in prompt_text
             return SourceDiscoveryResult(
                 discovered_source_list=[
                     SourceDiscovery(
@@ -588,7 +588,7 @@ def test_source_discovery_retries_after_mechanical_guard_failure(monkeypatch: ob
             )
         return StageVerification(
             artifact_path_list=[],
-            stage_key="source_discovery",
+            stage_key="source_discover",
             status="success",
             message="verified",
         )
@@ -661,7 +661,7 @@ def test_source_discovery_accepts_failed_result_with_canonical_inventory(monkeyp
         return StageVerification(
             artifact_path_list=[],
             message="verified",
-            stage_key="source_discovery",
+            stage_key="source_discover",
             status="success",
         )
 
@@ -741,7 +741,7 @@ def test_source_discovery_prompt_has_no_hardcoded_size_guide_routes(monkeypatch:
             )
         return StageVerification(
             artifact_path_list=[],
-            stage_key="source_discovery",
+            stage_key="source_discover",
             status="success",
             message="verified",
         )
@@ -815,7 +815,7 @@ def test_source_discovery_retries_then_fails_empty_skipped_result(monkeypatch: o
             artifact_path_list=[],
             error_list=["Empty source discovery is forbidden."],
             feedback_list=["Empty source discovery is forbidden."],
-            stage_key="source_discovery",
+            stage_key="source_discover",
             status="failed",
             message="Empty source discovery must be fixed by the main stage.",
         )
@@ -1245,7 +1245,7 @@ def test_source_discovery_rejects_skipped_result_even_when_verification_passes(
         return StageVerification(
             artifact_path_list=[],
             message="verified",
-            stage_key="source_discovery",
+            stage_key="source_discover",
             status="success",
         )
 
@@ -1266,7 +1266,7 @@ def test_source_discovery_rejects_skipped_result_even_when_verification_passes(
     else:
         message = ""
 
-    assert "source_discovery" in message
+    assert "source_discover" in message
     assert "status" in message
 
 
@@ -1327,7 +1327,7 @@ def test_source_discovery_rejects_duplicate_size_group_key(monkeypatch: object, 
         return StageVerification(
             artifact_path_list=[],
             message="verified",
-            stage_key="source_discovery",
+            stage_key="source_discover",
             status="success",
         )
 
@@ -1469,7 +1469,7 @@ def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, t
         output_path.write_text(
             StageVerification(
                 artifact_path_list=[],
-                stage_key="source_discovery",
+                stage_key="source_discover",
                 status="success",
                 message="verified",
             ).model_dump_json(),
@@ -1490,7 +1490,7 @@ def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, t
         prompt_text="verify",
         result_dir=result_dir,
         stage_dir=stage_dir,
-        stage_name="source_discovery",
+        stage_name="source_discover",
     )
 
     command_text = "\n".join(captured_command)
@@ -1508,7 +1508,7 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
     """Prevent retry attempts from reusing stale output and turn-completed diagnostics."""
     result_dir = tmp_path / "result"
     stage_dir = tmp_path / "stage"
-    diagnostic_dir = stage_dir / "diagnostics" / "source_discovery_verification"
+    diagnostic_dir = stage_dir / "diagnostics" / "source_discover_verification"
     output_path = diagnostic_dir / "codex_output.json"
     event_path = diagnostic_dir / "event.jsonl"
     stderr_path = diagnostic_dir / "stderr.txt"
@@ -1518,7 +1518,7 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
         StageVerification(
             artifact_path_list=[],
             error_list=["old error"],
-            stage_key="source_discovery",
+            stage_key="source_discover",
             status="failed",
             message="old verification",
         ).model_dump_json(),
@@ -1555,7 +1555,7 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
         fresh_output_path.write_text(
             StageVerification(
                 artifact_path_list=[],
-                stage_key="source_discovery",
+                stage_key="source_discover",
                 status="success",
                 message="fresh verification",
             ).model_dump_json(),
@@ -1570,7 +1570,7 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
         prompt_text="verify current result",
         result_dir=result_dir,
         stage_dir=stage_dir,
-        stage_name="source_discovery_verification",
+        stage_name="source_discover_verification",
     )
 
     assert result.status == "success"
@@ -1653,8 +1653,8 @@ def test_codex_subprocess_waits_after_stage_activity(monkeypatch: object, tmp_pa
 
 def test_codex_subprocess_terminates_completed_stuck_process_group(monkeypatch: object, tmp_path: Path) -> None:
     """Stop waiting when Codex wrote final output but its MCP child keeps the process alive."""
-    output_path = tmp_path / "diagnostics" / "source_discovery" / "codex_output.json"
-    event_path = tmp_path / "diagnostics" / "source_discovery" / "event.jsonl"
+    output_path = tmp_path / "diagnostics" / "source_discover" / "codex_output.json"
+    event_path = tmp_path / "diagnostics" / "source_discover" / "event.jsonl"
     terminate_signal_list: list[int] = []
 
     class FakeProcess:

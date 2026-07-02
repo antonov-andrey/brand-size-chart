@@ -11,11 +11,8 @@ MAX_STAGE_ATTEMPT_COUNT = 3
 PROMPT_TEMPLATE_NAME_BY_STAGE_KEY_MAP = MappingProxyType(
     {
         "canonical_select": "canonical_select.md.j2",
-        "canonical_selection": "canonical_select.md.j2",
         "coverage_decide": "coverage_decide.md.j2",
-        "coverage_decision": "coverage_decide.md.j2",
         "source_discover": "source_discover.md.j2",
-        "source_discovery": "source_discover.md.j2",
         "table_extract": "table_extract.md.j2",
         "workflow_run_prompt_apply": "workflow_run_prompt_apply.md.j2",
     }
@@ -34,11 +31,8 @@ PROMPT_TEMPLATE_NAME_BY_STAGE_PROMPT_MAP = MappingProxyType(
 VERIFY_TEMPLATE_NAME_BY_STAGE_KEY_MAP = MappingProxyType(
     {
         "canonical_select": "canonical_select_verify.md.j2",
-        "canonical_selection": "canonical_select_verify.md.j2",
         "coverage_decide": "coverage_decide_verify.md.j2",
-        "coverage_decision": "coverage_decide_verify.md.j2",
         "source_discover": "source_discover_verify.md.j2",
-        "source_discovery": "source_discover_verify.md.j2",
         "table_extract": "table_extract_verify.md.j2",
         "workflow_run_prompt_apply": "workflow_run_prompt_apply_verify.md.j2",
     }

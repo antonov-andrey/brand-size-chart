@@ -34,51 +34,51 @@ class SourceDiscoveryValidator(MechanicalValidator):
 
         priority_country_code = prompt_scope.priority_country_code
         priority_country_source_list = [
-            source_discovery
-            for source_discovery in discovery_result.discovered_source_list
-            if priority_country_code in source_discovery.country_code_list
+            source_discover
+            for source_discover in discovery_result.discovered_source_list
+            if priority_country_code in source_discover.country_code_list
         ]
         if priority_country_source_list:
             non_priority_country_size_group_key_list = [
-                source_discovery.size_group_key
-                for source_discovery in discovery_result.discovered_source_list
-                if priority_country_code not in source_discovery.country_code_list
+                source_discover.size_group_key
+                for source_discover in discovery_result.discovered_source_list
+                if priority_country_code not in source_discover.country_code_list
             ]
             if non_priority_country_size_group_key_list:
                 raise RuntimeError(
-                    "source_discovery contains non-priority country candidates while priority country tables exist: "
+                    "source_discover contains non-priority country candidates while priority country tables exist: "
                     f"priority_country_code={priority_country_code}; "
                     f"size_group_key_list={sorted(non_priority_country_size_group_key_list)}"
                 )
             return
 
         global_source_list = [
-            source_discovery
-            for source_discovery in discovery_result.discovered_source_list
-            if "GLOBAL" in source_discovery.country_code_list
+            source_discover
+            for source_discover in discovery_result.discovered_source_list
+            if "GLOBAL" in source_discover.country_code_list
         ]
         if global_source_list:
             non_global_size_group_key_list = [
-                source_discovery.size_group_key
-                for source_discovery in discovery_result.discovered_source_list
-                if "GLOBAL" not in source_discovery.country_code_list
+                source_discover.size_group_key
+                for source_discover in discovery_result.discovered_source_list
+                if "GLOBAL" not in source_discover.country_code_list
             ]
             if non_global_size_group_key_list:
                 raise RuntimeError(
-                    "source_discovery contains non-global candidates while global tables exist: "
+                    "source_discover contains non-global candidates while global tables exist: "
                     f"priority_country_code={priority_country_code}; "
                     f"size_group_key_list={sorted(non_global_size_group_key_list)}"
                 )
             return
 
         non_europe_size_group_key_list = [
-            source_discovery.size_group_key
-            for source_discovery in discovery_result.discovered_source_list
-            if "EU" not in source_discovery.country_code_list
+            source_discover.size_group_key
+            for source_discover in discovery_result.discovered_source_list
+            if "EU" not in source_discover.country_code_list
         ]
         if non_europe_size_group_key_list:
             raise RuntimeError(
-                "source_discovery contains candidates that are neither priority-country, global, nor verified European "
+                "source_discover contains candidates that are neither priority-country, global, nor verified European "
                 f"consensus tables: priority_country_code={priority_country_code}; "
                 f"size_group_key_list={sorted(non_europe_size_group_key_list)}"
             )
@@ -134,58 +134,54 @@ class SourceDiscoveryValidator(MechanicalValidator):
 
         if discovery_result.source_type != expected_source_type:
             raise RuntimeError(
-                f"source_discovery source_type mismatch: {discovery_result.source_type} != {expected_source_type}"
+                f"source_discover source_type mismatch: {discovery_result.source_type} != {expected_source_type}"
             )
         if discovery_result.status == "failed":
             if discovery_result.discovered_source_list:
-                raise RuntimeError("failed source_discovery must not return discovered_source_list items")
+                raise RuntimeError("failed source_discover must not return discovered_source_list items")
             if not discovery_result.error_list:
-                raise RuntimeError("failed source_discovery must include concrete error_list blockers")
+                raise RuntimeError("failed source_discover must include concrete error_list blockers")
             inventory_path = self._stage_dir / "evidence" / "source_surface_inventory.json"
             if not inventory_path.is_file():
-                raise RuntimeError(
-                    "failed source_discovery must write canonical evidence/source_surface_inventory.json"
-                )
+                raise RuntimeError("failed source_discover must write canonical evidence/source_surface_inventory.json")
             return
         if discovery_result.status != "success":
-            raise RuntimeError(f"source_discovery status must be success or failed, got {discovery_result.status}")
+            raise RuntimeError(f"source_discover status must be success or failed, got {discovery_result.status}")
         if not discovery_result.discovered_source_list:
-            raise RuntimeError("source_discovery returned no discovered_source_list items")
+            raise RuntimeError("source_discover returned no discovered_source_list items")
         self.country_selection_validate(
             discovery_result=discovery_result,
             prompt_scope=prompt_scope,
         )
         size_group_key_set: set[str] = set()
         requested_product_type_set = set(prompt_scope.product_type_request_list)
-        for source_discovery in discovery_result.discovered_source_list:
-            if source_discovery.size_group_key in size_group_key_set:
-                raise RuntimeError(f"source_discovery duplicate size_group_key: {source_discovery.size_group_key}")
-            size_group_key_set.add(source_discovery.size_group_key)
-            if source_discovery.source_type != expected_source_type:
+        for source_discover in discovery_result.discovered_source_list:
+            if source_discover.size_group_key in size_group_key_set:
+                raise RuntimeError(f"source_discover duplicate size_group_key: {source_discover.size_group_key}")
+            size_group_key_set.add(source_discover.size_group_key)
+            if source_discover.source_type != expected_source_type:
                 raise RuntimeError(
-                    f"source_discovery item source_type mismatch for {source_discovery.size_group_key}: "
-                    f"{source_discovery.source_type} != {expected_source_type}"
+                    f"source_discover item source_type mismatch for {source_discover.size_group_key}: "
+                    f"{source_discover.source_type} != {expected_source_type}"
                 )
-            if source_discovery.source_priority != expected_source_priority:
+            if source_discover.source_priority != expected_source_priority:
                 raise RuntimeError(
-                    f"source_discovery source_priority mismatch for {source_discovery.size_group_key}: "
-                    f"{source_discovery.source_priority} != {expected_source_priority}"
+                    f"source_discover source_priority mismatch for {source_discover.size_group_key}: "
+                    f"{source_discover.source_priority} != {expected_source_priority}"
                 )
-            if not source_discovery.source_url.strip():
-                raise RuntimeError(f"source_discovery returned empty source_url for {source_discovery.size_group_key}")
-            if not source_discovery.source_title.strip():
-                raise RuntimeError(
-                    f"source_discovery returned empty source_title for {source_discovery.size_group_key}"
-                )
+            if not source_discover.source_url.strip():
+                raise RuntimeError(f"source_discover returned empty source_url for {source_discover.size_group_key}")
+            if not source_discover.source_title.strip():
+                raise RuntimeError(f"source_discover returned empty source_title for {source_discover.size_group_key}")
             if requested_product_type_set:
-                hint_product_type_set = set(source_discovery.product_type_hint_list)
+                hint_product_type_set = set(source_discover.product_type_hint_list)
                 if not hint_product_type_set.issubset(requested_product_type_set):
                     unexpected_product_type_list = sorted(hint_product_type_set - requested_product_type_set)
                     raise RuntimeError(
-                        f"source_discovery returned unexpected product_type_hint_list for "
-                        f"{source_discovery.size_group_key}: {unexpected_product_type_list}"
+                        f"source_discover returned unexpected product_type_hint_list for "
+                        f"{source_discover.size_group_key}: {unexpected_product_type_list}"
                     )
             self._artifact_validator.evidence_path_list_validate(
-                evidence_path_list=source_discovery.evidence_path_list,
-                stage_key="source_discovery",
+                evidence_path_list=source_discover.evidence_path_list,
+                stage_key="source_discover",
             )

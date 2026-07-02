@@ -52,7 +52,7 @@ class SourceDiscoveryStage:
         self._source_priority = source_priority
         self._source_type = source_type
         self._source_type_dir = source_type_dir
-        self._stage_dir = self._artifact_layout.source_discovery_dir(brand_input, source_type)
+        self._stage_dir = self._artifact_layout.source_discover_dir(brand_input, source_type)
         self._validator = SourceDiscoveryValidator(result_dir=result_dir, stage_dir=self._stage_dir)
 
     def run(self) -> SourceDiscoveryResult:
@@ -67,11 +67,11 @@ class SourceDiscoveryStage:
             browser_access=True,
             browser_runtime_mcp_url=self._browser_runtime_mcp_url,
             codex_stage_run_callable=self._codex_stage_run,
-            prompt_name="discovery",
+            prompt_name="source_discover",
             prompt_scope=self._prompt_scope,
             result_dir=self._result_dir,
             stage_dir=self._stage_dir,
-            stage_key="source_discovery",
+            stage_key="source_discover",
         ).run(
             draft_result=draft_result,
             model_class=SourceDiscoveryResult,
@@ -109,7 +109,7 @@ class SourceDiscoveryStage:
             Prompt context text.
         """
 
-        evidence_dir = self._artifact_layout.source_discovery_evidence_dir(self._brand_input, self._source_type)
+        evidence_dir = self._artifact_layout.source_discover_evidence_dir(self._brand_input, self._source_type)
         requested_product_type_text = (
             "\n".join(f"- {product_type}" for product_type in self._prompt_scope.product_type_request_list) or "- none"
         )

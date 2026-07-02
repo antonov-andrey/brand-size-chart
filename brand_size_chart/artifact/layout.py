@@ -53,7 +53,7 @@ class ArtifactLayout:
 
         return self.result_dir / "brand_size_chart_audit" / "brand" / brand_input.parsed_brand_key
 
-    def brand_coverage_decision_dir(self, brand_input: BrandInput) -> Path:
+    def brand_coverage_decide_dir(self, brand_input: BrandInput) -> Path:
         """Return final brand coverage-decision audit directory.
 
         Args:
@@ -63,7 +63,7 @@ class ArtifactLayout:
             Final brand coverage-decision stage directory.
         """
 
-        return self.brand_audit_dir(brand_input) / "coverage_decision"
+        return self.brand_audit_dir(brand_input) / "coverage_decide"
 
     def brand_manifest_path(self, brand_input: BrandInput) -> Path:
         """Return final brand manifest path.
@@ -114,7 +114,7 @@ class ArtifactLayout:
 
         return self.brand_output_dir(brand_input) / "size_chart" / f"{size_group_key}.json"
 
-    def canonical_selection_dir(self, brand_input: BrandInput) -> Path:
+    def canonical_select_dir(self, brand_input: BrandInput) -> Path:
         """Return canonical-selection audit directory for one brand.
 
         Args:
@@ -124,9 +124,9 @@ class ArtifactLayout:
             Canonical-selection stage directory.
         """
 
-        return self.brand_audit_dir(brand_input) / "canonical_selection"
+        return self.brand_audit_dir(brand_input) / "canonical_select"
 
-    def coverage_decision_dir(self, brand_input: BrandInput, source_type: str) -> Path:
+    def coverage_decide_dir(self, brand_input: BrandInput, source_type: str) -> Path:
         """Return coverage-decision audit directory for one source type.
 
         Args:
@@ -137,7 +137,7 @@ class ArtifactLayout:
             Coverage-decision stage directory.
         """
 
-        return self.source_type_dir(brand_input, source_type) / "coverage_decision"
+        return self.source_type_dir(brand_input, source_type) / "coverage_decide"
 
     def run_result_path(self) -> Path:
         """Return root run result audit path.
@@ -148,7 +148,7 @@ class ArtifactLayout:
 
         return self.result_dir / "brand_size_chart_audit" / "run" / "result.json"
 
-    def source_discovery_dir(self, brand_input: BrandInput, source_type: str) -> Path:
+    def source_discover_dir(self, brand_input: BrandInput, source_type: str) -> Path:
         """Return source-discovery audit directory for one source type.
 
         Args:
@@ -159,9 +159,9 @@ class ArtifactLayout:
             Source-discovery stage directory.
         """
 
-        return self.source_type_dir(brand_input, source_type) / "source_discovery"
+        return self.source_type_dir(brand_input, source_type) / "source_discover"
 
-    def source_discovery_evidence_dir(self, brand_input: BrandInput, source_type: str) -> Path:
+    def source_discover_evidence_dir(self, brand_input: BrandInput, source_type: str) -> Path:
         """Return source-discovery evidence directory for one source type.
 
         Args:
@@ -181,7 +181,7 @@ class ArtifactLayout:
             / brand_input.parsed_brand_key
             / "source_type"
             / source_type
-            / "source_discovery"
+            / "source_discover"
             / "evidence"
         )
 
