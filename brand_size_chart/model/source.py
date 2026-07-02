@@ -128,3 +128,13 @@ class TableExtraction(StrictBaseModel):
         if dbos_identifier_component(value) != value:
             raise ValueError("value must already be a safe DBOS identifier component")
         return value
+
+
+class TableExtractionBatchResult(StrictBaseModel):
+    """Batch extraction result for one source type."""
+
+    error_list: list[str] = Field(default_factory=list)
+    message: str
+    source_type: str
+    status: StageStatus
+    table_extraction_list: list[TableExtraction]

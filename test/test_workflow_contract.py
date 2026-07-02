@@ -214,6 +214,30 @@ def test_artifact_layout_owns_current_paths(tmp_path: Path) -> None:
     )
 
 
+def test_table_extract_layout_uses_one_source_type_batch_dir(tmp_path: Path) -> None:
+    """Store batch table-extract output under one source-type stage directory."""
+    layout = ArtifactLayout(result_dir=tmp_path)
+    brand_input = BrandInput(
+        parsed_brand_key="defacto",
+        parsed_brand_name="Defacto",
+        raw_brand_name="Defacto",
+        source_line_number=1,
+    )
+
+    stage_dir = layout.table_extract_dir(brand_input, "official_brand_size_guide")
+
+    assert (
+        stage_dir.relative_to(tmp_path).as_posix()
+        == "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/table_extract"
+    )
+    assert (
+        layout.table_extract_chart_path(brand_input, "official_brand_size_guide", "women_upper")
+        .relative_to(tmp_path)
+        .as_posix()
+        == "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/table_extract/chart/women_upper.json"
+    )
+
+
 def test_artifact_reference_validator_rejects_existing_traversal_evidence_path(tmp_path: Path) -> None:
     """Reject existing evidence references that traverse outside the result directory."""
     from brand_size_chart.artifact.reference_validator import ArtifactReferenceValidator
@@ -255,6 +279,20 @@ def test_artifact_reference_validator_rejects_existing_absolute_artifact_path(tm
         message = ""
 
     assert "outside result_dir" in message
+
+
+def test_artifact_materializer_preserves_external_reference_inside_allowed_root(tmp_path: Path) -> None:
+    """Materialize allowed absolute references as result-dir-relative POSIX artifact paths."""
+    from brand_size_chart.artifact import ArtifactMaterializer
+
+    result_dir = tmp_path / "result"
+    external_root = result_dir / ".tool-output"
+    external_file = external_root / "source.json"
+    external_file.parent.mkdir(parents=True)
+    external_file.write_text("{}\n", encoding="utf-8")
+    materializer = ArtifactMaterializer(result_dir=result_dir, allowed_root_list=[external_root])
+
+    assert materializer.reference_list_materialize([str(external_file)]) == [".tool-output/source.json"]
 
 
 def test_stage_validators_live_under_validator_package() -> None:

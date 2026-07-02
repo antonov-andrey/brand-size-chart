@@ -19,7 +19,13 @@ from brand_size_chart.model.selection import (
     CoverageDecision,
     CoverageDecisionResult,
 )
-from brand_size_chart.model.source import SourceDiscovery, SourceDiscoveryResult, SourceTypeSummary, TableExtraction
+from brand_size_chart.model.source import (
+    SourceDiscovery,
+    SourceDiscoveryResult,
+    SourceTypeSummary,
+    TableExtraction,
+    TableExtractionBatchResult,
+)
 from brand_size_chart.model.stage import StageVerification
 
 __all__ = [
@@ -48,6 +54,7 @@ __all__ = [
     "StageVerification",
     "StrictBaseModel",
     "TableExtraction",
+    "TableExtractionBatchResult",
     "schema_file_write",
     "schema_model_map_get",
 ]

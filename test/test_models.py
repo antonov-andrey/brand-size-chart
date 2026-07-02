@@ -31,6 +31,14 @@ def test_model_package_exports_existing_public_models() -> None:
     assert TableExtraction.__module__ == "brand_size_chart.model.source"
 
 
+def test_table_extraction_batch_result_is_public_schema_model() -> None:
+    """Expose batch table-extraction results through the public schema registry."""
+    from brand_size_chart.model.source import TableExtractionBatchResult
+
+    assert TableExtractionBatchResult.__module__ == "brand_size_chart.model.source"
+    assert schema_model_map_get()["table_extraction_batch_result"] is TableExtractionBatchResult
+
+
 def test_generated_schemas_validate_representative_artifacts() -> None:
     """Validate representative JSON artifacts through generated Pydantic schemas."""
     schema_dir = Path("brand_size_chart/schema")

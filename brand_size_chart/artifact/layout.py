@@ -235,6 +235,46 @@ class ArtifactLayout:
 
         return stage_dir / "verification.json"
 
+    def table_extract_dir(self, brand_input: BrandInput, source_type: str) -> Path:
+        """Return batch table-extract audit directory for one source type.
+
+        Args:
+            brand_input: Parsed brand input.
+            source_type: Source type key.
+
+        Returns:
+            Batch table-extract stage directory.
+        """
+
+        return self.source_type_dir(brand_input, source_type) / "table_extract"
+
+    def table_extract_chart_path(self, brand_input: BrandInput, source_type: str, size_group_key: str) -> Path:
+        """Return generated batch chart artifact path.
+
+        Args:
+            brand_input: Parsed brand input.
+            source_type: Source type key.
+            size_group_key: Size group key.
+
+        Returns:
+            Batch chart artifact path.
+        """
+
+        return self.table_extract_dir(brand_input, source_type) / "chart" / f"{size_group_key}.json"
+
+    def table_extract_result_path(self, brand_input: BrandInput, source_type: str) -> Path:
+        """Return batch table-extract result path.
+
+        Args:
+            brand_input: Parsed brand input.
+            source_type: Source type key.
+
+        Returns:
+            Batch table-extract result artifact path.
+        """
+
+        return self.stage_result_path(self.table_extract_dir(brand_input, source_type))
+
     def table_extraction_dir(self, brand_input: BrandInput, source_type: str, size_group_key: str) -> Path:
         """Return table-extraction audit directory for one size group.
 

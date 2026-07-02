@@ -1,0 +1,191 @@
+{
+  "$defs": {
+    "BrandSizeChart": {
+      "additionalProperties": false,
+      "description": "Canonical brand size-chart table artifact.",
+      "properties": {
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "row_list": {
+          "items": {
+            "$ref": "#/$defs/BrandSizeChartRow"
+          },
+          "title": "Row List",
+          "type": "array"
+        }
+      },
+      "required": [
+        "description",
+        "row_list"
+      ],
+      "title": "BrandSizeChart",
+      "type": "object"
+    },
+    "BrandSizeChartMeasurement": {
+      "additionalProperties": false,
+      "description": "One normalized measurement inside a brand size-chart row.",
+      "properties": {
+        "max_value": {
+          "title": "Max Value",
+          "type": "string"
+        },
+        "min_value": {
+          "title": "Min Value",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "required": [
+        "max_value",
+        "min_value",
+        "name",
+        "unit"
+      ],
+      "title": "BrandSizeChartMeasurement",
+      "type": "object"
+    },
+    "BrandSizeChartRow": {
+      "additionalProperties": false,
+      "description": "One normalized brand size-chart row.",
+      "properties": {
+        "measurement_list": {
+          "items": {
+            "$ref": "#/$defs/BrandSizeChartMeasurement"
+          },
+          "title": "Measurement List",
+          "type": "array"
+        },
+        "size_label": {
+          "title": "Size Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "measurement_list",
+        "size_label"
+      ],
+      "title": "BrandSizeChartRow",
+      "type": "object"
+    },
+    "TableExtraction": {
+      "additionalProperties": false,
+      "description": "Extracted size-chart table from one source.",
+      "properties": {
+        "applicability_description": {
+          "default": "",
+          "title": "Applicability Description",
+          "type": "string"
+        },
+        "applicability_status": {
+          "default": "unknown_blocked",
+          "enum": [
+            "priority_country_official",
+            "official_global",
+            "official_eu_consensus",
+            "official_cross_locale_consensus",
+            "duplicate_exact",
+            "duplicate_units_only",
+            "market_conflict",
+            "unknown_blocked"
+          ],
+          "title": "Applicability Status",
+          "type": "string"
+        },
+        "chart": {
+          "$ref": "#/$defs/BrandSizeChart"
+        },
+        "evidence_path_list": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Path List",
+          "type": "array"
+        },
+        "product_type_hint_list": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Product Type Hint List",
+          "type": "array"
+        },
+        "size_group_key": {
+          "title": "Size Group Key",
+          "type": "string"
+        },
+        "source_title": {
+          "title": "Source Title",
+          "type": "string"
+        },
+        "source_type": {
+          "title": "Source Type",
+          "type": "string"
+        },
+        "source_url": {
+          "title": "Source Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "chart",
+        "size_group_key",
+        "source_title",
+        "source_type",
+        "source_url"
+      ],
+      "title": "TableExtraction",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Batch extraction result for one source type.",
+  "properties": {
+    "error_list": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Error List",
+      "type": "array"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    },
+    "source_type": {
+      "title": "Source Type",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "success",
+        "failed",
+        "skipped"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "table_extraction_list": {
+      "items": {
+        "$ref": "#/$defs/TableExtraction"
+      },
+      "title": "Table Extraction List",
+      "type": "array"
+    }
+  },
+  "required": [
+    "message",
+    "source_type",
+    "status",
+    "table_extraction_list"
+  ],
+  "title": "TableExtractionBatchResult",
+  "type": "object"
+}
