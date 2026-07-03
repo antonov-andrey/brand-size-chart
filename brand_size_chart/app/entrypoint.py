@@ -15,8 +15,12 @@ from brand_size_chart.identifier import dbos_identifier, dbos_identifier_compone
 from brand_size_chart.workflow import brand_size_chart_workflow, run_failure_result_write
 
 
-def main() -> None:
-    """Configure and launch the DBOS workflow process."""
+def main() -> int:
+    """Configure and launch the DBOS workflow process.
+
+    Returns:
+        Process exit code.
+    """
     args = runtime_config.args_parse()
     browser_runtime_mcp_url = args.browser_runtime_mcp_url.strip()
     if not browser_runtime_mcp_url:
@@ -58,7 +62,10 @@ def main() -> None:
                 args.workflow_run_prompt,
                 browser_runtime_mcp_url,
             )
-        workflow_handle.get_result()
+        workflow_result_payload = workflow_handle.get_result()
+        if isinstance(workflow_result_payload, dict) and workflow_result_payload.get("status") == "failed":
+            return 1
+        return 0
     except Exception as exc:
         run_failure_result_write(
             args.output_dir,

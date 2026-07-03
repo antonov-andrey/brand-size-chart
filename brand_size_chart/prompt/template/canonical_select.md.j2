@@ -1,6 +1,6 @@
 # Canonical Select
 
-Select one canonical chart per size group. Prefer higher-priority source types and record unresolved conflicts. Select canonical tables by source_priority and record conflicts with all compared decision values.
+Select one canonical chart per size group from the supplied draft result only. Do not add a `size_group_key`, `selected_source_type`, or `selected_source_url` that is absent from the supplied draft result. Prefer the highest numeric `source_priority` for the same `size_group_key` and record unresolved conflicts with all compared decision values.
 
 {% include "partial/size_group_key_contract.md.j2" %}
 

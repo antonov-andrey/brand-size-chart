@@ -44,7 +44,6 @@ class WorkflowRunPromptApplyStage:
 
         prompt_scope = SemanticStage(
             codex_stage_run_callable=self._codex_stage_run,
-            prompt_name="apply",
             prompt_scope=prompt_scope,
             result_dir=self._result_dir,
             stage_dir=self._stage_dir,

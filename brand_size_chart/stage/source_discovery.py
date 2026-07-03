@@ -62,12 +62,12 @@ class SourceDiscoveryStage:
             Verified source discovery result.
         """
 
+        self._artifact_directory_prepare()
         draft_result = self._draft_result_get()
         return SemanticStage(
             browser_access=True,
             browser_runtime_mcp_url=self._browser_runtime_mcp_url,
             codex_stage_run_callable=self._codex_stage_run,
-            prompt_name="source_discover",
             prompt_scope=self._prompt_scope,
             result_dir=self._result_dir,
             stage_dir=self._stage_dir,
@@ -82,6 +82,14 @@ class SourceDiscoveryStage:
                 expected_source_type=self._source_type,
                 prompt_scope=self._prompt_scope,
             ),
+        )
+
+    def _artifact_directory_prepare(self) -> None:
+        """Create source-discovery directories required before Codex browser execution."""
+
+        self._artifact_layout.source_discover_evidence_dir(self._brand_input, self._source_type).mkdir(
+            parents=True,
+            exist_ok=True,
         )
 
     def _draft_result_get(self) -> SourceDiscoveryResult:

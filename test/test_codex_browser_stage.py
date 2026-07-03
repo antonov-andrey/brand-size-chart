@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from pydantic import BaseModel
+import pytest
 
 from brand_size_chart import codex_stage
 from brand_size_chart.codex import runner as codex_runner
@@ -137,6 +138,36 @@ def _table_evidence_path_get(*, result_dir: Path, source_type: str, size_group_k
     )
 
 
+def _source_surface_inventory_write(*, evidence_path: Path, result_dir: Path, stage_dir: Path) -> None:
+    """Write one canonical source-surface inventory for source-discovery test doubles.
+
+    Args:
+        evidence_path: Evidence artifact path referenced by the fake discovery.
+        result_dir: Root result directory.
+        stage_dir: Source-discovery stage directory.
+    """
+
+    inventory_path = stage_dir / "evidence" / "source_surface_inventory.json"
+    inventory_path.parent.mkdir(parents=True, exist_ok=True)
+    inventory_path.write_text(
+        json.dumps(
+            {
+                "opened_urls": [
+                    {
+                        "evidence_path_list": [evidence_path.relative_to(result_dir).as_posix()],
+                        "result": "browser evidence observed",
+                        "url": "https://defacto.example/size",
+                    }
+                ]
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
 def _table_extraction_get(
     *,
     evidence_path: Path,
@@ -265,6 +296,7 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
         )
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
+        _source_surface_inventory_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
         if model_class is SourceDiscoveryResult:
             return SourceDiscoveryResult(
                 discovered_source_list=[
@@ -377,6 +409,7 @@ def test_source_discovery_retries_page_level_size_group_key(monkeypatch: object,
         evidence_path = stage_dir / "evidence" / "defacto_size_guide.md"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("browser-visible evidence\n", encoding="utf-8")
+        _source_surface_inventory_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
         if (
             model_class is SourceDiscoveryResult
             and len([call for call in call_list if call["model_class"] is SourceDiscoveryResult]) == 1
@@ -488,6 +521,7 @@ def test_source_discovery_retry_prompt_includes_previous_result(monkeypatch: obj
         evidence_path = stage_dir / "evidence" / "fr_ma_size_charts_dom_tables.json"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text('{"table": "Tableau Des Tailles Femmes"}\n', encoding="utf-8")
+        _source_surface_inventory_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
         discovery_call_count = len([call for call in call_list if call["model_class"] is SourceDiscoveryResult])
         if model_class is SourceDiscoveryResult and discovery_call_count == 1:
             return SourceDiscoveryResult(
@@ -599,6 +633,7 @@ def test_source_discovery_retries_after_mechanical_guard_failure(monkeypatch: ob
         evidence_path = stage_dir / "evidence" / "defacto_size_guide.json"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
+        _source_surface_inventory_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
         discovery_call_count = len([call for call in call_list if call["model_class"] is SourceDiscoveryResult])
         if model_class is SourceDiscoveryResult and discovery_call_count == 1:
             return SourceDiscoveryResult(
@@ -723,6 +758,171 @@ def test_source_discovery_accepts_failed_result_with_canonical_inventory(monkeyp
     assert discovery_call_list == [{"model_class": SourceDiscoveryResult}]
 
 
+def test_source_discovery_materializes_browser_inventory_before_guard(monkeypatch: object, tmp_path: Path) -> None:
+    """Accept failed discovery when browser inventory starts in the MCP artifact namespace."""
+    call_list: list[dict[str, object]] = []
+    source_type_dir = (
+        tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "source_type" / "official_seller_size_guide"
+    )
+
+    def fake_codex_stage_run(
+        *,
+        allow_user_config: bool,
+        browser_runtime_mcp_url: str,
+        model_class: type[BaseModel],
+        prompt_text: str,
+        result_dir: Path,
+        stage_dir: Path,
+        stage_name: str,
+    ) -> BaseModel:
+        """Return a failed discovery with browser-owned inventory evidence.
+
+        Args:
+            allow_user_config: Whether Codex loads configured MCP tools.
+            browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
+            model_class: Expected stage result model.
+            prompt_text: Prompt text passed to Codex.
+            result_dir: Root result directory.
+            stage_dir: Stage artifact directory.
+            stage_name: Stage name.
+
+        Returns:
+            Fake discovery or verification result.
+        """
+        _ = allow_user_config
+        _ = browser_runtime_mcp_url
+        _ = prompt_text
+        _ = stage_name
+        call_list.append({"model_class": model_class})
+        if model_class is SourceDiscoveryResult:
+            inventory_path = result_dir / ".playwright-mcp" / "current" / stage_dir.relative_to(result_dir)
+            inventory_path = inventory_path / "evidence" / "source_surface_inventory.json"
+            inventory_path.parent.mkdir(parents=True, exist_ok=True)
+            inventory_path.write_text('{"opened_url_list": [], "rejected_url_list": []}\n', encoding="utf-8")
+            return SourceDiscoveryResult(
+                discovered_source_list=[],
+                error_list=["No official seller size-guide table was visible in browser evidence."],
+                source_type="official_seller_size_guide",
+                status="failed",
+                message="No concrete official seller size guide found.",
+            )
+        return StageVerification(
+            artifact_path_list=[],
+            message="verified",
+            stage_key="source_discover",
+            status="success",
+        )
+
+    result = workflow_base.source_discovery_result_get(
+        brand_input=_brand_input_get(),
+        browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
+        codex_stage_run_callable=fake_codex_stage_run,
+        prompt_scope=PromptScope(priority_country_code="TR"),
+        result_dir=tmp_path,
+        secret_path=tmp_path / "secret",
+        source_priority=550,
+        source_type="official_seller_size_guide",
+        source_type_dir=source_type_dir,
+    )
+
+    canonical_inventory_path = source_type_dir / "source_discover" / "evidence" / "source_surface_inventory.json"
+    discovery_call_list = [call for call in call_list if call["model_class"] is SourceDiscoveryResult]
+
+    assert len(discovery_call_list) == 1
+    assert result.status == "failed"
+    assert canonical_inventory_path.is_file()
+
+
+def test_source_discovery_prepares_browser_evidence_directory_before_codex(monkeypatch: object, tmp_path: Path) -> None:
+    """Create the browser evidence directory before source-discovery Codex execution."""
+    source_type = "official_seller_size_guide"
+    source_type_dir = tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "source_type" / source_type
+
+    def fake_codex_stage_run(
+        *,
+        allow_user_config: bool,
+        browser_runtime_mcp_url: str,
+        model_class: type[BaseModel],
+        prompt_text: str,
+        result_dir: Path,
+        stage_dir: Path,
+        stage_name: str,
+    ) -> BaseModel:
+        """Require the source-discovery browser evidence directory before fake Codex writes.
+
+        Args:
+            allow_user_config: Whether Codex loads configured MCP tools.
+            browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
+            model_class: Expected stage result model.
+            prompt_text: Prompt text passed to Codex.
+            result_dir: Root result directory.
+            stage_dir: Stage artifact directory.
+            stage_name: Stage name.
+
+        Returns:
+            Fake discovery or verification result.
+        """
+        _ = allow_user_config
+        _ = browser_runtime_mcp_url
+        _ = prompt_text
+        _ = stage_name
+        evidence_dir = (
+            result_dir
+            / ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type"
+            / source_type
+            / "source_discover/evidence"
+        )
+        assert evidence_dir.is_dir()
+        if model_class is SourceDiscoveryResult:
+            evidence_path = evidence_dir / "seller_size_guide_absence.json"
+            evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
+            inventory_path = evidence_dir / "source_surface_inventory.json"
+            inventory_path.write_text(
+                json.dumps(
+                    {
+                        "rejected_urls": [
+                            {
+                                "evidence_path_list": [evidence_path.relative_to(result_dir).as_posix()],
+                                "reason": "No concrete seller size guide was visible.",
+                                "url": "https://www.defacto.com.tr",
+                            }
+                        ]
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return SourceDiscoveryResult(
+                discovered_source_list=[],
+                error_list=["No official seller size-guide table was visible in browser evidence."],
+                message="No concrete official seller size guide found.",
+                source_type=source_type,
+                status="failed",
+            )
+        return StageVerification(
+            artifact_path_list=[],
+            message="verified",
+            stage_key="source_discover",
+            status="success",
+        )
+
+    result = workflow_base.source_discovery_result_get(
+        brand_input=_brand_input_get(),
+        browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
+        codex_stage_run_callable=fake_codex_stage_run,
+        prompt_scope=PromptScope(priority_country_code="TR"),
+        result_dir=tmp_path,
+        secret_path=tmp_path / "secret",
+        source_priority=550,
+        source_type=source_type,
+        source_type_dir=source_type_dir,
+    )
+
+    assert result.status == "failed"
+
+
 def test_source_discovery_prompt_has_no_hardcoded_size_guide_routes(monkeypatch: object, tmp_path: Path) -> None:
     """Keep official brand size-guide discovery generic without hardcoded route templates."""
     call_list: list[dict[str, object]] = []
@@ -761,6 +961,7 @@ def test_source_discovery_prompt_has_no_hardcoded_size_guide_routes(monkeypatch:
         evidence_path = stage_dir / "evidence" / "defacto_size_guide.md"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("browser-visible evidence\n", encoding="utf-8")
+        _source_surface_inventory_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
         if model_class is SourceDiscoveryResult:
             return SourceDiscoveryResult(
                 discovered_source_list=[
@@ -1163,6 +1364,99 @@ def test_table_extract_batch_loads_chart_artifacts_from_lightweight_codex_result
     assert result.table_extraction_list[1].chart.description == "Women lower"
 
 
+def test_table_extract_prepares_chart_and_browser_evidence_directories_before_codex(
+    monkeypatch: object, tmp_path: Path
+) -> None:
+    """Create batch chart and browser evidence directories before table-extraction Codex execution."""
+    source_type = "official_brand_size_guide"
+    source_type_dir = tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "source_type" / source_type
+    source_discovery_list = [
+        _source_discovery_get(size_group_key="women_upper", source_title="Women upper"),
+        _source_discovery_get(size_group_key="women_lower", source_title="Women lower"),
+    ]
+
+    def fake_codex_stage_run(
+        *,
+        allow_user_config: bool,
+        browser_runtime_mcp_url: str,
+        model_class: type[BaseModel],
+        prompt_text: str,
+        result_dir: Path,
+        stage_dir: Path,
+        stage_name: str,
+    ) -> BaseModel:
+        """Require prepared chart and evidence directories before fake Codex writes.
+
+        Args:
+            allow_user_config: Whether Codex loads configured MCP tools.
+            browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
+            model_class: Expected stage result model.
+            prompt_text: Prompt text passed to Codex.
+            result_dir: Root result directory.
+            stage_dir: Stage artifact directory.
+            stage_name: Stage name.
+
+        Returns:
+            Fake extraction or verification result.
+        """
+        _ = allow_user_config
+        _ = browser_runtime_mcp_url
+        _ = prompt_text
+        _ = stage_name
+        assert (stage_dir / "chart").is_dir()
+        if model_class is StageVerification:
+            return StageVerification(
+                artifact_path_list=[],
+                message="verified",
+                stage_key="table_extract",
+                status="success",
+            )
+        table_extraction_artifact_list = []
+        for source_discovery in source_discovery_list:
+            evidence_dir = _table_evidence_path_get(
+                result_dir=result_dir,
+                source_type=source_type,
+                size_group_key=source_discovery.size_group_key,
+            ).parent
+            assert evidence_dir.is_dir()
+            evidence_path = evidence_dir / "table.json"
+            evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
+            table_extraction_artifact_list.append(
+                _table_extraction_artifact_get(
+                    chart_path=stage_dir / "chart" / f"{source_discovery.size_group_key}.json",
+                    evidence_path=evidence_path,
+                    result_dir=result_dir,
+                    size_group_key=source_discovery.size_group_key,
+                    source_title=source_discovery.source_title,
+                    source_type=source_discovery.source_type,
+                    source_url=source_discovery.source_url,
+                )
+            )
+        return TableExtractionArtifactBatchResult(
+            message="browser extraction completed",
+            source_type=source_type,
+            status="success",
+            table_extraction_artifact_list=table_extraction_artifact_list,
+        )
+
+    result = workflow_base.table_extract_result_get(
+        brand_input=_brand_input_get(),
+        browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
+        codex_stage_run_callable=fake_codex_stage_run,
+        prompt_scope=PromptScope(priority_country_code="TR"),
+        result_dir=tmp_path,
+        secret_path=tmp_path / "secret",
+        source_discovery_list=source_discovery_list,
+        source_type=source_type,
+        source_type_dir=source_type_dir,
+    )
+
+    assert [table_extraction.size_group_key for table_extraction in result.table_extraction_list] == [
+        "women_upper",
+        "women_lower",
+    ]
+
+
 def test_table_extract_batch_rejects_missing_discovery(monkeypatch: object, tmp_path: Path) -> None:
     """Reject and retry a batch extraction missing one discovered table."""
     call_list: list[dict[str, object]] = []
@@ -1388,9 +1682,11 @@ def test_source_discovery_rejects_skipped_result_even_when_verification_passes(
         _ = allow_user_config
         _ = browser_runtime_mcp_url
         _ = prompt_text
-        _ = result_dir
-        _ = stage_dir
         _ = stage_name
+        evidence_path = stage_dir / "evidence" / "empty_discovery.md"
+        evidence_path.parent.mkdir(parents=True, exist_ok=True)
+        evidence_path.write_text("no table evidence\n", encoding="utf-8")
+        _source_surface_inventory_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
         if model_class is SourceDiscoveryResult:
             return SourceDiscoveryResult(
                 discovered_source_list=[],
@@ -1463,6 +1759,7 @@ def test_source_discovery_rejects_duplicate_size_group_key(monkeypatch: object, 
         evidence_path = stage_dir / "evidence" / "guide.md"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("browser evidence", encoding="utf-8")
+        _source_surface_inventory_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
         if model_class is SourceDiscoveryResult:
             discovery = SourceDiscovery(
                 confidence=1.0,
@@ -1603,7 +1900,9 @@ def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, t
         runner: object,
         command: list[str],
         *,
+        browser_artifact_activity: bool,
         input: str,
+        result_dir: Path,
         stage_dir: Path,
     ) -> subprocess.CompletedProcess[str]:
         """Capture the Codex command and write a schema-valid output file.
@@ -1611,14 +1910,18 @@ def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, t
         Args:
             runner: Codex stage runner instance.
             command: Command argv passed to subprocess.
+            browser_artifact_activity: Whether browser artifacts count as subprocess activity.
             input: Prompt text.
+            result_dir: Root result directory.
             stage_dir: Stage artifact directory.
 
         Returns:
             Successful completed process.
         """
         _ = runner
+        assert browser_artifact_activity is True
         _ = input
+        _ = result_dir
         _ = stage_dir
         captured_command.extend(command)
         output_path = Path(command[command.index("--output-last-message") + 1])
@@ -1660,6 +1963,148 @@ def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, t
     assert "npx" not in command_text
 
 
+def test_codex_browser_stage_rejects_browser_run_code_unsafe(monkeypatch: object, tmp_path: Path) -> None:
+    """Reject unsafe controller-code browser tools even when Codex returns valid JSON."""
+
+    def fake_codex_subprocess_run(
+        runner: object,
+        command: list[str],
+        *,
+        browser_artifact_activity: bool,
+        input: str,
+        result_dir: Path,
+        stage_dir: Path,
+    ) -> subprocess.CompletedProcess[str]:
+        """Write one valid output and one forbidden browser tool event.
+
+        Args:
+            runner: Codex stage runner instance.
+            command: Command argv passed to subprocess.
+            browser_artifact_activity: Whether browser artifacts count as subprocess activity.
+            input: Prompt text.
+            result_dir: Root result directory.
+            stage_dir: Stage artifact directory.
+
+        Returns:
+            Successful completed process with a forbidden event stream.
+        """
+
+        _ = runner
+        assert browser_artifact_activity is True
+        _ = input
+        _ = result_dir
+        _ = stage_dir
+        output_path = Path(command[command.index("--output-last-message") + 1])
+        output_path.write_text(
+            StageVerification(
+                artifact_path_list=[],
+                stage_key="source_discover",
+                status="success",
+                message="verified",
+            ).model_dump_json(),
+            encoding="utf-8",
+        )
+        event_payload = {
+            "type": "item.started",
+            "item": {
+                "arguments": {"code": "async (page) => { const fs = require('fs'); return page.url(); }"},
+                "server": "playwright",
+                "tool": "browser_run_code_unsafe",
+                "type": "mcp_tool_call",
+            },
+        }
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout=json.dumps(event_payload) + "\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(codex_runner.CodexStageRunner, "_subprocess_run", fake_codex_subprocess_run)
+
+    with pytest.raises(codex_runner.CodexStageError, match="browser_run_code_unsafe"):
+        codex_stage.codex_stage_run(
+            allow_user_config=True,
+            browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
+            model_class=StageVerification,
+            prompt_text="verify",
+            result_dir=tmp_path,
+            stage_dir=tmp_path / "stage",
+            stage_name="source_discover",
+        )
+
+
+def test_codex_browser_stage_rejects_node_api_inside_browser_evaluate(monkeypatch: object, tmp_path: Path) -> None:
+    """Reject Node.js API usage inside browser page JavaScript."""
+
+    def fake_codex_subprocess_run(
+        runner: object,
+        command: list[str],
+        *,
+        browser_artifact_activity: bool,
+        input: str,
+        result_dir: Path,
+        stage_dir: Path,
+    ) -> subprocess.CompletedProcess[str]:
+        """Write one valid output and one invalid browser-evaluate event.
+
+        Args:
+            runner: Codex stage runner instance.
+            command: Command argv passed to subprocess.
+            browser_artifact_activity: Whether browser artifacts count as subprocess activity.
+            input: Prompt text.
+            result_dir: Root result directory.
+            stage_dir: Stage artifact directory.
+
+        Returns:
+            Successful completed process with a forbidden browser JavaScript payload.
+        """
+
+        _ = runner
+        assert browser_artifact_activity is True
+        _ = input
+        _ = result_dir
+        _ = stage_dir
+        output_path = Path(command[command.index("--output-last-message") + 1])
+        output_path.write_text(
+            StageVerification(
+                artifact_path_list=[],
+                stage_key="source_discover",
+                status="success",
+                message="verified",
+            ).model_dump_json(),
+            encoding="utf-8",
+        )
+        event_payload = {
+            "type": "item.started",
+            "item": {
+                "arguments": {"function": "() => import('node:fs')"},
+                "server": "playwright",
+                "tool": "browser_evaluate",
+                "type": "mcp_tool_call",
+            },
+        }
+        return subprocess.CompletedProcess(
+            args=command,
+            returncode=0,
+            stdout=json.dumps(event_payload) + "\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr(codex_runner.CodexStageRunner, "_subprocess_run", fake_codex_subprocess_run)
+
+    with pytest.raises(codex_runner.CodexStageError, match="Node.js"):
+        codex_stage.codex_stage_run(
+            allow_user_config=True,
+            browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
+            model_class=StageVerification,
+            prompt_text="verify",
+            result_dir=tmp_path,
+            stage_dir=tmp_path / "stage",
+            stage_name="source_discover",
+        )
+
+
 def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch: object, tmp_path: Path) -> None:
     """Prevent retry attempts from reusing stale output and turn-completed diagnostics."""
     result_dir = tmp_path / "result"
@@ -1687,7 +2132,9 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
         runner: object,
         command: list[str],
         *,
+        browser_artifact_activity: bool,
         input: str,
+        result_dir: Path,
         stage_dir: Path,
     ) -> subprocess.CompletedProcess[str]:
         """Require stale terminal diagnostics to be gone before subprocess launch.
@@ -1695,14 +2142,18 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
         Args:
             runner: Codex stage runner instance.
             command: Command argv passed to subprocess.
+            browser_artifact_activity: Whether browser artifacts count as subprocess activity.
             input: Prompt text.
+            result_dir: Root result directory.
             stage_dir: Stage artifact directory.
 
         Returns:
             Successful completed process with fresh diagnostics.
         """
         _ = runner
+        assert browser_artifact_activity is False
         _ = input
+        _ = result_dir
         _ = stage_dir
         assert not output_path.exists()
         assert not event_path.exists()
@@ -1800,7 +2251,96 @@ def test_codex_subprocess_waits_after_stage_activity(monkeypatch: object, tmp_pa
 
     monkeypatch.setattr(codex_runner.subprocess, "Popen", fake_popen)
 
-    process = codex_runner.CodexStageRunner()._subprocess_run(["codex", "exec"], input="prompt", stage_dir=tmp_path)
+    process = codex_runner.CodexStageRunner()._subprocess_run(
+        ["codex", "exec"],
+        browser_artifact_activity=False,
+        input="prompt",
+        result_dir=tmp_path,
+        stage_dir=tmp_path,
+    )
+
+    assert communicate_call_count == 2
+    assert process.returncode == 0
+    assert process.stdout == '{"event": "done"}\n'
+
+
+def test_codex_subprocess_waits_after_browser_artifact_activity(monkeypatch: object, tmp_path: Path) -> None:
+    """Continue waiting when a browser stage writes run-local Playwright artifacts."""
+    communicate_call_count = 0
+    result_dir = tmp_path / "result"
+    stage_dir = result_dir / "brand_size_chart_audit" / "brand" / "defacto" / "source_type" / "x" / "source_discover"
+    browser_stage_dir = result_dir / ".playwright-mcp" / "current" / stage_dir.relative_to(result_dir)
+
+    class FakeProcess:
+        """Fake long-running browser Codex process with one active browser-artifact interval."""
+
+        returncode = 0
+
+        def communicate(self, input: str | None = None, timeout: int | None = None) -> tuple[str, str]:
+            """Raise one timeout after writing a browser artifact, then finish.
+
+            Args:
+                input: Prompt text passed to the subprocess.
+                timeout: Inactivity timeout.
+
+            Returns:
+                Captured stdout and stderr.
+
+            Raises:
+                subprocess.TimeoutExpired: On the first communicate call.
+            """
+            nonlocal communicate_call_count
+            _ = input
+            communicate_call_count += 1
+            if communicate_call_count == 1:
+                browser_stage_dir.mkdir(parents=True, exist_ok=True)
+                (browser_stage_dir / "evidence.json").write_text('{"ok": true}\n', encoding="utf-8")
+                raise subprocess.TimeoutExpired(cmd=["codex"], timeout=timeout)
+            return '{"event": "done"}\n', ""
+
+        def kill(self) -> None:
+            """Fail the test if the active browser process is killed."""
+            raise AssertionError("active browser process must not be killed")
+
+    def fake_popen(
+        command: list[str],
+        *,
+        stdin: int,
+        stdout: int,
+        stderr: int,
+        start_new_session: bool,
+        text: bool,
+    ) -> FakeProcess:
+        """Return a fake process and preserve the expected subprocess boundary shape.
+
+        Args:
+            command: Command argv passed to subprocess.
+            stdin: Stdin pipe mode.
+            stdout: Stdout pipe mode.
+            stderr: Stderr pipe mode.
+            start_new_session: Whether the process starts a new process group.
+            text: Whether text mode is enabled.
+
+        Returns:
+            Fake process.
+        """
+        _ = command
+        _ = stdin
+        _ = stdout
+        _ = stderr
+        assert start_new_session is True
+        _ = text
+        return FakeProcess()
+
+    monkeypatch.setattr(codex_runner.subprocess, "Popen", fake_popen)
+
+    process = codex_runner.CodexStageRunner()._subprocess_run(
+        ["codex", "exec"],
+        browser_artifact_activity=True,
+        input="prompt",
+        result_dir=result_dir,
+        stage_dir=stage_dir,
+    )
 
     assert communicate_call_count == 2
     assert process.returncode == 0
@@ -1901,7 +2441,9 @@ def test_codex_subprocess_terminates_completed_stuck_process_group(monkeypatch: 
 
     process = codex_runner.CodexStageRunner()._subprocess_run(
         ["codex", "exec", "--output-last-message", str(output_path)],
+        browser_artifact_activity=False,
         input="prompt",
+        result_dir=tmp_path,
         stage_dir=tmp_path,
     )
 

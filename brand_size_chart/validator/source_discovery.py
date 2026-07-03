@@ -1,5 +1,6 @@
 """Source-discovery mechanical validation."""
 
+import json
 from pathlib import Path
 
 from brand_size_chart.model import PromptScope, SourceDiscoveryResult
@@ -136,14 +137,12 @@ class SourceDiscoveryValidator(MechanicalValidator):
             raise RuntimeError(
                 f"source_discover source_type mismatch: {discovery_result.source_type} != {expected_source_type}"
             )
+        self._inventory_validate()
         if discovery_result.status == "failed":
             if discovery_result.discovered_source_list:
                 raise RuntimeError("failed source_discover must not return discovered_source_list items")
             if not discovery_result.error_list:
                 raise RuntimeError("failed source_discover must include concrete error_list blockers")
-            inventory_path = self._stage_dir / "evidence" / "source_surface_inventory.json"
-            if not inventory_path.is_file():
-                raise RuntimeError("failed source_discover must write canonical evidence/source_surface_inventory.json")
             return
         if discovery_result.status != "success":
             raise RuntimeError(f"source_discover status must be success or failed, got {discovery_result.status}")
@@ -185,3 +184,75 @@ class SourceDiscoveryValidator(MechanicalValidator):
                 evidence_path_list=source_discover.evidence_path_list,
                 stage_key="source_discover",
             )
+
+    def _inventory_evidence_path_list_extend(
+        self, *, evidence_path_list: list[str], field_name: str, value: object
+    ) -> None:
+        """Collect evidence path references from one inventory field value.
+
+        Args:
+            evidence_path_list: Mutable evidence path accumulator.
+            field_name: Current inventory field name.
+            value: Current inventory field value.
+        """
+
+        if field_name.endswith("evidence_path") and isinstance(value, str):
+            evidence_path_list.append(value)
+            return
+        if field_name.endswith("evidence_path_list") and isinstance(value, list):
+            evidence_path_list.extend(item for item in value if isinstance(item, str))
+            return
+        self._inventory_evidence_path_list_get(evidence_path_list=evidence_path_list, value=value)
+
+    def _inventory_evidence_path_list_get(self, *, evidence_path_list: list[str], value: object) -> None:
+        """Collect evidence path references from the source-surface inventory payload.
+
+        Args:
+            evidence_path_list: Mutable evidence path accumulator.
+            value: Current inventory JSON value.
+        """
+
+        if isinstance(value, dict):
+            for field_name, field_value in value.items():
+                self._inventory_evidence_path_list_extend(
+                    evidence_path_list=evidence_path_list,
+                    field_name=field_name,
+                    value=field_value,
+                )
+            return
+        if isinstance(value, list):
+            for item in value:
+                self._inventory_evidence_path_list_get(evidence_path_list=evidence_path_list, value=item)
+
+    def _inventory_payload_get(self) -> object:
+        """Return parsed canonical source-surface inventory.
+
+        Returns:
+            Parsed inventory JSON payload.
+
+        Raises:
+            RuntimeError: If the inventory is missing or invalid JSON.
+        """
+
+        inventory_path = self._stage_dir / "evidence" / "source_surface_inventory.json"
+        if not inventory_path.is_file():
+            raise RuntimeError("source_discover must write canonical evidence/source_surface_inventory.json")
+        try:
+            return json.loads(inventory_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                "source_discover canonical evidence/source_surface_inventory.json is invalid JSON"
+            ) from exc
+
+    def _inventory_validate(self) -> None:
+        """Validate canonical source-surface inventory artifact references."""
+
+        evidence_path_list: list[str] = []
+        self._inventory_evidence_path_list_get(
+            evidence_path_list=evidence_path_list,
+            value=self._inventory_payload_get(),
+        )
+        self._artifact_validator.path_list_validate(
+            path_list=evidence_path_list,
+            stage_key="source_discover inventory",
+        )

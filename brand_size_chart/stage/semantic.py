@@ -5,7 +5,7 @@ from typing import cast
 
 from pydantic import BaseModel
 
-from brand_size_chart.artifact import ArtifactLayout, JsonArtifactWriter
+from brand_size_chart.artifact import ArtifactLayout, ArtifactMaterializer, JsonArtifactWriter
 from brand_size_chart.model import PromptScope, StageVerification
 from brand_size_chart.prompt.renderer import PromptRenderer
 from brand_size_chart.stage.base import (
@@ -43,7 +43,6 @@ def stage_prompt_text_get(
     draft_result_json_text: str,
     feedback_list: list[str],
     prompt_context: str,
-    prompt_name: str,
     prompt_scope: PromptScope | None,
     previous_result_json_text: str,
     stage_key: str,
@@ -55,7 +54,6 @@ def stage_prompt_text_get(
         draft_result_json_text: Deterministic draft result JSON.
         feedback_list: Verification feedback from previous attempts.
         prompt_context: Stage-specific context.
-        prompt_name: Static prompt file name stem.
         prompt_scope: Parsed workflow-run prompt scope.
         previous_result_json_text: Previous attempt result JSON, when present.
         stage_key: Stable stage key.
@@ -65,7 +63,7 @@ def stage_prompt_text_get(
     """
 
     return PromptRenderer().render(
-        prompt_template_name_get(prompt_name=prompt_name, stage_key=stage_key),
+        prompt_template_name_get(stage_key),
         {
             "attempt_index": attempt_index,
             "draft_result_json_text": draft_result_json_text,
@@ -88,7 +86,6 @@ class SemanticStage:
         browser_access: bool = False,
         browser_runtime_mcp_url: str = "",
         codex_stage_run_callable: CodexStageRun,
-        prompt_name: str,
         prompt_scope: PromptScope | None,
         result_dir: Path,
         stage_dir: Path,
@@ -100,7 +97,6 @@ class SemanticStage:
             browser_access: Whether Codex may use browser/MCP tools and write evidence artifacts.
             browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL for browser stages.
             codex_stage_run_callable: Codex stage execution boundary.
-            prompt_name: Static prompt file name stem.
             prompt_scope: Parsed prompt scope relevant to this stage.
             result_dir: Root result directory.
             stage_dir: Stage artifact directory.
@@ -108,11 +104,14 @@ class SemanticStage:
         """
 
         self._artifact_layout = ArtifactLayout(result_dir)
+        self._artifact_materializer = ArtifactMaterializer(
+            result_dir,
+            allowed_root_list=[result_dir / ".playwright-mcp" / "current"],
+        )
         self._artifact_writer = JsonArtifactWriter()
         self._browser_access = browser_access
         self._browser_runtime_mcp_url = browser_runtime_mcp_url
         self._codex_stage_run = codex_stage_run_callable
-        self._prompt_name = prompt_name
         self._prompt_renderer = PromptRenderer()
         self._prompt_scope = prompt_scope
         self._result_dir = result_dir
@@ -166,6 +165,8 @@ class SemanticStage:
                 ),
             )
             result_path = self._artifact_layout.stage_result_path(self._stage_dir)
+            if self._browser_access:
+                self._artifact_materializer.stage_browser_artifact_materialize(self._stage_dir)
             self._artifact_writer.write(result_path, result)
             artifact_path_list = [self._artifact_layout.artifact_path(result_path)]
             previous_result_json_text = result.model_dump_json(indent=2)
@@ -282,7 +283,7 @@ class SemanticStage:
         """
 
         return self._prompt_renderer.render(
-            prompt_template_name_get(prompt_name=self._prompt_name, stage_key=self._stage_key),
+            prompt_template_name_get(self._stage_key),
             {
                 "attempt_index": attempt_index,
                 "draft_result_json_text": draft_result_json_text,

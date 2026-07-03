@@ -65,6 +65,8 @@ class ArtifactReferenceValidator:
             RuntimeError: If the artifact reference is invalid.
         """
 
+        if path_text != path_text.strip():
+            raise RuntimeError(f"Artifact reference has leading or trailing whitespace: {path_text}")
         artifact_path = (self.result_dir / path_text).resolve()
         try:
             artifact_path.relative_to(self.result_dir)

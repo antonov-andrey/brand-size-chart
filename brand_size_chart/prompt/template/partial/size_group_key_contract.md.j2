@@ -33,7 +33,6 @@ Current approved `product_group_or_type` terms from existing extracted chart gro
 
 - `upper`
 - `lower`
-- `pants_skirts`
 - `belts`
 - `shoes`
 - `clothing`
@@ -65,3 +64,5 @@ Never use `size_chart`, `chart`, `product_measurement`, `product_measurements`, 
 Product row size labels, including row-level age labels, bra sizes, alpha sizes, or similar source row values, are not `sex_suffix` terms and must not become table-group suffixes.
 
 Synonyms are forbidden. Use the approved term when the meaning is already covered by the approved list. If browser-visible source evidence proves a genuinely new table group that is not covered by this list, create one new clear snake_case term, explain the source wording in `source_note_list` or `applicability_description`, and let verification check that it is not a duplicate name for an existing approved meaning.
+
+Use `lower` for lower-body clothing tables such as pants, skirts, shorts, trousers, jeans, leggings, and equivalent source-language terms unless the source exposes a distinct standalone table whose meaning is not covered by `lower`. Do not create combined keys by joining narrower synonyms when an approved broader term already covers the table meaning.

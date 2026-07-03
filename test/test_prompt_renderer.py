@@ -112,7 +112,6 @@ def test_semantic_stage_reuses_one_prompt_renderer(monkeypatch: pytest.MonkeyPat
 
     SemanticStage(
         codex_stage_run_callable=fake_codex_stage_run,
-        prompt_name="source_discover",
         prompt_scope=PromptScope(),
         result_dir=tmp_path,
         stage_dir=tmp_path / "stage",

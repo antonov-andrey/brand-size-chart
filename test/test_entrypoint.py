@@ -13,22 +13,24 @@ from brand_size_chart.app import runtime_config
 class _FakeWorkflowHandle:
     """Minimal DBOS workflow handle test double."""
 
-    def __init__(self, event_list: list[tuple[str, object]]) -> None:
+    def __init__(self, event_list: list[tuple[str, object]], result_payload: dict[str, object] | None = None) -> None:
         """Store the shared event log.
 
         Args:
             event_list: Mutable list that records DBOS calls.
+            result_payload: Workflow result payload returned by `get_result`.
         """
         self._event_list = event_list
+        self._result_payload = result_payload or {"status": "success"}
 
-    def get_result(self) -> dict[str, str]:
+    def get_result(self) -> dict[str, object]:
         """Record result wait and return a dummy workflow result.
 
         Returns:
             Dummy workflow result.
         """
         self._event_list.append(("get_result", None))
-        return {"state": "completed"}
+        return self._result_payload
 
 
 class _FakeSetWorkflowID:
@@ -172,6 +174,55 @@ def test_entrypoint_bootstraps_dbos_with_stable_ids_and_worker_concurrency(monke
         ("workflow_id_exit", "workflow/run_01"),
         ("get_result", None),
     ]
+
+
+def test_entrypoint_returns_failed_exit_code_for_failed_root_result(monkeypatch: object, tmp_path: Path) -> None:
+    """Return a non-zero process code when the root workflow result is failed."""
+    brand_list_path = tmp_path / "brand_list.txt"
+    brand_list_path.write_text("Mavi\n", encoding="utf-8")
+    output_dir = tmp_path / "out"
+    secret_dir = tmp_path / "secret"
+    event_list: list[tuple[str, object]] = []
+    _FakeDBOS.event_list = event_list
+    _FakeSetWorkflowID.event_list = event_list
+
+    class FakeFailedDBOS(_FakeDBOS):
+        """DBOS double that returns a failed workflow result."""
+
+        @classmethod
+        def enqueue_workflow(cls, queue_name: str, function: object, *args: object) -> _FakeWorkflowHandle:
+            """Record workflow enqueue call and return a failed handle.
+
+            Args:
+                queue_name: Queue name.
+                function: Workflow function.
+                *args: Workflow arguments.
+
+            Returns:
+                Fake workflow handle with failed root result.
+            """
+            cls.event_list.append(("enqueue_workflow", (queue_name, args)))
+            return _FakeWorkflowHandle(cls.event_list, {"status": "failed"})
+
+    monkeypatch.setattr(entrypoint, "DBOS", FakeFailedDBOS)
+    monkeypatch.setattr(entrypoint, "SetWorkflowID", _FakeSetWorkflowID)
+    monkeypatch.setattr(
+        runtime_config,
+        "args_parse",
+        lambda: argparse.Namespace(
+            brand_list=brand_list_path,
+            browser_runtime_mcp_url="http://browser-runtime:8931/mcp",
+            input_secret=None,
+            output_dir=output_dir,
+            secret=str(secret_dir),
+            workflow_git_url="git@github.com:antonov-andrey/brand-size-chart.git",
+            workflow_run_id="Run 01",
+            workflow_run_prompt="official_brand_size_guide only",
+        ),
+    )
+    monkeypatch.setenv("DBOS_SYSTEM_DATABASE_URL", "postgresql://dbos:secret@localhost:5432/brand_size_chart")
+
+    assert entrypoint.main() == 1
 
 
 def test_entrypoint_accepts_explicit_sqlite_system_database(monkeypatch: object) -> None:

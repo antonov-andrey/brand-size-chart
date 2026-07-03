@@ -66,11 +66,11 @@ class TableExtractionStage:
             Verified batch table extraction.
         """
 
+        self._artifact_directory_prepare()
         table_extraction_artifact_batch_result = SemanticStage(
             browser_access=True,
             browser_runtime_mcp_url=self._browser_runtime_mcp_url,
             codex_stage_run_callable=self._codex_stage_run,
-            prompt_name="table_extract",
             prompt_scope=self._prompt_scope,
             result_dir=self._result_dir,
             stage_dir=self._artifact_layout.table_extract_dir(self._brand_input, self._source_type),
@@ -88,6 +88,16 @@ class TableExtractionStage:
             table_extraction_artifact_batch_result,
             source_discovery_list=self._source_discovery_list,
         )
+
+    def _artifact_directory_prepare(self) -> None:
+        """Create table-extraction directories required before Codex browser execution."""
+
+        (self._artifact_layout.table_extract_dir(self._brand_input, self._source_type) / "chart").mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        for source_discovery in self._source_discovery_list:
+            self._table_extract_evidence_dir_get(source_discovery).mkdir(parents=True, exist_ok=True)
 
     def _draft_artifact_result_get(self) -> TableExtractionArtifactBatchResult:
         """Return deterministic draft extraction-artifact batch from source discoveries.

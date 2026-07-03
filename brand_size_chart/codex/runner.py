@@ -1,6 +1,8 @@
 """Codex-backed semantic stage execution."""
 
+import json
 import os
+import re
 import signal
 import subprocess
 from pathlib import Path
@@ -16,6 +18,27 @@ CODEX_BROWSER_STAGE_SYSTEM_PROMPT = (
     "Use the configured browser tools for every source-page and source-data load. "
     "All non-browser loading mechanisms are forbidden for source data; curl, requests, wget, and direct HTTP are "
     "examples, not an exhaustive list. "
+    "Do not open local result artifacts through browser tools; file://, localhost, or 127.0.0.1 URLs for local "
+    "artifacts are forbidden. "
+    "Read local artifact files through normal filesystem access. "
+    "Browser tools may write only evidence artifacts under browser evidence write directories. "
+    "Before clicking a page target, close or answer browser-visible cookie banners, drawers, and overlays that "
+    "intercept pointer events, then retry the target action. "
+    "When a selector or text locator matches multiple elements, use the browser snapshot to choose a scoped unique "
+    "target instead of repeating the broad locator. "
+    "Retry transient browser navigation failures such as ERR_NETWORK_CHANGED through the same configured browser "
+    "before treating the source as unavailable. "
+    "Do not use browser page context to write chart artifacts, result.json, verification.json, or audit JSON. "
+    "Do not use jq with guessed JSON paths; schema validation is already enforced by the workflow. "
+    "Do not use brittle glob scripts over heterogeneous JSON artifacts; validate each parsed JSON value shape before "
+    "field access and skip unrelated JSON artifact shapes. "
+    "Do not use browser_run_code_unsafe. "
+    "When extracting data from one opened page, use browser_evaluate with pure browser JavaScript only. "
+    "Browser JavaScript must read DOM, window, document, links, tables, page text, and browser-visible state, then "
+    "return serializable data. "
+    "Browser JavaScript must not use Node.js APIs or module systems such as require, dynamic import, node: modules, fs, "
+    "path, process, or Buffer. "
+    "Local artifact writing belongs to normal Codex filesystem access or workflow code outside page JavaScript. "
     "You may write files only under absolute artifact write directories explicitly named in the prompt. "
     "Do not write under referenced artifact directories unless the prompt explicitly names them as write directories. "
     "Do not emit progress text. Return only the final JSON object that matches the supplied output schema."
@@ -25,7 +48,10 @@ CODEX_EXEC_POLL_SECONDS = 5
 CODEX_STAGE_SYSTEM_PROMPT = (
     "You are a schema-bound workflow stage inside brand-size-chart. "
     "Return only a JSON object that matches the supplied output schema. "
-    "Do not edit files. Read the referenced evidence files and preserve all source data."
+    "Do not edit files. Read the referenced evidence files and preserve all source data. "
+    "Do not use jq with guessed JSON paths; schema validation is already enforced by the workflow. "
+    "Do not use brittle glob scripts over heterogeneous JSON artifacts; validate each parsed JSON value shape before "
+    "field access and skip unrelated JSON artifact shapes."
 )
 PLAYWRIGHT_MCP_APPROVED_TOOL_LIST = [
     "browser_click",
@@ -35,6 +61,15 @@ PLAYWRIGHT_MCP_APPROVED_TOOL_LIST = [
     "browser_snapshot",
     "browser_tabs",
 ]
+BROWSER_JAVASCRIPT_FORBIDDEN_PATTERN_LIST = [
+    re.compile(r"\brequire\s*\("),
+    re.compile(r"\bimport\s*\("),
+    re.compile(r"\b(?:fs|path|process)\s*\."),
+    re.compile(r"\bBuffer\s*(?:[\.\(\[]|$)"),
+    re.compile(r"[\"']node:"),
+]
+PLAYWRIGHT_MCP_CODE_TOOL_SET = {"browser_evaluate", "browser_run_code_unsafe"}
+PLAYWRIGHT_MCP_FORBIDDEN_TOOL_SET = {"browser_run_code_unsafe"}
 _ResultModelT = TypeVar("_ResultModelT", bound=BaseModel)
 
 
@@ -110,14 +145,88 @@ class CodexStageRunner:
         )
         process = self._subprocess_run(
             command,
+            browser_artifact_activity=allow_user_config,
             input=prompt_path.read_text(encoding="utf-8"),
+            result_dir=result_dir,
             stage_dir=stage_dir,
         )
         event_path.write_text(process.stdout, encoding="utf-8")
         stderr_path.write_text(process.stderr, encoding="utf-8")
+        if allow_user_config:
+            self._browser_tool_contract_validate(event_path=event_path, stage_name=stage_name)
         if process.returncode != 0:
             raise CodexStageError(f"Codex stage {stage_name} failed with exit code {process.returncode}.")
         return self._output_model_get(model_class=model_class, output_path=output_path, stage_name=stage_name)
+
+    def _browser_tool_argument_text_list_get(self, value: object) -> list[str]:
+        """Return string leaves from one browser tool argument payload.
+
+        Args:
+            value: JSON-decoded tool argument value.
+
+        Returns:
+            String leaves inside the argument payload.
+        """
+
+        if isinstance(value, str):
+            return [value]
+        if isinstance(value, list):
+            text_list: list[str] = []
+            for item in value:
+                text_list.extend(self._browser_tool_argument_text_list_get(item))
+            return text_list
+        if isinstance(value, dict):
+            text_list = []
+            for item in value.values():
+                text_list.extend(self._browser_tool_argument_text_list_get(item))
+            return text_list
+        return []
+
+    def _browser_tool_contract_validate(self, *, event_path: Path, stage_name: str) -> None:
+        """Validate browser tool usage emitted by one Codex browser stage.
+
+        Args:
+            event_path: Codex JSONL event stream path.
+            stage_name: Stage name used for diagnostics.
+
+        Raises:
+            CodexStageError: If one browser tool call violates the page-JavaScript contract.
+        """
+
+        error_list: list[str] = []
+        for line_index, line in enumerate(event_path.read_text(encoding="utf-8").splitlines(), start=1):
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            item = event.get("item")
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "mcp_tool_call" or item.get("server") != "playwright":
+                continue
+            tool_name = item.get("tool")
+            if not isinstance(tool_name, str):
+                continue
+            if tool_name in PLAYWRIGHT_MCP_FORBIDDEN_TOOL_SET:
+                error_list.append(
+                    f"line {line_index}: forbidden Playwright MCP tool {tool_name}; use browser_evaluate with pure "
+                    "page JavaScript and return serializable data instead."
+                )
+                continue
+            if tool_name not in PLAYWRIGHT_MCP_CODE_TOOL_SET:
+                continue
+            for argument_text in self._browser_tool_argument_text_list_get(item.get("arguments")):
+                if any(pattern.search(argument_text) for pattern in BROWSER_JAVASCRIPT_FORBIDDEN_PATTERN_LIST):
+                    error_list.append(
+                        f"line {line_index}: browser JavaScript for {tool_name} uses Node.js or dynamic import; "
+                        "browser page code may read DOM data only and must return serializable data."
+                    )
+                    break
+        if error_list:
+            error_text = "; ".join(error_list)
+            raise CodexStageError(
+                f"Codex browser stage {stage_name} violated browser JavaScript contract: {error_text}"
+            )
 
     def _codex_completion_output_exist(self, *, output_path: Path | None, stage_dir: Path) -> bool:
         """Return whether Codex wrote final output and reported turn completion.
@@ -279,6 +388,18 @@ class CodexStageRunner:
             activity_marker += child_stat.st_mtime_ns + child_stat.st_size + 1
         return activity_marker
 
+    def _path_activity_marker_list_get(self, path_list: list[Path]) -> int:
+        """Return combined activity marker for watched path trees.
+
+        Args:
+            path_list: Path trees to scan.
+
+        Returns:
+            Combined activity marker.
+        """
+
+        return sum(self._path_activity_marker_get(path) for path in path_list)
+
     def _playwright_mcp_config_arg_list_get(self, *, browser_runtime_mcp_url: str) -> list[str]:
         """Return Codex config args for the run-level browser/VPN MCP server.
 
@@ -328,12 +449,22 @@ class CodexStageRunner:
             self._process_group_kill(process)
             return process.communicate()
 
-    def _subprocess_run(self, command: list[str], *, input: str, stage_dir: Path) -> subprocess.CompletedProcess[str]:
+    def _subprocess_run(
+        self,
+        command: list[str],
+        *,
+        browser_artifact_activity: bool,
+        input: str,
+        result_dir: Path,
+        stage_dir: Path,
+    ) -> subprocess.CompletedProcess[str]:
         """Run `codex exec` with an artifact-activity inactivity timeout.
 
         Args:
             command: Codex command argv.
+            browser_artifact_activity: Whether browser MCP artifacts count as subprocess activity.
             input: Prompt text sent to Codex stdin.
+            result_dir: Root result directory.
             stage_dir: Stage artifact directory watched for progress.
 
         Returns:
@@ -350,7 +481,10 @@ class CodexStageRunner:
         communicate_input: str | None = input
         inactivity_seconds = 0
         output_path = self._codex_output_path_get(command)
-        stage_activity_marker = self._path_activity_marker_get(stage_dir)
+        activity_path_list = [stage_dir]
+        if browser_artifact_activity:
+            activity_path_list.append(result_dir / ".playwright-mcp" / "current" / stage_dir.relative_to(result_dir))
+        stage_activity_marker = self._path_activity_marker_list_get(activity_path_list)
         while True:
             try:
                 stdout, stderr = process.communicate(
@@ -367,7 +501,7 @@ class CodexStageRunner:
                 if self._codex_completion_output_exist(output_path=output_path, stage_dir=stage_dir):
                     stdout, stderr = self._process_group_terminate(process)
                     return subprocess.CompletedProcess(args=command, returncode=0, stdout=stdout, stderr=stderr)
-                current_stage_activity_marker = self._path_activity_marker_get(stage_dir)
+                current_stage_activity_marker = self._path_activity_marker_list_get(activity_path_list)
                 if current_stage_activity_marker != stage_activity_marker:
                     stage_activity_marker = current_stage_activity_marker
                     inactivity_seconds = 0

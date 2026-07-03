@@ -239,7 +239,6 @@ def stage_prompt_text_get(
     draft_result_json_text: str,
     feedback_list: list[str],
     prompt_context: str,
-    prompt_name: str,
     prompt_scope: PromptScope | None,
     previous_result_json_text: str,
     stage_key: str,
@@ -251,7 +250,6 @@ def stage_prompt_text_get(
         draft_result_json_text: Deterministic draft result JSON.
         feedback_list: Verification feedback from previous attempts.
         prompt_context: Stage-specific context.
-        prompt_name: Static prompt file name stem.
         prompt_scope: Parsed workflow-run prompt scope.
         previous_result_json_text: Previous attempt result JSON, when present.
         stage_key: Stable stage key.
@@ -264,7 +262,6 @@ def stage_prompt_text_get(
         draft_result_json_text=draft_result_json_text,
         feedback_list=feedback_list,
         prompt_context=prompt_context,
-        prompt_name=prompt_name,
         prompt_scope=prompt_scope,
         previous_result_json_text=previous_result_json_text,
         stage_key=stage_key,

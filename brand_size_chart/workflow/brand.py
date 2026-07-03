@@ -119,11 +119,17 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
                     source_type,
                 )
             source_type_result = source_type_handle.get_result()
-            source_type_summary_payload_list.append(source_type_result["source_type_summary"])
-            table_extraction_payload_list.extend(source_type_result["table_extraction_list"])
-            if not prompt_scope.product_type_request_list and source_type_result["table_extraction_list"]:
+            source_type_summary = SourceTypeSummary.model_validate(source_type_result["source_type_summary"])
+            source_type_summary_payload_list.append(source_type_summary.model_dump(mode="json"))
+            source_type_table_extraction_payload_list = source_type_result["table_extraction_list"]
+            table_extraction_payload_list.extend(source_type_table_extraction_payload_list)
+            if not prompt_scope.product_type_request_list and source_type_table_extraction_payload_list:
                 break
-            if prompt_scope.product_type_request_list and table_extraction_payload_list:
+            if (
+                prompt_scope.product_type_request_list
+                and table_extraction_payload_list
+                and source_type_summary.state == "passed"
+            ):
                 coverage_prompt_scope = prompt_scope_with_product_type_request_list_get(
                     product_type_request_list=remaining_product_type_list,
                     prompt_scope=prompt_scope,

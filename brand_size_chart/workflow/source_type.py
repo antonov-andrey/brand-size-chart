@@ -57,6 +57,7 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
         prompt_scope = PromptScope.model_validate(prompt_scope_payload)
         verified_table_extraction_payload_list: list[dict[str, object]] = []
         blocker_list: list[str] = []
+        warning_list: list[str] = []
         try:
             discovery_result_payload = self.source_discover_write_step(
                 brand_input.model_dump(mode="json"),
@@ -68,7 +69,7 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
             )
             discovery_result = SourceDiscoveryResult.model_validate(discovery_result_payload)
             if discovery_result.status == "failed":
-                blocker_list.extend(discovery_result.error_list or [discovery_result.message])
+                warning_list.extend(discovery_result.error_list or [discovery_result.message])
             else:
                 table_extraction_batch_result_payload = self.table_extract_write_step(
                     brand_input.model_dump(mode="json"),
@@ -99,6 +100,7 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
             source_type,
             verified_table_extraction_payload_list,
             blocker_list,
+            warning_list,
         )
         return {
             "source_type_summary": source_type_summary_payload,
@@ -201,6 +203,7 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
         source_type: str,
         table_extraction_payload_list: list[dict[str, object]],
         blocker_list: list[str],
+        warning_list: list[str],
     ) -> dict[str, object]:
         """Write source-type summary.
 
@@ -210,6 +213,7 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
             source_type: Source type key.
             table_extraction_payload_list: Serialized verified table extractions.
             blocker_list: Source-type blocker messages collected during discovery or extraction.
+            warning_list: Non-fatal source-type warnings collected during discovery.
 
         Returns:
             Serialized source-type summary.
@@ -248,6 +252,7 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
             state="failed" if blocker_list else ("passed" if table_extraction_list else "skipped"),
             table_result_path_by_size_group_key_map=table_result_path_by_size_group_key_map,
             verified_size_group_key_list=list(table_result_path_by_size_group_key_map),
+            warning_list=warning_list,
         )
         if sorted(summary.verified_size_group_key_list) != sorted(summary.table_result_path_by_size_group_key_map):
             raise RuntimeError(f"source_type_summary key mismatch for {source_type}")

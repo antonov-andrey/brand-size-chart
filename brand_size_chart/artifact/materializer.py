@@ -1,6 +1,7 @@
 """Generic artifact reference materialization."""
 
 from pathlib import Path
+import shutil
 
 
 class ArtifactMaterializer:
@@ -39,6 +40,35 @@ class ArtifactMaterializer:
             except ValueError as exc:
                 raise RuntimeError(f"Artifact reference is outside result_dir: {reference}") from exc
         return materialized_reference_list
+
+    def stage_browser_artifact_materialize(self, stage_dir: Path) -> None:
+        """Copy browser-produced artifacts for one stage into that stage directory.
+
+        Args:
+            stage_dir: Canonical stage artifact directory.
+
+        Raises:
+            RuntimeError: If the stage directory is outside the result directory.
+        """
+
+        stage_path = self._absolute_path_get(stage_dir)
+        try:
+            stage_relative_path = stage_path.relative_to(self._result_dir)
+        except ValueError as exc:
+            raise RuntimeError(f"Stage artifact directory is outside result_dir: {stage_dir}") from exc
+        browser_stage_path = self._result_dir / ".playwright-mcp" / "current" / stage_relative_path
+        if not browser_stage_path.exists():
+            return
+        if not browser_stage_path.is_dir():
+            raise RuntimeError(f"Browser stage artifact path is not a directory: {browser_stage_path}")
+        for source_path in sorted(browser_stage_path.rglob("*")):
+            if source_path.is_dir():
+                continue
+            if source_path.is_symlink():
+                raise RuntimeError(f"Browser stage artifact path must not be a symlink: {source_path}")
+            target_path = stage_path / source_path.relative_to(browser_stage_path)
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target_path)
 
     def _absolute_path_get(self, path: Path) -> Path:
         """Return an absolute path using result_dir as relative-path base.
