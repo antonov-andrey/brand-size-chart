@@ -152,13 +152,14 @@ def _source_surface_inventory_write(*, evidence_path: Path, result_dir: Path, st
     inventory_path.write_text(
         json.dumps(
             {
+                "browsing_error_list": [],
                 "opened_urls": [
                     {
                         "evidence_path_list": [evidence_path.relative_to(result_dir).as_posix()],
                         "result": "browser evidence observed",
                         "url": "https://defacto.example/size",
                     }
-                ]
+                ],
             },
             indent=2,
             sort_keys=True,
@@ -725,7 +726,10 @@ def test_source_discovery_accepts_failed_result_with_canonical_inventory(monkeyp
         if model_class is SourceDiscoveryResult:
             inventory_path = stage_dir / "evidence" / "source_surface_inventory.json"
             inventory_path.parent.mkdir(parents=True, exist_ok=True)
-            inventory_path.write_text('{"opened_url_list": [], "rejected_url_list": []}\n', encoding="utf-8")
+            inventory_path.write_text(
+                '{"browsing_error_list": [], "opened_url_list": [], "rejected_url_list": []}\n',
+                encoding="utf-8",
+            )
             return SourceDiscoveryResult(
                 discovered_source_list=[],
                 error_list=["No official seller size-guide table was visible in browser evidence."],
@@ -798,7 +802,10 @@ def test_source_discovery_materializes_browser_inventory_before_guard(monkeypatc
             inventory_path = result_dir / ".playwright-mcp" / "current" / stage_dir.relative_to(result_dir)
             inventory_path = inventory_path / "evidence" / "source_surface_inventory.json"
             inventory_path.parent.mkdir(parents=True, exist_ok=True)
-            inventory_path.write_text('{"opened_url_list": [], "rejected_url_list": []}\n', encoding="utf-8")
+            inventory_path.write_text(
+                '{"browsing_error_list": [], "opened_url_list": [], "rejected_url_list": []}\n',
+                encoding="utf-8",
+            )
             return SourceDiscoveryResult(
                 discovered_source_list=[],
                 error_list=["No official seller size-guide table was visible in browser evidence."],
@@ -880,13 +887,14 @@ def test_source_discovery_prepares_browser_evidence_directory_before_codex(monke
             inventory_path.write_text(
                 json.dumps(
                     {
+                        "browsing_error_list": [],
                         "rejected_urls": [
                             {
                                 "evidence_path_list": [evidence_path.relative_to(result_dir).as_posix()],
                                 "reason": "No concrete seller size guide was visible.",
                                 "url": "https://www.defacto.com.tr",
                             }
-                        ]
+                        ],
                     },
                     indent=2,
                     sort_keys=True,

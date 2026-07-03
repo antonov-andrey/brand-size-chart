@@ -76,6 +76,26 @@
       "title": "BrandSizeChartRow",
       "type": "object"
     },
+    "BrowsingError": {
+      "additionalProperties": false,
+      "description": "Browser or network failure for one concrete URL.",
+      "properties": {
+        "error": {
+          "title": "Error",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "error",
+        "url"
+      ],
+      "title": "BrowsingError",
+      "type": "object"
+    },
     "TableExtraction": {
       "additionalProperties": false,
       "description": "Extracted size-chart table from one source.",
@@ -148,6 +168,13 @@
   "additionalProperties": false,
   "description": "Batch extraction result for one source type.",
   "properties": {
+    "browsing_error_list": {
+      "items": {
+        "$ref": "#/$defs/BrowsingError"
+      },
+      "title": "Browsing Error List",
+      "type": "array"
+    },
     "error_list": {
       "items": {
         "type": "string"

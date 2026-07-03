@@ -26,6 +26,8 @@ docker compose --profile vpn up --build --abort-on-container-exit --exit-code-fr
 
 The compose profile starts `openvpn`, runs `playwright-mcp` in the OpenVPN network namespace, and runs `workflow` in the ordinary compose network. The workflow image contains the installed project package and does not bind-mount the checkout. It mounts `.secret` only as `/input/.secret:ro`, mounts `brand_list.txt` as `/input/brand_list.txt:ro`, writes output under `/output`, configures Playwright MCP with `/output/.playwright-mcp/current` as its writable artifact namespace so browser tools cannot write automatic page or console artifacts beside root workflow outputs, keeps mutable browser profile and MCP config under pod-local `/runtime`, and sets `DBOS_SYSTEM_DATABASE_URL=sqlite:////runtime/dbos.sqlite`.
 
+The local workflow image build uses `WORKFLOW_CONTAINER_RUNTIME_CONTEXT`, defaulting to `../workflow-container-runtime`, as a Docker build context for the shared runtime package. This keeps local standalone builds independent of SSH access inside Docker build while still installing `workflow-container-runtime` as a separate package.
+
 ## Verification
 
 ```bash

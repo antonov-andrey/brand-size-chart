@@ -11,7 +11,10 @@ RUN apt-get update \
 
 WORKDIR /workspace/brand-size-chart
 
+COPY --from=workflow_container_runtime pyproject.toml /tmp/workflow-container-runtime/pyproject.toml
+COPY --from=workflow_container_runtime workflow_container_runtime /tmp/workflow-container-runtime/workflow_container_runtime
 COPY README.md pyproject.toml ./
 COPY brand_size_chart ./brand_size_chart
 
-RUN python -m pip install --root-user-action=ignore --no-cache-dir .
+RUN python -m pip install --root-user-action=ignore --no-cache-dir /tmp/workflow-container-runtime \
+    && python -m pip install --root-user-action=ignore --no-cache-dir .

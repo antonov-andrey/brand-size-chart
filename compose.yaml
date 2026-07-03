@@ -65,6 +65,8 @@ services:
 
   workflow:
     build:
+      additional_contexts:
+        workflow_container_runtime: ${WORKFLOW_CONTAINER_RUNTIME_CONTEXT:-../workflow-container-runtime}
       context: .
       dockerfile: docker/workflow/Dockerfile
     command:

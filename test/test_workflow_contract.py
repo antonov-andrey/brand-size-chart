@@ -948,6 +948,10 @@ def test_local_compose_declares_vpn_profile() -> None:
     assert (
         compose["services"]["workflow"]["environment"]["DBOS_SYSTEM_DATABASE_URL"] == "sqlite:////runtime/dbos.sqlite"
     )
+    assert (
+        compose["services"]["workflow"]["build"]["additional_contexts"]["workflow_container_runtime"]
+        == "${WORKFLOW_CONTAINER_RUNTIME_CONTEXT:-../workflow-container-runtime}"
+    )
     assert "./.secret:/input/.secret:ro" in openvpn_volume_list
     assert "./.secret:/input/.secret:ro" in playwright_mcp_volume_list
     assert "${OUTPUT_DIR:-./out}:/output" in playwright_mcp_volume_list
@@ -963,9 +967,19 @@ def test_local_compose_declares_vpn_profile() -> None:
     assert ".secret/dbos" not in workflow_command_text
     assert "pip install" not in workflow_command_text
     assert "--require-vpn-route" not in compose["services"]["playwright-mcp"]["command"][-1]
+    assert "COPY --from=workflow_container_runtime pyproject.toml" in workflow_dockerfile_text
+    assert (
+        "COPY --from=workflow_container_runtime workflow_container_runtime "
+        "/tmp/workflow-container-runtime/workflow_container_runtime"
+    ) in workflow_dockerfile_text
     assert "COPY brand_size_chart ./brand_size_chart" in workflow_dockerfile_text
     assert "jq ripgrep" in workflow_dockerfile_text
-    assert "pip install --root-user-action=ignore --no-cache-dir ." in workflow_dockerfile_text
+    assert "git+ssh" not in workflow_dockerfile_text
+    assert (
+        "pip install --root-user-action=ignore --no-cache-dir /tmp/workflow-container-runtime"
+        in workflow_dockerfile_text
+    )
+    assert "&& python -m pip install --root-user-action=ignore --no-cache-dir ." in workflow_dockerfile_text
     assert "healthcheck" in compose["services"]["openvpn"]
     assert "healthcheck" in compose["services"]["playwright-mcp"]
 
@@ -1112,7 +1126,7 @@ def test_source_discovery_rejects_non_priority_country_when_priority_country_exi
     )
     evidence_path = evidence_path / "source_discover" / "evidence" / "source_surface_inventory.json"
     evidence_path.parent.mkdir(parents=True)
-    evidence_path.write_text("{}", encoding="utf-8")
+    evidence_path.write_text('{"browsing_error_list": []}', encoding="utf-8")
     artifact_layout = ArtifactLayout(tmp_path)
     source_discover_result = SourceDiscoveryResult(
         discovered_source_list=[
@@ -1179,6 +1193,12 @@ def test_source_discovery_rejects_missing_inventory_evidence_path(tmp_path: Path
     inventory_path.write_text(
         json.dumps(
             {
+                "browsing_error_list": [
+                    {
+                        "error": "blocked page",
+                        "url": "https://example.test/blocked",
+                    }
+                ],
                 "rejected_urls": [
                     {
                         "evidence_path_list": [
@@ -1188,7 +1208,7 @@ def test_source_discovery_rejects_missing_inventory_evidence_path(tmp_path: Path
                         "reason": "blocked page",
                         "url": "https://example.test/blocked",
                     }
-                ]
+                ],
             }
         ),
         encoding="utf-8",
@@ -1209,6 +1229,12 @@ def test_source_discovery_rejects_missing_inventory_evidence_path(tmp_path: Path
             ),
         ],
         message="Found tables.",
+        browsing_error_list=[
+            {
+                "error": "blocked page",
+                "url": "https://example.test/blocked",
+            }
+        ],
         source_type="official_marketplace_product_page",
         status="success",
     )
@@ -1226,6 +1252,78 @@ def test_source_discovery_rejects_missing_inventory_evidence_path(tmp_path: Path
         message = ""
 
     assert "leading or trailing whitespace" in message
+
+
+def test_source_discovery_rejects_missing_result_browsing_error(tmp_path: Path) -> None:
+    """Expose URL-level browsing failures in source discovery result JSON."""
+    from brand_size_chart.artifact.layout import ArtifactLayout
+    from brand_size_chart.validator.source_discovery import SourceDiscoveryValidator
+
+    inventory_path = (
+        tmp_path
+        / "brand_size_chart_audit"
+        / "brand"
+        / "defacto"
+        / "source_type"
+        / "official_brand_size_guide"
+        / "source_discover"
+        / "evidence"
+        / "source_surface_inventory.json"
+    )
+    inventory_path.parent.mkdir(parents=True)
+    inventory_path.write_text(
+        json.dumps(
+            {
+                "browsing_error_list": [
+                    {
+                        "error": "Google displayed reCAPTCHA.",
+                        "url": "https://www.google.com/search?q=Defacto",
+                    }
+                ],
+                "rejected_urls": [
+                    {
+                        "evidence_path_list": [inventory_path.relative_to(tmp_path).as_posix()],
+                        "reason": "Google displayed reCAPTCHA.",
+                        "url": "https://www.google.com/search?q=Defacto",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    artifact_layout = ArtifactLayout(tmp_path)
+    source_discover_result = SourceDiscoveryResult(
+        discovered_source_list=[
+            SourceDiscovery(
+                confidence=0.9,
+                country_code_list=["TR"],
+                evidence_path_list=[artifact_layout.artifact_path(inventory_path)],
+                size_group_key="women_upper",
+                source_priority=600,
+                source_title="Defacto TR size guide",
+                source_type="official_brand_size_guide",
+                source_url="https://www.defacto.com.tr/statik/beden-rehberi",
+            ),
+        ],
+        message="Found tables.",
+        source_type="official_brand_size_guide",
+        status="success",
+    )
+
+    try:
+        SourceDiscoveryValidator(result_dir=tmp_path, stage_dir=inventory_path.parents[1]).validate(
+            discovery_result=source_discover_result,
+            expected_source_priority=600,
+            expected_source_type="official_brand_size_guide",
+            prompt_scope=PromptScope(priority_country_code="TR"),
+        )
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        message = ""
+
+    assert "browsing_error_list mismatch" in message
+    assert "https://www.google.com/search?q=Defacto" in message
 
 
 def test_table_extraction_rejects_non_priority_applicability_for_priority_country_source(tmp_path: Path) -> None:

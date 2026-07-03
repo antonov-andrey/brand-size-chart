@@ -1,5 +1,25 @@
 {
   "$defs": {
+    "BrowsingError": {
+      "additionalProperties": false,
+      "description": "Browser or network failure for one concrete URL.",
+      "properties": {
+        "error": {
+          "title": "Error",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "error",
+        "url"
+      ],
+      "title": "BrowsingError",
+      "type": "object"
+    },
     "SourceDiscovery": {
       "additionalProperties": false,
       "description": "Discovered source candidate for one brand.",
@@ -76,6 +96,13 @@
   "additionalProperties": false,
   "description": "Discovery result for one source type.",
   "properties": {
+    "browsing_error_list": {
+      "items": {
+        "$ref": "#/$defs/BrowsingError"
+      },
+      "title": "Browsing Error List",
+      "type": "array"
+    },
     "discovered_source_list": {
       "items": {
         "$ref": "#/$defs/SourceDiscovery"

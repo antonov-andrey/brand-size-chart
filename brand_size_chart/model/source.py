@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import Literal
-
 from pydantic import Field, field_validator
 
 from brand_size_chart.identifier import dbos_identifier_component
@@ -15,6 +14,32 @@ from brand_size_chart.model.base import (
     StrictBaseModel,
 )
 from brand_size_chart.model.chart import BrandSizeChart
+
+
+class BrowsingError(StrictBaseModel):
+    """Browser or network failure for one concrete URL."""
+
+    error: str
+    url: str
+
+    @field_validator("error", "url")
+    @classmethod
+    def text_validate(cls, value: str) -> str:
+        """Validate one browsing-error text field.
+
+        Args:
+            value: Candidate text value.
+
+        Returns:
+            Trimmed non-empty text value.
+
+        Raises:
+            ValueError: If the text is empty after trimming.
+        """
+        text = value.strip()
+        if not text:
+            raise ValueError("browsing error fields must be non-empty strings")
+        return text
 
 
 class SourceDiscovery(StrictBaseModel):
@@ -77,6 +102,7 @@ class SourceDiscovery(StrictBaseModel):
 class SourceDiscoveryResult(StrictBaseModel):
     """Discovery result for one source type."""
 
+    browsing_error_list: list[BrowsingError] = Field(default_factory=list)
     discovered_source_list: list[SourceDiscovery]
     error_list: list[str] = Field(default_factory=list)
     message: str
@@ -165,6 +191,7 @@ class TableExtractionArtifact(StrictBaseModel):
 class TableExtractionArtifactBatchResult(StrictBaseModel):
     """Batch extraction result with generated chart artifact references."""
 
+    browsing_error_list: list[BrowsingError] = Field(default_factory=list)
     error_list: list[str] = Field(default_factory=list)
     message: str
     source_type: str
@@ -175,6 +202,7 @@ class TableExtractionArtifactBatchResult(StrictBaseModel):
 class TableExtractionBatchResult(StrictBaseModel):
     """Batch extraction result for one source type."""
 
+    browsing_error_list: list[BrowsingError] = Field(default_factory=list)
     error_list: list[str] = Field(default_factory=list)
     message: str
     source_type: str

@@ -3,7 +3,9 @@
 import json
 from pathlib import Path
 
-from brand_size_chart.model import PromptScope, SourceDiscoveryResult
+from pydantic import ValidationError
+
+from brand_size_chart.model import BrowsingError, PromptScope, SourceDiscoveryResult
 from brand_size_chart.validator.artifact import ArtifactValidator
 from brand_size_chart.validator.base import MechanicalValidator
 
@@ -137,7 +139,7 @@ class SourceDiscoveryValidator(MechanicalValidator):
             raise RuntimeError(
                 f"source_discover source_type mismatch: {discovery_result.source_type} != {expected_source_type}"
             )
-        self._inventory_validate()
+        self._inventory_validate(discovery_result)
         if discovery_result.status == "failed":
             if discovery_result.discovered_source_list:
                 raise RuntimeError("failed source_discover must not return discovered_source_list items")
@@ -244,15 +246,75 @@ class SourceDiscoveryValidator(MechanicalValidator):
                 "source_discover canonical evidence/source_surface_inventory.json is invalid JSON"
             ) from exc
 
-    def _inventory_validate(self) -> None:
-        """Validate canonical source-surface inventory artifact references."""
+    def _inventory_validate(self, discovery_result: SourceDiscoveryResult) -> None:
+        """Validate canonical source-surface inventory artifact references.
 
+        Args:
+            discovery_result: Source discovery result to compare with the inventory.
+        """
+
+        inventory_payload = self._inventory_payload_get()
+        self._inventory_browsing_error_list_validate(
+            discovery_result=discovery_result,
+            inventory_payload=inventory_payload,
+        )
         evidence_path_list: list[str] = []
         self._inventory_evidence_path_list_get(
             evidence_path_list=evidence_path_list,
-            value=self._inventory_payload_get(),
+            value=inventory_payload,
         )
         self._artifact_validator.path_list_validate(
             path_list=evidence_path_list,
             stage_key="source_discover inventory",
         )
+
+    def _inventory_browsing_error_identity_list_get(self, inventory_payload: object) -> list[tuple[str, str]]:
+        """Return canonical inventory browsing-error identities.
+
+        Args:
+            inventory_payload: Parsed inventory JSON payload.
+
+        Returns:
+            Inventory browsing-error identities.
+
+        Raises:
+            RuntimeError: If the inventory does not expose a valid browsing-error list.
+        """
+
+        if not isinstance(inventory_payload, dict):
+            raise RuntimeError("source_discover inventory must be a JSON object")
+        browsing_error_payload_list = inventory_payload.get("browsing_error_list")
+        if not isinstance(browsing_error_payload_list, list):
+            raise RuntimeError("source_discover inventory must include browsing_error_list as a list")
+        try:
+            browsing_error_list = [
+                BrowsingError.model_validate(browsing_error_payload)
+                for browsing_error_payload in browsing_error_payload_list
+            ]
+        except ValidationError as exc:
+            raise RuntimeError("source_discover inventory contains invalid browsing_error_list items") from exc
+        return [(browsing_error.url, browsing_error.error) for browsing_error in browsing_error_list]
+
+    def _inventory_browsing_error_list_validate(
+        self, *, discovery_result: SourceDiscoveryResult, inventory_payload: object
+    ) -> None:
+        """Validate result-level browsing errors against inventory-level browsing errors.
+
+        Args:
+            discovery_result: Source discovery result to compare with the inventory.
+            inventory_payload: Parsed inventory JSON payload.
+
+        Raises:
+            RuntimeError: If inventory and result browsing-error lists differ.
+        """
+
+        inventory_browsing_error_identity_list = self._inventory_browsing_error_identity_list_get(inventory_payload)
+        result_browsing_error_identity_list = [
+            (browsing_error.url, browsing_error.error) for browsing_error in discovery_result.browsing_error_list
+        ]
+        if sorted(inventory_browsing_error_identity_list) != sorted(result_browsing_error_identity_list):
+            raise RuntimeError(
+                "source_discover browsing_error_list mismatch: "
+                f"inventory={sorted(inventory_browsing_error_identity_list)}; "
+                f"result={sorted(result_browsing_error_identity_list)}"
+            )

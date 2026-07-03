@@ -20,6 +20,7 @@ from brand_size_chart.model.selection import (
     CoverageDecisionResult,
 )
 from brand_size_chart.model.source import (
+    BrowsingError,
     SourceDiscovery,
     SourceDiscoveryResult,
     SourceTypeSummary,
@@ -42,6 +43,7 @@ __all__ = [
     "BrandSizeChart",
     "BrandSizeChartMeasurement",
     "BrandSizeChartRow",
+    "BrowsingError",
     "CanonicalSelection",
     "CanonicalSelectionResult",
     "CoverageDecision",

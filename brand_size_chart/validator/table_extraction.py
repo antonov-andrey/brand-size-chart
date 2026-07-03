@@ -139,6 +139,7 @@ class TableExtractionValidator(MechanicalValidator):
             table_extraction_artifact_batch_result=table_extraction_artifact_batch_result,
         )
         return TableExtractionBatchResult(
+            browsing_error_list=table_extraction_artifact_batch_result.browsing_error_list,
             error_list=table_extraction_artifact_batch_result.error_list,
             message=table_extraction_artifact_batch_result.message,
             source_type=table_extraction_artifact_batch_result.source_type,
