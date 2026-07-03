@@ -3,6 +3,7 @@
 ## Scope
 - This project owns the `brand-size-chart` workflow-container domain logic.
 - Shared workflow-container authoring rules belong to `workflow-container-developer/doc/design/workflow-container-authoring.md`.
+- Generic workflow-container runtime code and generic prompt partials belong to `workflow-container-runtime`.
 - Browser/VPN runtime behavior belongs to `browser-vpn-runtime`.
 - This project must not depend on `workflow-container-developer` at runtime.
 
@@ -18,6 +19,8 @@
 - Generated JSON schemas must come from Pydantic v2 models in `brand_size_chart.model`.
 - Runtime chart output lives under `brand_size_chart/brand/<parsed_brand_key>/`.
 - Audit output lives under `brand_size_chart_audit/brand/<parsed_brand_key>/`.
-- Static prompts live under `brand_size_chart/prompt/template/` with shared partials under `brand_size_chart/prompt/template/partial/`.
+- Domain static prompts live under `brand_size_chart/prompt/template/`.
+- Project-local prompt partials under `brand_size_chart/prompt/template/partial/` must contain only domain-owned fragments.
+- Generic prompt partials must be loaded from `workflow-container-runtime` package resources.
 - Root-level Markdown prompt copies under `brand_size_chart/prompt/*.md` are forbidden.
 - Static prompts must not contain runtime tracker protocol.

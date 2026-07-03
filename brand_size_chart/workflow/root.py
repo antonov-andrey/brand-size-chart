@@ -5,12 +5,12 @@ from pathlib import Path
 from dbos import DBOS, DBOSConfiguredInstance, SetWorkflowID
 
 from brand_size_chart.artifact import ArtifactLayout
-from brand_size_chart.codex.runner import codex_stage_run
 from brand_size_chart.identifier import dbos_identifier
 from brand_size_chart.io import brand_list_parse
 from brand_size_chart.model import BrandListParseWarning, BrandResult, PromptScope, RunResult
 from brand_size_chart.workflow.base import ARTIFACT_WRITER, prompt_scope_stage_get
 from brand_size_chart.workflow.brand import brand_size_chart_brand
+from workflow_container_runtime.codex import codex_stage_run
 
 
 @DBOS.dbos_class("BrandSizeChartRunWorkflow")

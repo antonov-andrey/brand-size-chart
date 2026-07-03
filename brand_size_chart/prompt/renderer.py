@@ -1,13 +1,13 @@
-"""Strict Jinja2 renderer for static prompt templates."""
+"""Project prompt renderer backed by workflow-container runtime templates."""
 
 from collections.abc import Mapping
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader, StrictUndefined
+from workflow_container_runtime.prompt import PromptRenderer as RuntimePromptRenderer
 
 
-class PromptRenderer:
-    """Render prompt templates from the project prompt template directory."""
+class PromptRenderer(RuntimePromptRenderer):
+    """Render project prompts with runtime-owned shared partials."""
 
     def __init__(self, template_dir: Path | None = None) -> None:
         """Create a strict prompt renderer.
@@ -16,11 +16,7 @@ class PromptRenderer:
             template_dir: Optional template directory override.
         """
 
-        self._environment = Environment(
-            autoescape=False,
-            loader=FileSystemLoader(template_dir or Path(__file__).parent / "template"),
-            undefined=StrictUndefined,
-        )
+        super().__init__(template_dir=template_dir or Path(__file__).parent / "template")
 
     def render(self, template_name: str, context: Mapping[str, object]) -> str:
         """Render one prompt template with strict undefined-variable handling.
@@ -33,4 +29,4 @@ class PromptRenderer:
             Rendered prompt text.
         """
 
-        return self._environment.get_template(template_name).render(**context)
+        return super().render(template_name, context)

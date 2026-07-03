@@ -7,8 +7,6 @@ from pathlib import Path
 from pydantic import BaseModel
 import pytest
 
-from brand_size_chart import codex_stage
-from brand_size_chart.codex import runner as codex_runner
 from brand_size_chart.model import (
     BrandInput,
     BrandSizeChart,
@@ -25,6 +23,8 @@ from brand_size_chart.model import (
 )
 from brand_size_chart.stage.base import MAX_STAGE_ATTEMPT_COUNT
 from brand_size_chart.workflow import base as workflow_base
+from workflow_container_runtime.codex import codex_stage_run
+from workflow_container_runtime.codex import runner as codex_runner
 
 
 def _brand_input_get() -> BrandInput:
@@ -1942,7 +1942,7 @@ def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, t
     result_dir = Path("result")
     result_dir.mkdir()
     stage_dir = Path("relative-stage")
-    codex_stage.codex_stage_run(
+    codex_stage_run(
         allow_user_config=True,
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         model_class=StageVerification,
@@ -2023,7 +2023,7 @@ def test_codex_browser_stage_rejects_browser_run_code_unsafe(monkeypatch: object
     monkeypatch.setattr(codex_runner.CodexStageRunner, "_subprocess_run", fake_codex_subprocess_run)
 
     with pytest.raises(codex_runner.CodexStageError, match="browser_run_code_unsafe"):
-        codex_stage.codex_stage_run(
+        codex_stage_run(
             allow_user_config=True,
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
             model_class=StageVerification,
@@ -2094,7 +2094,7 @@ def test_codex_browser_stage_rejects_node_api_inside_browser_evaluate(monkeypatc
     monkeypatch.setattr(codex_runner.CodexStageRunner, "_subprocess_run", fake_codex_subprocess_run)
 
     with pytest.raises(codex_runner.CodexStageError, match="Node.js"):
-        codex_stage.codex_stage_run(
+        codex_stage_run(
             allow_user_config=True,
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
             model_class=StageVerification,
@@ -2172,7 +2172,7 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
 
     monkeypatch.setattr(codex_runner.CodexStageRunner, "_subprocess_run", fake_codex_subprocess_run)
 
-    result = codex_stage.codex_stage_run(
+    result = codex_stage_run(
         model_class=StageVerification,
         prompt_text="verify current result",
         result_dir=result_dir,

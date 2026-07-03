@@ -5,7 +5,6 @@ from pathlib import Path
 from dbos import DBOS, DBOSConfiguredInstance
 
 from brand_size_chart.artifact import ArtifactLayout, ArtifactReferenceValidator
-from brand_size_chart.codex.runner import codex_stage_run
 from brand_size_chart.model import (
     BrandInput,
     PromptScope,
@@ -17,6 +16,7 @@ from brand_size_chart.model import (
 )
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
 from brand_size_chart.workflow.base import ARTIFACT_WRITER, source_discovery_result_get, table_extract_result_get
+from workflow_container_runtime.codex import codex_stage_run
 
 
 @DBOS.dbos_class("BrandSizeChartSourceTypeWorkflow")

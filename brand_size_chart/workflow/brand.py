@@ -6,7 +6,6 @@ from pathlib import Path
 from dbos import DBOS, DBOSConfiguredInstance, SetWorkflowID
 
 from brand_size_chart.artifact import ArtifactLayout, ArtifactReferenceValidator
-from brand_size_chart.codex.runner import codex_stage_run
 from brand_size_chart.identifier import dbos_identifier
 from brand_size_chart.model import (
     BrandInput,
@@ -27,6 +26,7 @@ from brand_size_chart.workflow.base import (
     source_type_prompt_scope_get,
 )
 from brand_size_chart.workflow.source_type import brand_size_chart_source_type
+from workflow_container_runtime.codex import codex_stage_run
 
 
 def _table_extraction_identity_key_get(*, size_group_key: str, source_type: str, source_url: str) -> str:

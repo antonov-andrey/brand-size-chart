@@ -12,7 +12,6 @@ import yaml
 from brand_size_chart import source_type as source_type_surface
 from brand_size_chart import workflow
 from brand_size_chart.artifact import ArtifactLayout
-from brand_size_chart.codex import runner as codex_runner
 from brand_size_chart.model import BrandInput
 from brand_size_chart.model import BrandSizeChart
 from brand_size_chart.model import BrandSizeChartMeasurement
@@ -35,6 +34,7 @@ from brand_size_chart.source_type import (
     SOURCE_TYPE_PRIORITY_BY_KEY_MAP,
 )
 from brand_size_chart.workflow import base as workflow_base
+from workflow_container_runtime.codex import runner as codex_runner
 
 ACTION_STAGE_KEY_SET = {
     "canonical_select",
@@ -310,6 +310,18 @@ def test_prompt_text_lives_only_in_template_tree() -> None:
     assert Path("brand_size_chart/prompt/template/partial/size_group_key_contract.md.j2").is_file()
 
 
+def test_generic_runtime_prompt_partials_are_not_local_project_files() -> None:
+    """Load generic prompt partials from workflow-container runtime."""
+
+    assert not Path("brand_size_chart/prompt/template/partial/runtime_source_access.md.j2").exists()
+    assert not Path("brand_size_chart/prompt/template/partial/artifact_reference_contract.md.j2").exists()
+    assert not Path("brand_size_chart/prompt/template/partial/stage_verification_contract.md.j2").exists()
+    assert "Use the configured browser" in PromptRenderer().render(
+        "runtime/partial/runtime_source_access.md.j2",
+        {},
+    )
+
+
 def test_dbos_workflow_classes_are_class_owned() -> None:
     """Ensure DBOS workflows are owned by class instance methods."""
     method_expectation_list = [
@@ -365,13 +377,11 @@ def test_dbos_workflow_classes_are_class_owned() -> None:
         assert method.dbos_func_decorator_info.class_info.registered_name == class_name
 
 
-def test_codex_stage_py_is_compatibility_surface_only() -> None:
-    """Move Codex subprocess mechanics into the codex package."""
-    codex_stage_source = Path("brand_size_chart/codex_stage.py").read_text(encoding="utf-8")
+def test_local_codex_runtime_compatibility_surface_is_absent() -> None:
+    """Keep generic Codex runtime out of the domain project."""
 
-    assert "subprocess.Popen" not in codex_stage_source
-    assert "class CodexStageRunner" not in codex_stage_source
-    assert "from brand_size_chart.codex.runner import" in codex_stage_source
+    assert not Path("brand_size_chart/codex_stage.py").exists()
+    assert not Path("brand_size_chart/codex").exists()
 
 
 def test_entrypoint_py_is_compatibility_surface_only() -> None:
@@ -753,7 +763,12 @@ def test_stage_prompt_instruction_fragments_live_under_templates() -> None:
     stage_source_text = "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(Path("brand_size_chart/stage").glob("*.py"))
     )
-    prompt_template_text = _prompt_template_tree_text_get()
+    prompt_text = "\n".join(
+        [
+            _prompt_template_text_get("source_discover.md.j2"),
+            _prompt_template_text_get("table_extract.md.j2"),
+        ]
+    )
     instruction_fragment_list = [
         "Do not use non-browser loading mechanisms",
         "Extract only the table whose",
@@ -761,7 +776,7 @@ def test_stage_prompt_instruction_fragments_live_under_templates() -> None:
 
     for instruction_fragment in instruction_fragment_list:
         assert instruction_fragment not in stage_source_text
-        assert instruction_fragment in prompt_template_text
+        assert instruction_fragment in prompt_text
 
 
 def test_coverage_decision_validation_retries_inside_semantic_stage(tmp_path: Path) -> None:

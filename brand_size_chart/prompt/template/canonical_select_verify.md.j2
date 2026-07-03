@@ -1,6 +1,6 @@
 # Canonical Select Verify
 
-You must return a StageVerification JSON object only. Do not fail because structured output prevents progress messages. Verify from the artifact files listed below. If the stage result is schema-valid and semantically consistent with the prompt context, return the supplied draft verification success.
+{% include "runtime/partial/stage_verification_contract.md.j2" %}
 
 For canonical_select, verify that one canonical chart is selected per eligible size group, higher-priority source types are preferred, and unresolved conflicts are recorded with compared decision values.
 
