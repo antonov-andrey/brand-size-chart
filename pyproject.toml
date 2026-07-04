@@ -16,6 +16,7 @@ dependencies = [
   "pytest>=8.4.0",
   "PyYAML>=6.0.2",
   "Unidecode>=1.3.8",
+  "workflow-container-contract>=0.1.0",
   "workflow-container-runtime>=0.1.0",
 ]
 
@@ -34,4 +35,5 @@ target-version = ["py314"]
 line-length = 120
 
 [tool.uv.sources]
+workflow-container-contract = { path = "../workflow-container-contract", editable = true }
 workflow-container-runtime = { path = "../workflow-container-runtime", editable = true }

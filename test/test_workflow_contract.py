@@ -30,6 +30,7 @@ from brand_size_chart.source import SOURCE_TYPE_REGISTRY
 from brand_size_chart.stage import semantic
 from brand_size_chart.stage.semantic import SemanticStage
 from brand_size_chart.stage.workflow_run_prompt_apply import WorkflowRunPromptApplyStage
+from workflow_container_contract.testing import workflow_contract_file_validate
 from workflow_container_runtime.prompt import PromptRenderer as RuntimePromptRenderer
 
 ACTION_STAGE_KEY_SET = {
@@ -924,6 +925,12 @@ def test_workflow_yaml_declares_required_cross_project_contract_keys() -> None:
             "name": "browser_vpn_runtime",
         }
     ]
+
+
+def test_workflow_contract_file_validate() -> None:
+    """Validate standard workflow-container contract files."""
+
+    workflow_contract_file_validate(project_root=Path.cwd())
 
 
 def test_project_secret_is_ignored_by_git() -> None:
