@@ -2,10 +2,15 @@
 
 ## Scope
 - This project owns the `brand-size-chart` workflow-container domain logic.
-- Shared workflow-container authoring rules belong to `workflow-container-developer/doc/design/workflow-container-authoring.md`.
+- Shared workflow-container ecosystem authoring and code quality rules belong to the `workflow-container-developer` plugin reference `references/workflow-container-authoring.md`.
 - Generic workflow-container runtime code and generic prompt partials belong to `workflow-container-runtime`.
 - Browser/VPN runtime behavior belongs to `browser-vpn-runtime`.
 - This project must not depend on `workflow-container-developer` at runtime.
+
+## Python
+- Python code uses Python 3.14.
+- Python code must be formatted with Black using target version `py314` and line length `120`.
+- Tests must use `pytest`.
 
 ## DBOS Runtime
 - Configure DBOS only inside `brand_size_chart.app.entrypoint.main`.

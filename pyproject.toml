@@ -29,5 +29,9 @@ packages = ["brand_size_chart"]
 pythonpath = ["."]
 testpaths = ["test"]
 
+[tool.black]
+target-version = ["py314"]
+line-length = 120
+
 [tool.uv.sources]
 workflow-container-runtime = { path = "../workflow-container-runtime", editable = true }

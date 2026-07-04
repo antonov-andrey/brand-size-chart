@@ -5,13 +5,15 @@
 This repository owns a DBOS workflow container that parses one `brand_list`, uses one `secret` reference for external runtime credentials, and writes canonical `brand_size_chart` artifacts plus `brand_size_chart_audit` evidence.
 
 ## Determinism Boundary
-Shared workflow-container authoring rules belong to `workflow-container-developer/doc/design/workflow-container-authoring.md`. Generic `Codex` subprocess execution, JSON schema output boundary, generic prompt rendering, generic prompt partials, generic browser-tool event validation, and generic JSON artifact writing belong to `workflow-container-runtime`. This document defines only `brand-size-chart` domain behavior: source types, source discovery semantics, table extraction semantics, `size_group_key`, mechanical domain guards, output paths, and local production runtime facts.
+Shared workflow-container authoring rules belong to the `workflow-container-developer` plugin reference `references/workflow-container-authoring.md`. Generic `Codex` subprocess execution, JSON schema output boundary, generic prompt rendering, generic prompt partials, generic browser-tool event validation, and generic JSON artifact writing belong to `workflow-container-runtime`. This document defines only `brand-size-chart` domain behavior: source types, source discovery semantics, table extraction semantics, `size_group_key`, mechanical domain guards, output paths, and local production runtime facts.
+
+Shared workflow-container ecosystem code quality rules also belong to the `workflow-container-developer` plugin reference `references/workflow-container-authoring.md`; this document does not restate them.
 
 Real source discovery and table extraction are Codex-owned browser stages. Python code must not parse marketplace or brand pages into size-chart data and must not load source pages or source assets through non-browser request paths. The `source_discover` and `table_extract` stages must call Codex with configured browser access and return schema-valid domain results.
 
 ## Stage Workflow Contract
 
-The shared action and verification stage shape belongs to `workflow-container-developer/doc/design/workflow-container-authoring.md`. The canonical action stage keys for this workflow are `workflow_run_prompt_apply`, `source_discover`, `table_extract`, `coverage_decide`, and `canonical_select`.
+The shared action and verification stage shape belongs to the `workflow-container-developer` plugin reference `references/workflow-container-authoring.md`. The canonical action stage keys for this workflow are `workflow_run_prompt_apply`, `source_discover`, `table_extract`, `coverage_decide`, and `canonical_select`.
 
 `source_discover` must build source-surface inventory before it writes `discovered_source_list`. The inventory evidence must cover discovery queries, candidate URLs, opened URLs, accepted tables, duplicate or equivalent tables, rejected URLs, rejection reasons, and blocking source-access errors for the requested source type. The result must contain every concrete unique table candidate found for that source type, not one aggregate page candidate. Inside one source type, one `size_group_key` may appear at most once in `discovered_source_list`; duplicate, equivalent, lower-priority-market, or rejected tables for the same `size_group_key` stay in the canonical inventory with exact reason codes and must not become separate source candidates.
 
