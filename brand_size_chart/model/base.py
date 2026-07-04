@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import re
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import AfterValidator, BaseModel, ConfigDict
+
+from brand_size_chart.identifier import dbos_identifier_component
 
 APPLICABILITY_STATUS_CANONICAL_SET = {
     "priority_country_official",
@@ -26,6 +28,27 @@ ApplicabilityStatus = Literal[
 StageStatus = Literal["success", "failed", "skipped"]
 COUNTRY_CODE_PATTERN = re.compile(r"^[A-Z]{2}$")
 SOURCE_COUNTRY_CODE_SPECIAL_SET = {"EU", "GLOBAL"}
+
+
+def identifier_component_validate(value: str) -> str:
+    """Validate one DBOS identifier component value.
+
+    Args:
+        value: Candidate identifier component.
+
+    Returns:
+        Validated identifier component.
+
+    Raises:
+        ValueError: If the value is not already a safe DBOS identifier component.
+    """
+
+    if dbos_identifier_component(value) != value:
+        raise ValueError("value must already be a safe DBOS identifier component")
+    return value
+
+
+IdentifierComponent = Annotated[str, AfterValidator(identifier_component_validate)]
 
 
 class StrictBaseModel(BaseModel):

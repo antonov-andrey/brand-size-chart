@@ -6,7 +6,6 @@ from pathlib import Path
 from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import BrandInput, PromptScope, SourceDiscoveryResult
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
-from brand_size_chart.source_extractor import source_discovery_result_get
 from brand_size_chart.stage.base import CodexStageRun
 from brand_size_chart.stage.semantic import SemanticStage
 from brand_size_chart.validator import SourceDiscoveryValidator
@@ -23,10 +22,8 @@ class SourceDiscoveryStage:
         codex_stage_run_callable: CodexStageRun,
         prompt_scope: PromptScope,
         result_dir: Path,
-        secret_path: Path,
         source_priority: int,
         source_type: str,
-        source_type_dir: Path,
     ) -> None:
         """Store source-discovery stage dependencies.
 
@@ -36,10 +33,8 @@ class SourceDiscoveryStage:
             codex_stage_run_callable: Codex stage execution boundary.
             prompt_scope: Parsed prompt scope for source discovery.
             result_dir: Result root directory.
-            secret_path: Secret DataSource path.
             source_priority: Source type priority.
             source_type: Source type key.
-            source_type_dir: Source-type audit directory.
         """
 
         self._artifact_layout = ArtifactLayout(result_dir)
@@ -48,10 +43,8 @@ class SourceDiscoveryStage:
         self._codex_stage_run = codex_stage_run_callable
         self._prompt_scope = prompt_scope
         self._result_dir = result_dir
-        self._secret_path = secret_path
         self._source_priority = source_priority
         self._source_type = source_type
-        self._source_type_dir = source_type_dir
         self._stage_dir = self._artifact_layout.source_discover_dir(brand_input, source_type)
         self._validator = SourceDiscoveryValidator(result_dir=result_dir, stage_dir=self._stage_dir)
 
@@ -99,12 +92,18 @@ class SourceDiscoveryStage:
             Draft source discovery result.
         """
 
-        return source_discovery_result_get(
-            brand_input=self._brand_input,
-            result_dir=self._result_dir,
-            secret_path=self._secret_path,
+        if self._source_type not in SOURCE_TYPE_REGISTRY.source_type_priority_by_key_map:
+            return SourceDiscoveryResult(
+                discovered_source_list=[],
+                message="Unknown source type.",
+                source_type=self._source_type,
+                status="failed",
+            )
+        return SourceDiscoveryResult(
+            discovered_source_list=[],
+            message="Codex source discovery has not produced source candidates yet.",
             source_type=self._source_type,
-            source_type_dir=self._source_type_dir,
+            status="skipped",
         )
 
     def _prompt_context_get(self, draft_result: SourceDiscoveryResult) -> str:

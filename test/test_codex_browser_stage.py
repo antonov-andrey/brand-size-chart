@@ -1,5 +1,6 @@
 """Tests for Codex-owned browser stage contracts."""
 
+from collections.abc import Callable
 import json
 import subprocess
 from pathlib import Path
@@ -22,8 +23,9 @@ from brand_size_chart.model import (
     TableExtractionBatchResult,
 )
 from brand_size_chart.stage.base import MAX_STAGE_ATTEMPT_COUNT
-from brand_size_chart.workflow import base as workflow_base
-from workflow_container_runtime.codex import codex_stage_run
+from brand_size_chart.stage.source_discovery import SourceDiscoveryStage
+from brand_size_chart.stage.table_extraction import TableExtractionStage
+from workflow_container_runtime.codex import CodexStageRunner
 from workflow_container_runtime.codex import runner as codex_runner
 
 
@@ -242,6 +244,78 @@ def _table_extraction_artifact_get(
     )
 
 
+def _source_discovery_result_get(
+    *,
+    brand_input: BrandInput,
+    browser_runtime_mcp_url: str,
+    codex_stage_run_callable: Callable[..., BaseModel],
+    prompt_scope: PromptScope,
+    result_dir: Path,
+    source_priority: int,
+    source_type: str,
+) -> SourceDiscoveryResult:
+    """Run the real source discovery stage for tests.
+
+    Args:
+        brand_input: Parsed brand input.
+        browser_runtime_mcp_url: Browser runtime MCP URL.
+        codex_stage_run_callable: Test Codex stage callable.
+        prompt_scope: Prompt scope.
+        result_dir: Result root.
+        source_priority: Source type priority.
+        source_type: Source type key.
+
+    Returns:
+        Source discovery result.
+    """
+
+    return SourceDiscoveryStage(
+        brand_input=brand_input,
+        browser_runtime_mcp_url=browser_runtime_mcp_url,
+        codex_stage_run_callable=codex_stage_run_callable,
+        prompt_scope=prompt_scope,
+        result_dir=result_dir,
+        source_priority=source_priority,
+        source_type=source_type,
+    ).run()
+
+
+def _table_extract_result_get(
+    *,
+    brand_input: BrandInput,
+    browser_runtime_mcp_url: str,
+    codex_stage_run_callable: Callable[..., BaseModel],
+    prompt_scope: PromptScope,
+    result_dir: Path,
+    source_discovery_list: list[SourceDiscovery],
+    source_type: str,
+) -> TableExtractionBatchResult:
+    """Run the real table extraction stage for tests.
+
+    Args:
+        brand_input: Parsed brand input.
+        browser_runtime_mcp_url: Browser runtime MCP URL.
+        codex_stage_run_callable: Test Codex stage callable.
+        prompt_scope: Prompt scope.
+        result_dir: Result root.
+        source_discovery_list: Verified source discoveries.
+        source_type: Source type key.
+
+    Returns:
+        Batch table extraction result.
+    """
+
+    return TableExtractionStage(
+        brand_input=brand_input,
+        browser_runtime_mcp_url=browser_runtime_mcp_url,
+        codex_stage_run_callable=codex_stage_run_callable,
+        prompt_scope=prompt_scope,
+        result_dir=result_dir,
+        source_discovery_list=source_discovery_list,
+        source_type=source_type,
+    ).run()
+
+
 def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkeypatch: object, tmp_path: Path) -> None:
     """Run real discovery through Codex browser access even when the draft source list is empty."""
     call_list: list[dict[str, object]] = []
@@ -323,7 +397,7 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
             message="verified",
         )
 
-    result = workflow_base.source_discovery_result_get(
+    result = _source_discovery_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
@@ -333,10 +407,8 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
             shared_instruction="Only search official marketplace product page evidence for requested product types.",
         ),
         result_dir=tmp_path,
-        secret_path=tmp_path / "secret",
         source_priority=300,
         source_type="official_marketplace_product_page",
-        source_type_dir=source_type_dir,
     )
 
     assert result.discovered_source_list[0].source_type == "official_marketplace_product_page"
@@ -467,16 +539,14 @@ def test_source_discovery_retries_page_level_size_group_key(monkeypatch: object,
             message="verified",
         )
 
-    result = workflow_base.source_discovery_result_get(
+    result = _source_discovery_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(priority_country_code="TR"),
         result_dir=tmp_path,
-        secret_path=tmp_path / "secret",
         source_priority=600,
         source_type="official_brand_size_guide",
-        source_type_dir=source_type_dir,
     )
 
     discovery_call_list = [call for call in call_list if call["model_class"] is SourceDiscoveryResult]
@@ -579,16 +649,14 @@ def test_source_discovery_retry_prompt_includes_previous_result(monkeypatch: obj
             message="verified",
         )
 
-    result = workflow_base.source_discovery_result_get(
+    result = _source_discovery_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(priority_country_code="TR"),
         result_dir=tmp_path,
-        secret_path=tmp_path / "secret",
         source_priority=600,
         source_type="official_brand_size_guide",
-        source_type_dir=source_type_dir,
     )
 
     discovery_call_list = [call for call in call_list if call["model_class"] is SourceDiscoveryResult]
@@ -669,16 +737,14 @@ def test_source_discovery_retries_after_mechanical_guard_failure(monkeypatch: ob
             message="verified",
         )
 
-    result = workflow_base.source_discovery_result_get(
+    result = _source_discovery_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(priority_country_code="TR"),
         result_dir=tmp_path,
-        secret_path=tmp_path / "secret",
         source_priority=600,
         source_type="official_brand_size_guide",
-        source_type_dir=source_type_dir,
     )
 
     discovery_call_list = [call for call in call_list if call["model_class"] is SourceDiscoveryResult]
@@ -744,16 +810,14 @@ def test_source_discovery_accepts_failed_result_with_canonical_inventory(monkeyp
             status="success",
         )
 
-    result = workflow_base.source_discovery_result_get(
+    result = _source_discovery_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(priority_country_code="TR"),
         result_dir=tmp_path,
-        secret_path=tmp_path / "secret",
         source_priority=550,
         source_type="official_seller_size_guide",
-        source_type_dir=source_type_dir,
     )
 
     discovery_call_list = [call for call in call_list if call["model_class"] is SourceDiscoveryResult]
@@ -820,16 +884,14 @@ def test_source_discovery_materializes_browser_inventory_before_guard(monkeypatc
             status="success",
         )
 
-    result = workflow_base.source_discovery_result_get(
+    result = _source_discovery_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(priority_country_code="TR"),
         result_dir=tmp_path,
-        secret_path=tmp_path / "secret",
         source_priority=550,
         source_type="official_seller_size_guide",
-        source_type_dir=source_type_dir,
     )
 
     canonical_inventory_path = source_type_dir / "source_discover" / "evidence" / "source_surface_inventory.json"
@@ -916,16 +978,14 @@ def test_source_discovery_prepares_browser_evidence_directory_before_codex(monke
             status="success",
         )
 
-    result = workflow_base.source_discovery_result_get(
+    result = _source_discovery_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(priority_country_code="TR"),
         result_dir=tmp_path,
-        secret_path=tmp_path / "secret",
         source_priority=550,
         source_type=source_type,
-        source_type_dir=source_type_dir,
     )
 
     assert result.status == "failed"
@@ -995,16 +1055,14 @@ def test_source_discovery_prompt_has_no_hardcoded_size_guide_routes(monkeypatch:
             message="verified",
         )
 
-    workflow_base.source_discovery_result_get(
+    _source_discovery_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(priority_country_code="TR"),
         result_dir=tmp_path,
-        secret_path=tmp_path / "secret",
         source_priority=600,
         source_type="official_brand_size_guide",
-        source_type_dir=source_type_dir,
     )
 
     discovery_prompt = str(
@@ -1070,16 +1128,14 @@ def test_source_discovery_retries_then_fails_empty_skipped_result(monkeypatch: o
         )
 
     try:
-        workflow_base.source_discovery_result_get(
+        _source_discovery_result_get(
             brand_input=_brand_input_get(),
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
             codex_stage_run_callable=fake_codex_stage_run,
             prompt_scope=PromptScope(priority_country_code="TR"),
             result_dir=tmp_path,
-            secret_path=tmp_path / "secret",
             source_priority=600,
             source_type="official_brand_size_guide",
-            source_type_dir=source_type_dir,
         )
     except RuntimeError as exc:
         message = str(exc)
@@ -1185,16 +1241,14 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
             message="verified",
         )
 
-    result = workflow_base.table_extract_result_get(
+    result = _table_extract_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(priority_country_code="TR"),
         result_dir=tmp_path,
-        secret_path=tmp_path / "secret",
         source_discovery_list=source_discovery_list,
         source_type="official_marketplace_product_page",
-        source_type_dir=source_type_dir,
     )
 
     table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionArtifactBatchResult]
@@ -1345,16 +1399,14 @@ def test_table_extract_batch_loads_chart_artifacts_from_lightweight_codex_result
             table_extraction_artifact_list=table_extraction_artifact_list,
         )
 
-    result = workflow_base.table_extract_result_get(
+    result = _table_extract_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(priority_country_code="TR"),
         result_dir=tmp_path,
-        secret_path=tmp_path / "secret",
         source_discovery_list=source_discovery_list,
         source_type=source_type,
-        source_type_dir=source_type_dir,
     )
 
     table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionArtifactBatchResult]
@@ -1447,16 +1499,14 @@ def test_table_extract_prepares_chart_and_browser_evidence_directories_before_co
             table_extraction_artifact_list=table_extraction_artifact_list,
         )
 
-    result = workflow_base.table_extract_result_get(
+    result = _table_extract_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(priority_country_code="TR"),
         result_dir=tmp_path,
-        secret_path=tmp_path / "secret",
         source_discovery_list=source_discovery_list,
         source_type=source_type,
-        source_type_dir=source_type_dir,
     )
 
     assert [table_extraction.size_group_key for table_extraction in result.table_extraction_list] == [
@@ -1544,16 +1594,14 @@ def test_table_extract_batch_rejects_missing_discovery(monkeypatch: object, tmp_
             table_extraction_artifact_list=table_extraction_artifact_list,
         )
 
-    result = workflow_base.table_extract_result_get(
+    result = _table_extract_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(priority_country_code="TR"),
         result_dir=tmp_path,
-        secret_path=tmp_path / "secret",
         source_discovery_list=source_discovery_list,
         source_type="official_brand_size_guide",
-        source_type_dir=tmp_path / "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide",
     )
 
     table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionArtifactBatchResult]
@@ -1638,16 +1686,14 @@ def test_table_extract_batch_rejects_extra_discovery(monkeypatch: object, tmp_pa
             table_extraction_artifact_list=table_extraction_artifact_list,
         )
 
-    result = workflow_base.table_extract_result_get(
+    result = _table_extract_result_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(priority_country_code="TR"),
         result_dir=tmp_path,
-        secret_path=tmp_path / "secret",
         source_discovery_list=source_discovery_list,
         source_type="official_brand_size_guide",
-        source_type_dir=tmp_path / "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide",
     )
 
     table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionArtifactBatchResult]
@@ -1710,16 +1756,14 @@ def test_source_discovery_rejects_skipped_result_even_when_verification_passes(
         )
 
     try:
-        workflow_base.source_discovery_result_get(
+        _source_discovery_result_get(
             brand_input=_brand_input_get(),
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
             codex_stage_run_callable=fake_codex_stage_run,
             prompt_scope=PromptScope(priority_country_code="TR"),
             result_dir=tmp_path,
-            secret_path=tmp_path / "secret",
             source_priority=600,
             source_type="official_brand_size_guide",
-            source_type_dir=source_type_dir,
         )
     except RuntimeError as exc:
         message = str(exc)
@@ -1793,16 +1837,14 @@ def test_source_discovery_rejects_duplicate_size_group_key(monkeypatch: object, 
         )
 
     try:
-        workflow_base.source_discovery_result_get(
+        _source_discovery_result_get(
             brand_input=_brand_input_get(),
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
             codex_stage_run_callable=fake_codex_stage_run,
             prompt_scope=PromptScope(priority_country_code="TR"),
             result_dir=tmp_path,
-            secret_path=tmp_path / "secret",
             source_priority=600,
             source_type="official_brand_size_guide",
-            source_type_dir=source_type_dir,
         )
     except RuntimeError as exc:
         message = str(exc)
@@ -1879,16 +1921,14 @@ def test_table_extract_batch_rejects_identity_change(monkeypatch: object, tmp_pa
         )
 
     try:
-        workflow_base.table_extract_result_get(
+        _table_extract_result_get(
             brand_input=_brand_input_get(),
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
             codex_stage_run_callable=fake_codex_stage_run,
             prompt_scope=PromptScope(priority_country_code="TR"),
             result_dir=tmp_path,
-            secret_path=tmp_path / "secret",
             source_discovery_list=source_discovery_list,
             source_type="official_brand_size_guide",
-            source_type_dir=source_type_dir,
         )
     except RuntimeError as exc:
         message = str(exc)
@@ -1950,7 +1990,7 @@ def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, t
     result_dir = Path("result")
     result_dir.mkdir()
     stage_dir = Path("relative-stage")
-    codex_stage_run(
+    CodexStageRunner(workflow_container_name="brand-size-chart").run(
         allow_user_config=True,
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         model_class=StageVerification,
@@ -2031,7 +2071,7 @@ def test_codex_browser_stage_rejects_browser_run_code_unsafe(monkeypatch: object
     monkeypatch.setattr(codex_runner.CodexStageRunner, "_subprocess_run", fake_codex_subprocess_run)
 
     with pytest.raises(codex_runner.CodexStageError, match="browser_run_code_unsafe"):
-        codex_stage_run(
+        CodexStageRunner(workflow_container_name="brand-size-chart").run(
             allow_user_config=True,
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
             model_class=StageVerification,
@@ -2102,7 +2142,7 @@ def test_codex_browser_stage_rejects_node_api_inside_browser_evaluate(monkeypatc
     monkeypatch.setattr(codex_runner.CodexStageRunner, "_subprocess_run", fake_codex_subprocess_run)
 
     with pytest.raises(codex_runner.CodexStageError, match="Node.js"):
-        codex_stage_run(
+        CodexStageRunner(workflow_container_name="brand-size-chart").run(
             allow_user_config=True,
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
             model_class=StageVerification,
@@ -2180,7 +2220,7 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
 
     monkeypatch.setattr(codex_runner.CodexStageRunner, "_subprocess_run", fake_codex_subprocess_run)
 
-    result = codex_stage_run(
+    result = CodexStageRunner(workflow_container_name="brand-size-chart").run(
         model_class=StageVerification,
         prompt_text="verify current result",
         result_dir=result_dir,

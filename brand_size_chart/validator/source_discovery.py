@@ -5,8 +5,8 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from brand_size_chart.artifact import ArtifactReferenceValidator
 from brand_size_chart.model import BrowsingError, PromptScope, SourceDiscoveryResult
-from brand_size_chart.validator.artifact import ArtifactValidator
 from brand_size_chart.validator.base import MechanicalValidator
 
 
@@ -21,7 +21,7 @@ class SourceDiscoveryValidator(MechanicalValidator):
             stage_dir: Source-discovery stage artifact directory.
         """
 
-        self._artifact_validator = ArtifactValidator(result_dir)
+        self._artifact_reference_validator = ArtifactReferenceValidator(result_dir)
         self._stage_dir = stage_dir
 
     def country_selection_validate(self, *, discovery_result: SourceDiscoveryResult, prompt_scope: PromptScope) -> None:
@@ -182,7 +182,7 @@ class SourceDiscoveryValidator(MechanicalValidator):
                         f"source_discover returned unexpected product_type_hint_list for "
                         f"{source_discover.size_group_key}: {unexpected_product_type_list}"
                     )
-            self._artifact_validator.evidence_path_list_validate(
+            self._artifact_reference_validator.evidence_path_list_validate(
                 evidence_path_list=source_discover.evidence_path_list,
                 stage_key="source_discover",
             )
@@ -263,7 +263,7 @@ class SourceDiscoveryValidator(MechanicalValidator):
             evidence_path_list=evidence_path_list,
             value=inventory_payload,
         )
-        self._artifact_validator.path_list_validate(
+        self._artifact_reference_validator.path_list_validate(
             path_list=evidence_path_list,
             stage_key="source_discover inventory",
         )

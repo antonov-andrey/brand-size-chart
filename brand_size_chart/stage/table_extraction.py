@@ -8,10 +8,10 @@ from brand_size_chart.model import (
     BrandInput,
     PromptScope,
     SourceDiscovery,
+    TableExtractionArtifact,
     TableExtractionArtifactBatchResult,
     TableExtractionBatchResult,
 )
-from brand_size_chart.source_extractor import table_extraction_artifact_from_discovery_get
 from brand_size_chart.stage.base import CodexStageRun
 from brand_size_chart.stage.semantic import SemanticStage
 from brand_size_chart.validator import TableExtractionValidator
@@ -28,10 +28,8 @@ class TableExtractionStage:
         codex_stage_run_callable: CodexStageRun,
         prompt_scope: PromptScope,
         result_dir: Path,
-        secret_path: Path,
         source_discovery_list: list[SourceDiscovery],
         source_type: str,
-        source_type_dir: Path,
     ) -> None:
         """Store batch table-extraction stage dependencies.
 
@@ -41,10 +39,8 @@ class TableExtractionStage:
             codex_stage_run_callable: Codex stage execution boundary.
             prompt_scope: Parsed prompt scope.
             result_dir: Root result directory.
-            secret_path: Secret DataSource path.
             source_discovery_list: Verified source discoveries.
             source_type: Source type key.
-            source_type_dir: Source-type audit directory.
         """
 
         self._artifact_layout = ArtifactLayout(result_dir)
@@ -53,10 +49,8 @@ class TableExtractionStage:
         self._codex_stage_run = codex_stage_run_callable
         self._prompt_scope = prompt_scope
         self._result_dir = result_dir
-        self._secret_path = secret_path
         self._source_discovery_list = source_discovery_list
         self._source_type = source_type
-        self._source_type_dir = source_type_dir
         self._validator = TableExtractionValidator(result_dir)
 
     def run(self) -> TableExtractionBatchResult:
@@ -106,21 +100,17 @@ class TableExtractionStage:
             Draft batch table extraction artifact result.
         """
 
-        _ = self._secret_path
-        _ = self._source_type_dir
         return TableExtractionArtifactBatchResult(
             message="Codex table extraction has not produced chart artifacts yet.",
             source_type=self._source_type,
             status="skipped",
             table_extraction_artifact_list=[
-                table_extraction_artifact_from_discovery_get(
-                    brand_input=self._brand_input,
+                self._table_extraction_artifact_from_discovery_get(
                     chart_path=self._artifact_layout.table_extract_chart_path(
                         self._brand_input,
                         self._source_type,
                         source_discovery.size_group_key,
                     ),
-                    result_dir=self._result_dir,
                     source_discovery=source_discovery,
                 )
                 for source_discovery in self._source_discovery_list
@@ -185,4 +175,28 @@ class TableExtractionStage:
             self._brand_input,
             source_discovery.source_type,
             source_discovery.size_group_key,
+        )
+
+    def _table_extraction_artifact_from_discovery_get(
+        self, *, chart_path: Path, source_discovery: SourceDiscovery
+    ) -> TableExtractionArtifact:
+        """Return an empty artifact-backed draft for one discovered table.
+
+        Args:
+            chart_path: Expected chart artifact path for the source discovery.
+            source_discovery: Verified source discovery.
+
+        Returns:
+            Draft table extraction artifact that Codex must complete.
+        """
+
+        return TableExtractionArtifact(
+            applicability_description=source_discovery.source_title,
+            chart_path=chart_path.relative_to(self._result_dir).as_posix(),
+            evidence_path_list=source_discovery.evidence_path_list,
+            product_type_hint_list=source_discovery.product_type_hint_list,
+            size_group_key=source_discovery.size_group_key,
+            source_title=source_discovery.source_title,
+            source_type=source_discovery.source_type,
+            source_url=source_discovery.source_url,
         )

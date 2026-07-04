@@ -11,7 +11,6 @@ requires-python = ">=3.14"
 dependencies = [
   "dbos>=2.0.0",
   "Jinja2>=3.1.0",
-  "jsonschema>=4.23.0",
   "pydantic>=2.10.0",
   "pysqlite3-binary>=0.5.4.post2,<0.6",
   "pytest>=8.4.0",
@@ -21,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-brand-size-chart-run = "brand_size_chart.entrypoint:main"
+brand-size-chart-run = "brand_size_chart.app.entrypoint:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["brand_size_chart"]
@@ -29,3 +28,6 @@ packages = ["brand_size_chart"]
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["test"]
+
+[tool.uv.sources]
+workflow-container-runtime = { path = "../workflow-container-runtime", editable = true }

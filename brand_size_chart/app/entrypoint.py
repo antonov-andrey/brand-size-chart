@@ -12,7 +12,7 @@ from dbos import DBOS, DBOSConfig, SetWorkflowID
 
 from brand_size_chart.app import runtime_config
 from brand_size_chart.identifier import dbos_identifier, dbos_identifier_component, workflow_project_name
-from brand_size_chart.workflow import brand_size_chart_workflow, run_failure_result_write
+from brand_size_chart.workflow import BRAND_SIZE_CHART_RUN_WORKFLOW, run_failure_result_write
 
 
 def main() -> int:
@@ -54,10 +54,9 @@ def main() -> int:
         with SetWorkflowID(workflow_id):
             workflow_handle = DBOS.enqueue_workflow(
                 queue_name,
-                brand_size_chart_workflow,
+                BRAND_SIZE_CHART_RUN_WORKFLOW.run,
                 args.workflow_run_id,
                 brand_list_text,
-                str(secret_path),
                 str(args.output_dir),
                 args.workflow_run_prompt,
                 browser_runtime_mcp_url,

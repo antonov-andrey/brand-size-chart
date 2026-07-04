@@ -8,22 +8,30 @@ from pydantic import BaseModel
 
 from brand_size_chart.model import PromptScope
 from brand_size_chart.model import StageVerification
-from brand_size_chart.prompt.renderer import PromptRenderer
 from brand_size_chart.stage import semantic
 from brand_size_chart.stage.semantic import SemanticStage
+from workflow_container_runtime.prompt import PromptRenderer
+
+PROJECT_TEMPLATE_DIR = Path("brand_size_chart/prompt/template")
 
 
 def test_prompt_renderer_uses_strict_undefined_variables() -> None:
     """Fail prompt rendering when a template variable is missing."""
-    renderer = PromptRenderer()
+    renderer = PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR)
 
     with pytest.raises(UndefinedError):
         renderer.render("source_discover.md.j2", {})
 
 
+def test_project_prompt_renderer_has_no_project_wrapper() -> None:
+    """Use runtime prompt renderer directly with the project template directory."""
+
+    assert not Path("brand_size_chart/prompt/renderer.py").exists()
+
+
 def test_source_discover_template_includes_stage_runtime_context() -> None:
     """Render source discovery prompts from full templates and shared partial contracts."""
-    prompt_text = PromptRenderer().render(
+    prompt_text = PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR).render(
         "source_discover.md.j2",
         {
             "attempt_index": 2,
@@ -56,9 +64,10 @@ def test_semantic_stage_reuses_one_prompt_renderer(monkeypatch: pytest.MonkeyPat
     class FakePromptRenderer:
         """Fake renderer that records instance construction."""
 
-        def __init__(self) -> None:
+        def __init__(self, template_dir: Path | None = None) -> None:
             """Record one renderer instance."""
 
+            _ = template_dir
             renderer_instance_list.append(self)
 
         def render(self, template_name: str, context: dict[str, object]) -> str:

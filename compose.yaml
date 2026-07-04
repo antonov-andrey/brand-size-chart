@@ -92,7 +92,6 @@ services:
       - 1.1.1.1
       - 8.8.8.8
     environment:
-      BRAND_LIST: ${BRAND_LIST:-./brand_list.txt}
       BROWSER_RUNTIME_MCP_URL: http://openvpn:8931/mcp
       DBOS_SYSTEM_DATABASE_URL: sqlite:////runtime/dbos.sqlite
       HOST_GID: ${HOST_GID:-1000}
@@ -105,7 +104,12 @@ services:
       - vpn
     volumes:
       - ./.secret:/input/.secret:ro
-      - ${BRAND_LIST:-./brand_list.txt}:/input/brand_list.txt:ro
+      - type: bind
+        source: ${BRAND_LIST:?Set BRAND_LIST to a brand list file path}
+        target: /input/brand_list.txt
+        read_only: true
+        bind:
+          create_host_path: false
       - ${OUTPUT_DIR:-./out}:/output
 
 volumes:

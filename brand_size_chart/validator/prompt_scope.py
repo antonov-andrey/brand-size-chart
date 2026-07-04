@@ -4,15 +4,8 @@ from collections.abc import Collection
 
 from brand_size_chart.model import PromptScope
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
+from brand_size_chart.stage.base import STAGE_KEY_SET
 from brand_size_chart.validator.base import MechanicalValidator
-
-STAGE_KEY_SET = {
-    "canonical_select",
-    "coverage_decide",
-    "source_discover",
-    "table_extract",
-    "workflow_run_prompt_apply",
-}
 
 
 class PromptScopeValidator(MechanicalValidator):

@@ -9,7 +9,6 @@ import re
 import pytest
 import yaml
 
-from brand_size_chart import source_type as source_type_surface
 from brand_size_chart import workflow
 from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import BrandInput
@@ -27,14 +26,11 @@ from brand_size_chart.model import SourceTypeSummary
 from brand_size_chart.model import StageVerification
 from brand_size_chart.model import TableExtraction
 from brand_size_chart.model import TableExtractionBatchResult
-from brand_size_chart.prompt.renderer import PromptRenderer
-from brand_size_chart.source_type import (
-    PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET,
-    SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP,
-    SOURCE_TYPE_PRIORITY_BY_KEY_MAP,
-)
-from brand_size_chart.workflow import base as workflow_base
-from workflow_container_runtime.codex import runner as codex_runner
+from brand_size_chart.source import SOURCE_TYPE_REGISTRY
+from brand_size_chart.stage import semantic
+from brand_size_chart.stage.semantic import SemanticStage
+from brand_size_chart.stage.workflow_run_prompt_apply import WorkflowRunPromptApplyStage
+from workflow_container_runtime.prompt import PromptRenderer as RuntimePromptRenderer
 
 ACTION_STAGE_KEY_SET = {
     "canonical_select",
@@ -49,6 +45,7 @@ FORBIDDEN_STAGE_KEY_SET = {
     "source_discovery",
     "table_extraction",
 }
+PROJECT_TEMPLATE_DIR = Path("brand_size_chart/prompt/template")
 
 
 def _workflow_package_source_text_get() -> str:
@@ -72,7 +69,7 @@ def _prompt_template_text_get(template_name: str) -> str:
         Rendered prompt template text.
     """
 
-    return PromptRenderer().render(
+    return RuntimePromptRenderer(template_dir=PROJECT_TEMPLATE_DIR).render(
         template_name,
         {
             "artifact_path_list": ["brand_size_chart_audit/brand/defacto/source_type/source/result.json"],
@@ -93,6 +90,24 @@ def _prompt_template_text_get(template_name: str) -> str:
             "stage_instruction_text": "- stage instruction",
             "stage_key": template_name.removesuffix(".md.j2"),
             "stage_result_json_text": '{"status":"success"}',
+        },
+    )
+
+
+def _runtime_prompt_template_text_get(template_name: str) -> str:
+    """Return one rendered runtime prompt template text.
+
+    Args:
+        template_name: Runtime prompt template file name.
+
+    Returns:
+        Rendered runtime prompt template text.
+    """
+
+    return RuntimePromptRenderer().render(
+        template_name,
+        {
+            "workflow_container_name": "workflow-container",
         },
     )
 
@@ -183,31 +198,23 @@ def test_stage_names_use_action_verbs() -> None:
     if fixture_root.exists():
         scanned_python_path_list.extend(sorted(fixture_root.rglob("*.py")))
 
-    error_list = []
-    error_list.extend(
-        f"prompt map still accepts {stage_key!r}"
-        for stage_key in FORBIDDEN_STAGE_KEY_SET
-        if stage_key in stage_base.PROMPT_TEMPLATE_NAME_BY_STAGE_KEY_MAP
-        or stage_key in stage_base.VERIFY_TEMPLATE_NAME_BY_STAGE_KEY_MAP
-    )
-    error_list.extend(
+    error_list = [
         f"prompt scope still accepts {stage_key!r}"
         for stage_key in FORBIDDEN_STAGE_KEY_SET
         if stage_key in prompt_scope.STAGE_KEY_SET
-    )
+    ]
     error_list.extend(
         f"prompt template file still uses {stage_key!r}: {path}"
         for path in sorted(Path("brand_size_chart/prompt/template").glob("*.md.j2"))
         for stage_key in FORBIDDEN_STAGE_KEY_SET
         if stage_key in path.name
     )
-    for schema_path in sorted(Path("brand_size_chart/schema").glob("*.schema.json")):
-        error_list.extend(_json_stage_value_error_list_get(schema_path, json.loads(schema_path.read_text())))
     for path in scanned_python_path_list:
         error_list.extend(_python_stage_literal_error_list_get(path))
 
-    assert stage_base.PROMPT_TEMPLATE_NAME_BY_STAGE_KEY_MAP.keys() == ACTION_STAGE_KEY_SET
-    assert stage_base.VERIFY_TEMPLATE_NAME_BY_STAGE_KEY_MAP.keys() == ACTION_STAGE_KEY_SET
+    assert stage_base.STAGE_KEY_SET == ACTION_STAGE_KEY_SET
+    assert hasattr(stage_base, "PROMPT_TEMPLATE_NAME_BY_STAGE_KEY_MAP") is False
+    assert hasattr(stage_base, "VERIFY_TEMPLATE_NAME_BY_STAGE_KEY_MAP") is False
     assert prompt_scope.STAGE_KEY_SET == ACTION_STAGE_KEY_SET
     assert hasattr(layout, "source_discovery_dir") is False
     assert hasattr(layout, "source_discovery_evidence_dir") is False
@@ -236,8 +243,8 @@ def test_stage_names_use_action_verbs() -> None:
     )
     assert "coverage_decision_write_step" not in workflow.__all__
     assert "source_discovery_write_step" not in workflow.__all__
-    assert "coverage_decide_write_step" in workflow.__all__
-    assert "source_discover_write_step" in workflow.__all__
+    assert "coverage_decide_write_step" not in workflow.__all__
+    assert "source_discover_write_step" not in workflow.__all__
     assert error_list == []
 
 
@@ -245,7 +252,8 @@ def test_model_is_package_not_monolithic_module() -> None:
     """Replace the broad model module with focused model package modules."""
     assert Path("brand_size_chart/model.py").exists() is False
     assert Path("brand_size_chart/model/__init__.py").exists()
-    assert Path("brand_size_chart/model/schema_registry.py").exists()
+    assert not Path("brand_size_chart/model/schema_registry.py").exists()
+    assert not Path("brand_size_chart/schema").exists()
 
 
 def test_workflow_is_package_not_monolithic_module() -> None:
@@ -260,18 +268,7 @@ def test_workflow_is_package_not_monolithic_module() -> None:
         "BrandSizeChartBrandWorkflow",
         "BrandSizeChartRunWorkflow",
         "BrandSizeChartSourceTypeWorkflow",
-        "brand_selection_write_step",
-        "brand_size_chart_brand",
-        "brand_size_chart_run",
-        "brand_size_chart_source_type",
-        "brand_size_chart_workflow",
-        "coverage_decide_write_step",
-        "prompt_scope_write_step",
         "run_failure_result_write",
-        "run_result_write_step",
-        "source_discover_write_step",
-        "source_type_summary_write_step",
-        "table_extract_write_step",
     }
 
 
@@ -279,23 +276,34 @@ def test_workflow_has_no_per_table_child_workflow() -> None:
     """Run table extraction as one source-type batch step instead of one child workflow per table."""
     workflow_source_text = _workflow_package_source_text_get()
 
-    assert hasattr(workflow_base, "table_stage_run") is False
-    assert hasattr(workflow_base, "table_extract_result_get") is True
     assert Path("brand_size_chart/workflow/table.py").exists() is False
     assert "BrandSizeChartTableWorkflow" not in workflow.__all__
     assert "BRAND_SIZE_CHART_TABLE_WORKFLOW" not in workflow.__all__
     assert "brand_size_chart_table" not in workflow.__all__
     assert "table_stage_write_step" not in workflow.__all__
-    assert "table_extract_write_step" in workflow.__all__
+    assert "table_extract_write_step" not in workflow.__all__
     assert "brand_size_chart_table" not in workflow_source_text
+
+
+def test_dbos_codex_workflow_dependency_owner_is_shared() -> None:
+    """Share Codex workflow dependencies through one domain workflow owner."""
+    from brand_size_chart.workflow.codex import BrandSizeChartCodexWorkflow
+
+    assert Path("brand_size_chart/workflow/base.py").exists() is False
+    assert issubclass(workflow.BrandSizeChartRunWorkflow, BrandSizeChartCodexWorkflow)
+    assert issubclass(workflow.BrandSizeChartBrandWorkflow, BrandSizeChartCodexWorkflow)
+    assert issubclass(workflow.BrandSizeChartSourceTypeWorkflow, BrandSizeChartCodexWorkflow)
+    assert isinstance(workflow.BRAND_SIZE_CHART_RUN_WORKFLOW, BrandSizeChartCodexWorkflow)
+    assert isinstance(workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW, BrandSizeChartCodexWorkflow)
+    assert isinstance(workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW, BrandSizeChartCodexWorkflow)
+    assert "BrandSizeChartCodexWorkflow" not in workflow.__all__
 
 
 def test_table_extract_stage_has_no_legacy_prompt_alias() -> None:
     """Reject old table-extraction prompt aliases after batch stage migration."""
     from brand_size_chart.stage import base as stage_base
 
-    assert "table_extraction" not in stage_base.PROMPT_TEMPLATE_NAME_BY_STAGE_KEY_MAP
-    assert "table_extraction" not in stage_base.VERIFY_TEMPLATE_NAME_BY_STAGE_KEY_MAP
+    assert "table_extraction" not in stage_base.STAGE_KEY_SET
 
 
 def test_prompt_text_lives_only_in_template_tree() -> None:
@@ -310,13 +318,23 @@ def test_prompt_text_lives_only_in_template_tree() -> None:
     assert Path("brand_size_chart/prompt/template/partial/size_group_key_contract.md.j2").is_file()
 
 
+def test_domain_prompts_do_not_duplicate_runtime_source_access_contract() -> None:
+    """Keep generic browser and web-search rules in workflow-container-runtime."""
+
+    source_discover_text = Path("brand_size_chart/prompt/template/source_discover.md.j2").read_text(encoding="utf-8")
+
+    assert "Use Codex internal web search" not in source_discover_text
+    assert "Do not open public search-engine result pages" not in source_discover_text
+    assert "through the configured browser" not in source_discover_text
+
+
 def test_generic_runtime_prompt_partials_are_not_local_project_files() -> None:
     """Load generic prompt partials from workflow-container runtime."""
 
     assert not Path("brand_size_chart/prompt/template/partial/runtime_source_access.md.j2").exists()
     assert not Path("brand_size_chart/prompt/template/partial/artifact_reference_contract.md.j2").exists()
     assert not Path("brand_size_chart/prompt/template/partial/stage_verification_contract.md.j2").exists()
-    assert "Use the configured browser" in PromptRenderer().render(
+    assert "Use the configured browser" in RuntimePromptRenderer(template_dir=PROJECT_TEMPLATE_DIR).render(
         "runtime/partial/runtime_source_access.md.j2",
         {},
     )
@@ -377,51 +395,64 @@ def test_dbos_workflow_classes_are_class_owned() -> None:
         assert method.dbos_func_decorator_info.class_info.registered_name == class_name
 
 
-def test_local_codex_runtime_compatibility_surface_is_absent() -> None:
+def test_local_codex_runtime_owner_is_absent() -> None:
     """Keep generic Codex runtime out of the domain project."""
 
     assert not Path("brand_size_chart/codex_stage.py").exists()
     assert not Path("brand_size_chart/codex").exists()
 
 
-def test_entrypoint_py_is_compatibility_surface_only() -> None:
-    """Move runtime config and launch ownership into app package."""
-    entrypoint_source = Path("brand_size_chart/entrypoint.py").read_text(encoding="utf-8")
+def test_refactor_import_files_are_absent() -> None:
+    """Keep refactor-only import files out of the package."""
 
-    assert "from brand_size_chart.app.entrypoint import main" in entrypoint_source
-    assert "DBOS.launch" not in entrypoint_source
-
-
-def test_source_type_py_is_compatibility_surface_only() -> None:
-    """Move source type registry ownership into source package."""
-    source_type_source = Path("brand_size_chart/source_type.py").read_text(encoding="utf-8")
-
-    assert "SOURCE_TYPE_LIST" not in source_type_source
-    assert "from brand_size_chart.source.source_type_registry import" in source_type_source
+    assert not Path("brand_size_chart/entrypoint.py").exists()
+    assert not Path("brand_size_chart/source_extractor.py").exists()
+    assert not Path("brand_size_chart/source_type.py").exists()
+    assert not Path("brand_size_chart/validator/artifact.py").exists()
+    assert not Path("brand_size_chart/workflow/base.py").exists()
 
 
-def test_source_type_registry_is_immutable_through_compatibility_import() -> None:
-    """Prevent compatibility imports from mutating source type registry state."""
-    from brand_size_chart.source import SOURCE_TYPE_REGISTRY
+def test_identifier_component_validator_has_one_owner() -> None:
+    """Keep identifier-component validation in one model base owner."""
 
+    model_source_text_by_path = {
+        path: path.read_text(encoding="utf-8") for path in sorted(Path("brand_size_chart/model").glob("*.py"))
+    }
+    owner_path_list = [
+        path
+        for path, source_text in model_source_text_by_path.items()
+        if "def identifier_component_validate" in source_text
+    ]
+
+    assert owner_path_list == [Path("brand_size_chart/model/base.py")]
+
+
+def test_source_type_registry_has_no_public_map_aliases() -> None:
+    """Expose source type registry through the registry object only."""
+
+    source_package_text = Path("brand_size_chart/source/__init__.py").read_text(encoding="utf-8")
+    registry_text = Path("brand_size_chart/source/source_type_registry.py").read_text(encoding="utf-8")
+
+    assert "SOURCE_TYPE_PRIORITY_BY_KEY_MAP" not in source_package_text
+    assert "SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP" not in source_package_text
+    assert "PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET" not in source_package_text
+    assert "SOURCE_TYPE_PRIORITY_BY_KEY_MAP =" not in registry_text
+    assert "SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP =" not in registry_text
+    assert "PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET =" not in registry_text
+
+
+def test_source_type_registry_is_immutable_through_public_import() -> None:
+    """Prevent public imports from mutating source type registry state."""
     source_type = "official_brand_size_guide"
     original_instruction = SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_get(source_type)
     original_priority = SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type)
 
-    try:
-        with pytest.raises(TypeError):
-            source_type_surface.SOURCE_TYPE_PRIORITY_BY_KEY_MAP[source_type] = 1
-        with pytest.raises(TypeError):
-            source_type_surface.SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP[source_type] = "mutated"
-        with pytest.raises(AttributeError):
-            source_type_surface.PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET.add("mutated_source_type")
-    finally:
-        if SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type) != original_priority:
-            source_type_surface.SOURCE_TYPE_PRIORITY_BY_KEY_MAP[source_type] = original_priority
-        if SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_get(source_type) != original_instruction:
-            source_type_surface.SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP[source_type] = original_instruction
-        if hasattr(source_type_surface.PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET, "discard"):
-            source_type_surface.PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET.discard("mutated_source_type")
+    with pytest.raises(TypeError):
+        SOURCE_TYPE_REGISTRY.source_type_priority_by_key_map[source_type] = 1
+    with pytest.raises(TypeError):
+        SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_by_key_map[source_type] = "mutated"
+    with pytest.raises(AttributeError):
+        SOURCE_TYPE_REGISTRY.product_type_required_source_type_set.add("mutated_source_type")
 
     assert SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type) == original_priority
     assert SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_get(source_type) == original_instruction
@@ -944,6 +975,7 @@ def test_local_compose_declares_vpn_profile() -> None:
     assert "network_mode" not in compose["services"]["workflow"]
     assert compose["services"]["workflow"]["dns"] == ["1.1.1.1", "8.8.8.8"]
     assert compose["services"]["workflow"]["depends_on"]["playwright-mcp"]["condition"] == "service_healthy"
+    assert "BRAND_LIST" not in compose["services"]["workflow"]["environment"]
     assert compose["services"]["workflow"]["environment"]["BROWSER_RUNTIME_MCP_URL"] == "http://openvpn:8931/mcp"
     assert (
         compose["services"]["workflow"]["environment"]["DBOS_SYSTEM_DATABASE_URL"] == "sqlite:////runtime/dbos.sqlite"
@@ -956,7 +988,13 @@ def test_local_compose_declares_vpn_profile() -> None:
     assert "./.secret:/input/.secret:ro" in playwright_mcp_volume_list
     assert "${OUTPUT_DIR:-./out}:/output" in playwright_mcp_volume_list
     assert "./.secret:/input/.secret:ro" in workflow_volume_list
-    assert "${BRAND_LIST:-./brand_list.txt}:/input/brand_list.txt:ro" in workflow_volume_list
+    assert {
+        "type": "bind",
+        "source": "${BRAND_LIST:?Set BRAND_LIST to a brand list file path}",
+        "target": "/input/brand_list.txt",
+        "read_only": True,
+        "bind": {"create_host_path": False},
+    } in workflow_volume_list
     assert "${OUTPUT_DIR:-./out}:/output" in workflow_volume_list
     assert ".:/workspace/brand-size-chart" not in playwright_mcp_volume_list
     assert ".:/workspace/brand-size-chart" not in workflow_volume_list
@@ -1023,24 +1061,27 @@ def test_workflow_imports_dbos_eagerly_without_noop_decorator_fallback() -> None
 
 def test_source_type_registry_has_no_separate_official_brand_asset_stage() -> None:
     """Keep official PDFs, images, and assets inside the official brand size-guide source type."""
-    source_type_source = Path("brand_size_chart/source_type.py").read_text(encoding="utf-8")
+    source_type_source = Path("brand_size_chart/source/source_type_registry.py").read_text(encoding="utf-8")
 
     assert "official_brand_asset" not in source_type_source
-    assert "pdf" not in SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP["official_brand_size_guide"].lower()
-    assert "image" not in SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP["official_brand_size_guide"].lower()
+    official_brand_instruction = SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_get(
+        "official_brand_size_guide"
+    ).lower()
+    assert "pdf" not in official_brand_instruction
+    assert "image" not in official_brand_instruction
 
 
 def test_source_type_registry_uses_authority_sources_without_seller_qa_stage() -> None:
     """Keep source types based on authority and location, not on evidence format."""
-    assert SOURCE_TYPE_PRIORITY_BY_KEY_MAP == {
+    assert dict(SOURCE_TYPE_REGISTRY.source_type_priority_by_key_map) == {
         "official_brand_size_guide": 600,
         "official_seller_size_guide": 550,
         "official_brand_product_page": 500,
         "official_marketplace_product_page": 300,
         "official_marketplace_store": 200,
     }
-    assert "official_seller_qa" not in SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP
-    assert PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET == {
+    assert "official_seller_qa" not in SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_by_key_map
+    assert SOURCE_TYPE_REGISTRY.product_type_required_source_type_set == {
         "official_brand_product_page",
         "official_marketplace_product_page",
         "official_marketplace_store",
@@ -1049,8 +1090,10 @@ def test_source_type_registry_uses_authority_sources_without_seller_qa_stage() -
 
 def test_source_type_selection_requires_product_types_for_product_page_source_types() -> None:
     """Run product-page source types only when product types are requested."""
-    source_type_list_without_product_types = workflow_base.source_type_list_get(PromptScope(priority_country_code="TR"))
-    source_type_list_with_product_types = workflow_base.source_type_list_get(
+    source_type_list_without_product_types = workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.source_type_list_get(
+        PromptScope(priority_country_code="TR")
+    )
+    source_type_list_with_product_types = workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.source_type_list_get(
         PromptScope(priority_country_code="TR", product_type_request_list=["bra"])
     )
 
@@ -1071,17 +1114,17 @@ def test_size_guide_source_types_do_not_receive_product_type_scope() -> None:
         shared_instruction="Search official pages only.",
     )
 
-    official_brand_scope = workflow_base.source_type_prompt_scope_get(
+    official_brand_scope = workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.source_type_prompt_scope_get(
         prompt_scope=prompt_scope,
         remaining_product_type_list=["women dresses", "men shoes"],
         source_type="official_brand_size_guide",
     )
-    official_seller_scope = workflow_base.source_type_prompt_scope_get(
+    official_seller_scope = workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.source_type_prompt_scope_get(
         prompt_scope=prompt_scope,
         remaining_product_type_list=["women dresses", "men shoes"],
         source_type="official_seller_size_guide",
     )
-    product_page_scope = workflow_base.source_type_prompt_scope_get(
+    product_page_scope = workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.source_type_prompt_scope_get(
         prompt_scope=prompt_scope,
         remaining_product_type_list=["men shoes"],
         source_type="official_brand_product_page",
@@ -1102,7 +1145,7 @@ def test_prompt_scope_owns_priority_country_code() -> None:
         shared_instruction="Search official pages only.",
     )
 
-    narrowed_prompt_scope = workflow_base.source_type_prompt_scope_get(
+    narrowed_prompt_scope = workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.source_type_prompt_scope_get(
         prompt_scope=prompt_scope,
         remaining_product_type_list=[],
         source_type="official_seller_size_guide",
@@ -1600,63 +1643,6 @@ def test_canonical_selection_validator_accepts_selected_duplicate_source_type() 
     )
 
 
-def test_table_extraction_draft_ignores_discovery_evidence_chart_payload(tmp_path: Path) -> None:
-    """Do not hydrate production table extraction from discovery evidence JSON."""
-    from brand_size_chart.source_extractor import table_extraction_from_discovery_get
-
-    evidence_path = (
-        tmp_path
-        / "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/source_discover/evidence/table.json"
-    )
-    evidence_path.parent.mkdir(parents=True)
-    evidence_table = TableExtraction(
-        applicability_status="priority_country_official",
-        chart=BrandSizeChart(
-            description="Fixture chart",
-            row_list=[
-                BrandSizeChartRow(
-                    measurement_list=[
-                        BrandSizeChartMeasurement(name="Beden", min_value="XL", max_value="XL", unit="size"),
-                    ],
-                    size_label="XL",
-                )
-            ],
-        ),
-        size_group_key="women_upper",
-        source_title="Fixture title",
-        source_type="official_brand_size_guide",
-        source_url="https://fixture.example/table",
-    )
-    evidence_path.write_text(evidence_table.model_dump_json(), encoding="utf-8")
-    source_discovery = SourceDiscovery(
-        confidence=1.0,
-        country_code_list=["TR"],
-        evidence_path_list=[evidence_path.relative_to(tmp_path).as_posix()],
-        product_type_hint_list=["upper"],
-        size_group_key="women_upper",
-        source_priority=600,
-        source_title="Kadın Üst Beden Tablosu",
-        source_type="official_brand_size_guide",
-        source_url="https://www.defacto.com.tr/statik/beden-rehberi",
-    )
-
-    table_extraction = table_extraction_from_discovery_get(
-        brand_input=BrandInput(
-            parsed_brand_key="defacto",
-            parsed_brand_name="Defacto",
-            raw_brand_name="Defacto",
-            source_line_number=1,
-        ),
-        result_dir=tmp_path,
-        source_discovery=source_discovery,
-    )
-
-    assert table_extraction.chart.row_list == []
-    assert table_extraction.source_title == "Kadın Üst Beden Tablosu"
-    assert table_extraction.source_url == "https://www.defacto.com.tr/statik/beden-rehberi"
-    assert table_extraction.evidence_path_list == [evidence_path.relative_to(tmp_path).as_posix()]
-
-
 def test_brand_selection_writes_selected_duplicate_table(monkeypatch: object, tmp_path: Path) -> None:
     """Write the canonical table selected by full source identity when size_group_key duplicates exist."""
     from pydantic import BaseModel
@@ -1706,22 +1692,30 @@ def test_brand_selection_writes_selected_duplicate_table(monkeypatch: object, tm
         source_url="https://seller.example/size-guide",
     )
 
-    def fake_coverage_decision_semantic_result_get(**kwargs: object) -> CoverageDecisionResult:
-        """Return final coverage without using Codex.
+    class FakeCoverageDecisionStage:
+        """Return final coverage without using Codex."""
 
-        Args:
-            kwargs: Ignored workflow inputs.
+        def __init__(self, **kwargs: object) -> None:
+            """Accept workflow construction kwargs.
 
-        Returns:
-            Successful coverage result.
-        """
+            Args:
+                kwargs: Ignored workflow inputs.
+            """
 
-        _ = kwargs
-        return CoverageDecisionResult(
-            coverage_decision_list=[],
-            message="coverage checked",
-            status="success",
-        )
+            _ = kwargs
+
+        def run(self) -> CoverageDecisionResult:
+            """Return a successful coverage result.
+
+            Returns:
+                Coverage decision result.
+            """
+
+            return CoverageDecisionResult(
+                coverage_decision_list=[],
+                message="coverage checked",
+                status="success",
+            )
 
     class FakeCanonicalSelectionStage:
         """Return a canonical selection for the higher-priority duplicate table."""
@@ -1755,11 +1749,7 @@ def test_brand_selection_writes_selected_duplicate_table(monkeypatch: object, tm
                 status="success",
             )
 
-    monkeypatch.setattr(
-        brand_workflow,
-        "coverage_decision_semantic_result_get",
-        fake_coverage_decision_semantic_result_get,
-    )
+    monkeypatch.setattr(brand_workflow, "CoverageDecisionStage", FakeCoverageDecisionStage)
     monkeypatch.setattr(brand_workflow, "CanonicalSelectionStage", FakeCanonicalSelectionStage)
 
     result = brand_workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.selection_write_step.__wrapped__(
@@ -1784,20 +1774,64 @@ def test_brand_selection_writes_selected_duplicate_table(monkeypatch: object, tm
     assert chart_payload["row_list"][0]["size_label"] == "S"
 
 
-def test_stage_prompt_text_includes_draft_result() -> None:
+def test_semantic_stage_has_no_prompt_function_proxy() -> None:
+    """Keep stage prompt generation owned by `SemanticStage`."""
+
+    assert not hasattr(semantic, "stage_prompt_text_get")
+
+
+def test_semantic_stage_prompt_text_includes_draft_result(tmp_path: Path) -> None:
     """Give semantic stages their deterministic draft result as structured input."""
-    prompt_text = workflow_base.stage_prompt_text_get(
-        attempt_index=1,
-        draft_result_json_text='{"canonical_selection_list":[{"size_group_key":"women_upper"}]}',
-        feedback_list=[],
-        prompt_context="Brand: Defacto",
+    captured_prompt_list: list[str] = []
+
+    def fake_codex_stage_run(
+        *,
+        allow_user_config: bool,
+        browser_runtime_mcp_url: str,
+        model_class: type[PromptScope] | type[StageVerification],
+        prompt_text: str,
+        result_dir: Path,
+        stage_dir: Path,
+        stage_name: str,
+    ) -> PromptScope | StageVerification:
+        """Capture prompt text and return schema-valid fake stage outputs.
+
+        Args:
+            allow_user_config: Whether browser config is enabled.
+            browser_runtime_mcp_url: Browser MCP URL.
+            model_class: Expected output model.
+            prompt_text: Rendered prompt text.
+            result_dir: Result root.
+            stage_dir: Stage artifact directory.
+            stage_name: Stage name.
+
+        Returns:
+            Fake stage result.
+        """
+
+        _ = allow_user_config
+        _ = browser_runtime_mcp_url
+        _ = result_dir
+        _ = stage_dir
+        captured_prompt_list.append(prompt_text)
+        if model_class is StageVerification:
+            return StageVerification(message="verified", stage_key=stage_name, status="success")
+        return PromptScope(priority_country_code="TR")
+
+    SemanticStage(
+        codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(priority_country_code="TR"),
-        previous_result_json_text="",
-        stage_key="canonical_select",
+        result_dir=tmp_path,
+        stage_dir=tmp_path / "stage",
+        stage_key="workflow_run_prompt_apply",
+    ).run(
+        draft_result=PromptScope(priority_country_code="TR"),
+        model_class=PromptScope,
+        prompt_context="Brand: Defacto",
     )
 
-    assert "Draft stage result JSON:" in prompt_text
-    assert '"size_group_key":"women_upper"' in prompt_text
+    assert "Draft stage result JSON:" in captured_prompt_list[0]
+    assert '"priority_country_code": "TR"' in captured_prompt_list[0]
 
 
 def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch: object, tmp_path: Path) -> None:
@@ -1869,7 +1903,6 @@ def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch:
         browser_runtime_mcp_url: str,
         prompt_scope_payload: dict[str, object],
         result_dir: str,
-        secret_ref: str,
         source_type: str,
     ) -> FakeHandle:
         """Record source-type child workflow start and return one table.
@@ -1882,7 +1915,6 @@ def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch:
             browser_runtime_mcp_url: Browser MCP URL.
             prompt_scope_payload: Serialized prompt scope.
             result_dir: Result root.
-            secret_ref: Secret root.
             source_type: Source type being started.
 
         Returns:
@@ -1894,7 +1926,6 @@ def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch:
         _ = brand_input_payload
         _ = browser_runtime_mcp_url
         _ = result_dir
-        _ = secret_ref
         source_type_prompt_scope = PromptScope.model_validate(prompt_scope_payload)
         enqueued_source_type_list.append(source_type)
         assert source_type_prompt_scope.product_type_request_list == []
@@ -1904,7 +1935,7 @@ def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch:
                     "blocker_list": [],
                     "conflict_list": [],
                     "evidence_manifest_path_list": [],
-                    "source_priority": SOURCE_TYPE_PRIORITY_BY_KEY_MAP[source_type],
+                    "source_priority": SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type),
                     "source_type": source_type,
                     "state": "passed",
                     "table_result_path_by_size_group_key_map": {},
@@ -1956,7 +1987,7 @@ def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch:
         fake_coverage_decide_write_step,
     )
 
-    result_payload = workflow.brand_size_chart_brand.__wrapped__(
+    result_payload = workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.run.__wrapped__(
         workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW,
         "run1",
         {
@@ -1968,7 +1999,6 @@ def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch:
         "http://browser/mcp",
         PromptScope(priority_country_code="TR", product_type_request_list=["women dresses"]).model_dump(mode="json"),
         str(tmp_path),
-        str(tmp_path / ".secret"),
     )
 
     assert result_payload["enqueued_source_type_list"] == [
@@ -2042,7 +2072,6 @@ def test_brand_workflow_skips_intermediate_coverage_for_failed_source_type(
         browser_runtime_mcp_url: str,
         prompt_scope_payload: dict[str, object],
         result_dir: str,
-        secret_ref: str,
         source_type: str,
     ) -> FakeHandle:
         """Return a failed source-type result between two successful source types.
@@ -2055,7 +2084,6 @@ def test_brand_workflow_skips_intermediate_coverage_for_failed_source_type(
             browser_runtime_mcp_url: Browser MCP URL.
             prompt_scope_payload: Serialized prompt scope.
             result_dir: Result root.
-            secret_ref: Secret root.
             source_type: Source type being started.
 
         Returns:
@@ -2068,13 +2096,12 @@ def test_brand_workflow_skips_intermediate_coverage_for_failed_source_type(
         _ = browser_runtime_mcp_url
         _ = prompt_scope_payload
         _ = result_dir
-        _ = secret_ref
         if source_type == "official_seller_size_guide":
             return FakeHandle(
                 {
                     "source_type_summary": SourceTypeSummary(
                         blocker_list=["no seller guide"],
-                        source_priority=SOURCE_TYPE_PRIORITY_BY_KEY_MAP[source_type],
+                        source_priority=SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type),
                         source_type=source_type,
                         state="failed",
                     ).model_dump(mode="json"),
@@ -2084,7 +2111,7 @@ def test_brand_workflow_skips_intermediate_coverage_for_failed_source_type(
         return FakeHandle(
             {
                 "source_type_summary": SourceTypeSummary(
-                    source_priority=SOURCE_TYPE_PRIORITY_BY_KEY_MAP[source_type],
+                    source_priority=SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type),
                     source_type=source_type,
                     state="passed",
                     verified_size_group_key_list=["women_clothing"],
@@ -2134,7 +2161,7 @@ def test_brand_workflow_skips_intermediate_coverage_for_failed_source_type(
         fake_brand_selection_write_step,
     )
 
-    result_payload = workflow.brand_size_chart_brand.__wrapped__(
+    result_payload = workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.run.__wrapped__(
         workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW,
         "run1",
         {
@@ -2154,7 +2181,6 @@ def test_brand_workflow_skips_intermediate_coverage_for_failed_source_type(
             ],
         ).model_dump(mode="json"),
         str(tmp_path),
-        str(tmp_path / ".secret"),
     )
 
     assert result_payload["coverage_source_type_list"] == [
@@ -2213,7 +2239,7 @@ def test_prompt_scope_accepts_table_extract_and_rejects_table_extraction_stage_k
 
 def test_source_type_summary_records_failed_source_without_discovery_artifact(tmp_path: Path) -> None:
     """Write failed source-type summaries without requiring a successful discovery artifact."""
-    summary_payload = workflow.source_type_summary_write_step.__wrapped__(
+    summary_payload = workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.summary_write_step.__wrapped__(
         workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW,
         {
             "parsed_brand_key": "defacto",
@@ -2236,7 +2262,7 @@ def test_source_type_summary_records_failed_source_without_discovery_artifact(tm
 
 def test_source_type_summary_records_no_table_discovery_as_skipped_warning(tmp_path: Path) -> None:
     """Record evidence-backed no-table source discovery as skipped instead of failed."""
-    summary_payload = workflow.source_type_summary_write_step.__wrapped__(
+    summary_payload = workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.summary_write_step.__wrapped__(
         workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW,
         {
             "parsed_brand_key": "defacto",
@@ -2289,7 +2315,7 @@ def test_source_type_summary_points_to_table_extract_chart_artifacts(tmp_path: P
         source_url="https://www.defacto.com.tr/statik/beden-rehberi",
     )
 
-    summary_payload = workflow.source_type_summary_write_step.__wrapped__(
+    summary_payload = workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.summary_write_step.__wrapped__(
         workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW,
         brand_input.model_dump(mode="json"),
         str(tmp_path),
@@ -2400,11 +2426,11 @@ def test_prompt_scope_stage_retries_unknown_source_type_allow_phrase(monkeypatch
             source_type_allow_list=[],
         )
 
-    prompt_scope = workflow_base.prompt_scope_stage_get(
+    prompt_scope = WorkflowRunPromptApplyStage(
         codex_stage_run_callable=fake_codex_stage_run,
         result_dir=tmp_path,
         workflow_run_prompt="Priority country TR. Search all supported source types. Product types: socks.",
-    )
+    ).run()
 
     assert prompt_scope.product_type_request_list == ["socks"]
     assert prompt_scope.source_type_allow_list == []
@@ -2505,7 +2531,7 @@ def test_browser_stage_prompts_forbid_local_artifact_browser_access() -> None:
     """Keep local artifact reads and non-evidence writes outside the browser context."""
     browser_stage_text = "\n".join(
         [
-            codex_runner.CODEX_BROWSER_STAGE_SYSTEM_PROMPT,
+            _runtime_prompt_template_text_get("system/codex_browser_stage.md.j2"),
             _prompt_template_text_get("source_discover.md.j2"),
             _prompt_template_text_get("source_discover_verify.md.j2"),
             _prompt_template_text_get("table_extract.md.j2"),
@@ -2520,7 +2546,7 @@ def test_browser_stage_prompts_forbid_local_artifact_browser_access() -> None:
     assert "Do not use browser page context to write chart artifacts" in browser_stage_text
     assert "Do not use jq with guessed JSON paths" in browser_stage_text
     assert "Do not use browser_run_code_unsafe" in browser_stage_text
-    assert "use browser_evaluate with pure browser JavaScript" in browser_stage_text
+    assert "Use browser_evaluate with pure browser JavaScript" in browser_stage_text
     assert "must not use Node.js APIs" in browser_stage_text
     assert "return serializable data" in browser_stage_text
 
@@ -2529,7 +2555,7 @@ def test_browser_stage_prompts_require_robust_browser_interactions() -> None:
     """Keep browser stages from repeating recoverable selector and overlay failures."""
     browser_stage_text = "\n".join(
         [
-            codex_runner.CODEX_BROWSER_STAGE_SYSTEM_PROMPT,
+            _runtime_prompt_template_text_get("system/codex_browser_stage.md.j2"),
             _prompt_template_text_get("source_discover.md.j2"),
             _prompt_template_text_get("table_extract.md.j2"),
         ]
@@ -2544,8 +2570,8 @@ def test_verification_prompts_forbid_brittle_local_json_scripts() -> None:
     """Keep semantic verifier helper scripts from failing on unrelated JSON artifact shapes."""
     verification_text = "\n".join(
         [
-            codex_runner.CODEX_BROWSER_STAGE_SYSTEM_PROMPT,
-            codex_runner.CODEX_STAGE_SYSTEM_PROMPT,
+            _runtime_prompt_template_text_get("system/codex_browser_stage.md.j2"),
+            _runtime_prompt_template_text_get("system/codex_stage.md.j2"),
             _prompt_template_text_get("source_discover_verify.md.j2"),
             _prompt_template_text_get("table_extract_verify.md.j2"),
         ]

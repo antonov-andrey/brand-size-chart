@@ -130,6 +130,3 @@ class SourceTypeRegistry:
 
 
 SOURCE_TYPE_REGISTRY = SourceTypeRegistry()
-PRODUCT_TYPE_REQUIRED_SOURCE_TYPE_SET = SOURCE_TYPE_REGISTRY.product_type_required_source_type_set
-SOURCE_TYPE_DISCOVERY_INSTRUCTION_BY_KEY_MAP = SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_by_key_map
-SOURCE_TYPE_PRIORITY_BY_KEY_MAP = SOURCE_TYPE_REGISTRY.source_type_priority_by_key_map

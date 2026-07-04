@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import Literal
 from pydantic import Field, field_validator
 
-from brand_size_chart.identifier import dbos_identifier_component
 from brand_size_chart.model.base import (
     COUNTRY_CODE_PATTERN,
+    IdentifierComponent,
     SOURCE_COUNTRY_CODE_SPECIAL_SET,
     ApplicabilityStatus,
     StageStatus,
@@ -49,11 +49,11 @@ class SourceDiscovery(StrictBaseModel):
     country_code_list: list[str]
     evidence_path_list: list[str] = Field(default_factory=list)
     product_type_hint_list: list[str] = Field(default_factory=list)
-    size_group_key: str
+    size_group_key: IdentifierComponent
     source_note_list: list[str] = Field(default_factory=list)
     source_priority: int = Field(ge=1)
     source_title: str
-    source_type: str
+    source_type: IdentifierComponent
     source_url: str
 
     @field_validator("country_code_list")
@@ -79,24 +79,6 @@ class SourceDiscovery(StrictBaseModel):
                 raise ValueError("country_code_list values must be alpha-2 country codes, GLOBAL, or EU")
             normalized_country_code_list.append(normalized_country_code)
         return normalized_country_code_list
-
-    @field_validator("size_group_key", "source_type")
-    @classmethod
-    def identifier_component_validate(cls, value: str) -> str:
-        """Validate artifact path components.
-
-        Args:
-            value: Candidate path component.
-
-        Returns:
-            Validated path component.
-
-        Raises:
-            ValueError: If the value is not already a safe identifier component.
-        """
-        if dbos_identifier_component(value) != value:
-            raise ValueError("value must already be a safe DBOS identifier component")
-        return value
 
 
 class SourceDiscoveryResult(StrictBaseModel):
@@ -132,28 +114,10 @@ class TableExtraction(StrictBaseModel):
     chart: BrandSizeChart
     evidence_path_list: list[str] = Field(default_factory=list)
     product_type_hint_list: list[str] = Field(default_factory=list)
-    size_group_key: str
+    size_group_key: IdentifierComponent
     source_title: str
-    source_type: str
+    source_type: IdentifierComponent
     source_url: str
-
-    @field_validator("size_group_key", "source_type")
-    @classmethod
-    def identifier_component_validate(cls, value: str) -> str:
-        """Validate artifact path components.
-
-        Args:
-            value: Candidate path component.
-
-        Returns:
-            Validated path component.
-
-        Raises:
-            ValueError: If the value is not already a safe identifier component.
-        """
-        if dbos_identifier_component(value) != value:
-            raise ValueError("value must already be a safe DBOS identifier component")
-        return value
 
 
 class TableExtractionArtifact(StrictBaseModel):
@@ -164,28 +128,10 @@ class TableExtractionArtifact(StrictBaseModel):
     chart_path: str
     evidence_path_list: list[str] = Field(default_factory=list)
     product_type_hint_list: list[str] = Field(default_factory=list)
-    size_group_key: str
+    size_group_key: IdentifierComponent
     source_title: str
-    source_type: str
+    source_type: IdentifierComponent
     source_url: str
-
-    @field_validator("size_group_key", "source_type")
-    @classmethod
-    def identifier_component_validate(cls, value: str) -> str:
-        """Validate artifact path components.
-
-        Args:
-            value: Candidate path component.
-
-        Returns:
-            Validated path component.
-
-        Raises:
-            ValueError: If the value is not already a safe identifier component.
-        """
-        if dbos_identifier_component(value) != value:
-            raise ValueError("value must already be a safe DBOS identifier component")
-        return value
 
 
 class TableExtractionArtifactBatchResult(StrictBaseModel):

@@ -7,7 +7,6 @@ from pydantic import BaseModel
 
 from brand_size_chart.artifact import ArtifactLayout, ArtifactMaterializer, JsonArtifactWriter
 from brand_size_chart.model import PromptScope, StageVerification
-from brand_size_chart.prompt.renderer import PromptRenderer
 from brand_size_chart.stage.base import (
     CodexStageRun,
     MAX_STAGE_ATTEMPT_COUNT,
@@ -16,6 +15,9 @@ from brand_size_chart.stage.base import (
     prompt_template_name_get,
     verify_prompt_template_name_get,
 )
+from workflow_container_runtime.prompt import PromptRenderer
+
+PROJECT_TEMPLATE_DIR = Path(__file__).parents[1] / "prompt" / "template"
 
 
 def _stage_instruction_text_get(*, prompt_scope: PromptScope | None, stage_key: str) -> str:
@@ -35,46 +37,6 @@ def _stage_instruction_text_get(*, prompt_scope: PromptScope | None, stage_key: 
         if stage_instruction.stage_key == stage_key
     ]
     return "\n".join(f"- {stage_instruction}" for stage_instruction in stage_instruction_list)
-
-
-def stage_prompt_text_get(
-    *,
-    attempt_index: int,
-    draft_result_json_text: str,
-    feedback_list: list[str],
-    prompt_context: str,
-    prompt_scope: PromptScope | None,
-    previous_result_json_text: str,
-    stage_key: str,
-) -> str:
-    """Build one Codex stage prompt from a static prompt file.
-
-    Args:
-        attempt_index: Stage attempt index.
-        draft_result_json_text: Deterministic draft result JSON.
-        feedback_list: Verification feedback from previous attempts.
-        prompt_context: Stage-specific context.
-        prompt_scope: Parsed workflow-run prompt scope.
-        previous_result_json_text: Previous attempt result JSON, when present.
-        stage_key: Stable stage key.
-
-    Returns:
-        Complete prompt text.
-    """
-
-    return PromptRenderer().render(
-        prompt_template_name_get(stage_key),
-        {
-            "attempt_index": attempt_index,
-            "draft_result_json_text": draft_result_json_text,
-            "feedback_list": feedback_list,
-            "previous_result_json_text": previous_result_json_text,
-            "prompt_context": prompt_context,
-            "shared_instruction": prompt_scope.shared_instruction if prompt_scope else "",
-            "stage_instruction_text": _stage_instruction_text_get(prompt_scope=prompt_scope, stage_key=stage_key),
-            "stage_key": stage_key,
-        },
-    )
 
 
 class SemanticStage:
@@ -112,7 +74,7 @@ class SemanticStage:
         self._browser_access = browser_access
         self._browser_runtime_mcp_url = browser_runtime_mcp_url
         self._codex_stage_run = codex_stage_run_callable
-        self._prompt_renderer = PromptRenderer()
+        self._prompt_renderer = PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR)
         self._prompt_scope = prompt_scope
         self._result_dir = result_dir
         self._stage_dir = stage_dir

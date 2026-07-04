@@ -1,18 +1,15 @@
-"""Tests for Pydantic result models and generated JSON schemas."""
-
-import json
-from pathlib import Path
-
-from jsonschema import Draft202012Validator
+"""Tests for Pydantic result models."""
 
 from brand_size_chart.model import (
     BrandResult,
     BrandSizeChart,
+    BrandSizeChartMeasurement,
+    BrandSizeChartRow,
     PromptScope,
     RunResult,
     SourceTypeSummary,
     TableExtraction,
-    schema_model_map_get,
+    TableExtractionBatchResult,
 )
 
 
@@ -34,26 +31,23 @@ def test_model_package_exports_existing_public_models() -> None:
 
 
 def test_table_extraction_batch_result_is_public_schema_model() -> None:
-    """Expose batch table-extraction results through the public schema registry."""
+    """Expose batch table-extraction results through the public model surface."""
     from brand_size_chart.model import TableExtractionBatchResult
 
     assert TableExtractionBatchResult.__module__ == "brand_size_chart.model.source"
-    assert schema_model_map_get()["table_extraction_batch_result"] is TableExtractionBatchResult
 
 
-def test_generated_schemas_validate_representative_artifacts() -> None:
-    """Validate representative JSON artifacts through generated Pydantic schemas."""
-    schema_dir = Path("brand_size_chart/schema")
-
+def test_pydantic_models_validate_representative_artifacts() -> None:
+    """Validate representative JSON artifacts through Pydantic models."""
     chart = BrandSizeChart(
         description="Representative upper female brand size chart.",
         row_list=[
-            {
-                "measurement_list": [
-                    {"max_value": "88", "min_value": "84", "name": "chest", "unit": "cm"},
+            BrandSizeChartRow(
+                measurement_list=[
+                    BrandSizeChartMeasurement(max_value="88", min_value="84", name="chest", unit="cm"),
                 ],
-                "size_label": "S",
-            }
+                size_label="S",
+            )
         ],
     )
     brand_result = BrandResult(
@@ -85,26 +79,9 @@ def test_generated_schemas_validate_representative_artifacts() -> None:
         warning_list=[],
     )
 
-    artifact_by_schema = {
-        "brand_result.schema.json": brand_result.model_dump(mode="json"),
-        "brand_size_chart.schema.json": chart.model_dump(mode="json"),
-        "run_result.schema.json": run_result.model_dump(mode="json"),
-    }
-
-    assert schema_model_map_get()
-    for schema_file_name, artifact in artifact_by_schema.items():
-        schema = json.loads((schema_dir / schema_file_name).read_text(encoding="utf-8"))
-        Draft202012Validator.check_schema(schema)
-        Draft202012Validator(schema).validate(artifact)
-
-
-def test_schema_directory_matches_pydantic_model_map() -> None:
-    """Keep generated schema files in sync with Pydantic result model owners."""
-    schema_dir = Path("brand_size_chart/schema")
-    expected_schema_file_name_set = {f"{schema_name}.schema.json" for schema_name in schema_model_map_get()}
-    actual_schema_file_name_set = {schema_path.name for schema_path in schema_dir.glob("*.schema.json")}
-
-    assert actual_schema_file_name_set == expected_schema_file_name_set
+    assert BrandSizeChart.model_validate(chart.model_dump(mode="json")) == chart
+    assert BrandResult.model_validate(brand_result.model_dump(mode="json")) == brand_result
+    assert RunResult.model_validate(run_result.model_dump(mode="json")) == run_result
 
 
 def test_table_extraction_rejects_unsafe_artifact_components() -> None:

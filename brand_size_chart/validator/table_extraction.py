@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from brand_size_chart.artifact import ArtifactReferenceValidator
 from brand_size_chart.model import (
     BrandSizeChart,
     SourceDiscovery,
@@ -10,7 +11,6 @@ from brand_size_chart.model import (
     TableExtractionArtifactBatchResult,
     TableExtractionBatchResult,
 )
-from brand_size_chart.validator.artifact import ArtifactValidator
 from brand_size_chart.validator.base import MechanicalValidator
 
 
@@ -24,7 +24,7 @@ class TableExtractionValidator(MechanicalValidator):
             result_dir: Root result directory.
         """
 
-        self._artifact_validator = ArtifactValidator(result_dir)
+        self._artifact_reference_validator = ArtifactReferenceValidator(result_dir)
         self._result_dir = result_dir
 
     def artifact_error_list_get(
@@ -249,7 +249,7 @@ class TableExtractionValidator(MechanicalValidator):
             RuntimeError: If the chart artifact is missing or invalid.
         """
 
-        self._artifact_validator.path_list_validate(
+        self._artifact_reference_validator.path_list_validate(
             path_list=[table_extraction_artifact.chart_path],
             stage_key="table_extract",
         )
@@ -394,7 +394,7 @@ class TableExtractionValidator(MechanicalValidator):
                 f"table_extraction applicability_status mismatch for {source_discovery.size_group_key}: "
                 f"{table_extraction.applicability_status} != {expected_applicability_status}"
             )
-        self._artifact_validator.evidence_path_list_validate(
+        self._artifact_reference_validator.evidence_path_list_validate(
             evidence_path_list=table_extraction.evidence_path_list,
             stage_key="table_extract",
         )

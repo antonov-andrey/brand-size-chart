@@ -3,9 +3,9 @@
 import json
 from pathlib import Path
 
-from dbos import DBOS, DBOSConfiguredInstance, SetWorkflowID
+from dbos import DBOS, SetWorkflowID
 
-from brand_size_chart.artifact import ArtifactLayout, ArtifactReferenceValidator
+from brand_size_chart.artifact import ArtifactLayout, ArtifactReferenceValidator, JsonArtifactWriter
 from brand_size_chart.identifier import dbos_identifier
 from brand_size_chart.model import (
     BrandInput,
@@ -17,16 +17,10 @@ from brand_size_chart.model import (
     TableExtraction,
 )
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
-from brand_size_chart.stage import CanonicalSelectionStage
-from brand_size_chart.workflow.base import (
-    ARTIFACT_WRITER,
-    coverage_decision_semantic_result_get,
-    prompt_scope_with_product_type_request_list_get,
-    source_type_list_get,
-    source_type_prompt_scope_get,
-)
-from brand_size_chart.workflow.source_type import brand_size_chart_source_type
-from workflow_container_runtime.codex import codex_stage_run
+from brand_size_chart.stage import CanonicalSelectionStage, CoverageDecisionStage
+from brand_size_chart.workflow.codex import BrandSizeChartCodexWorkflow
+from brand_size_chart.workflow.source_type import BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW
+from brand_size_chart.validator import PromptScopeValidator
 
 
 def _table_extraction_identity_key_get(*, size_group_key: str, source_type: str, source_url: str) -> str:
@@ -54,13 +48,14 @@ def _table_extraction_identity_key_get(*, size_group_key: str, source_type: str,
 
 
 @DBOS.dbos_class("BrandSizeChartBrandWorkflow")
-class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
+class BrandSizeChartBrandWorkflow(BrandSizeChartCodexWorkflow):
     """DBOS owner for one brand workflow and brand-level side-effect steps."""
 
     def __init__(self) -> None:
-        """Register the stable stateless DBOS instance."""
+        """Register stable DBOS workflow dependencies."""
 
-        super().__init__("default")
+        super().__init__()
+        self._prompt_scope_validator = PromptScopeValidator()
 
     @DBOS.workflow(name="brand_size_chart_brand")
     def run(
@@ -70,7 +65,6 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
         browser_runtime_mcp_url: str,
         prompt_scope_payload: dict[str, object],
         result_dir: str,
-        secret_ref: str,
     ) -> dict[str, object]:
         """Process one brand with source-type child workflows.
 
@@ -80,14 +74,13 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
             browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
             prompt_scope_payload: Serialized prompt scope.
             result_dir: Root result directory string.
-            secret_ref: Secret DataSource path string.
 
         Returns:
             Serialized brand result.
         """
         brand_input = BrandInput.model_validate(brand_input_payload)
         prompt_scope = PromptScope.model_validate(prompt_scope_payload)
-        source_type_list = source_type_list_get(prompt_scope)
+        source_type_list = self.source_type_list_get(prompt_scope)
         remaining_product_type_list = list(prompt_scope.product_type_request_list)
         source_type_summary_payload_list: list[dict[str, object]] = []
         table_extraction_payload_list: list[dict[str, object]] = []
@@ -99,7 +92,7 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
                 and not remaining_product_type_list
             ):
                 break
-            source_type_prompt_scope = source_type_prompt_scope_get(
+            source_type_prompt_scope = self.source_type_prompt_scope_get(
                 prompt_scope=prompt_scope,
                 remaining_product_type_list=remaining_product_type_list,
                 source_type=source_type,
@@ -109,13 +102,12 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
             ):
                 source_type_handle = DBOS.enqueue_workflow(
                     queue_name,
-                    brand_size_chart_source_type,
+                    BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.run,
                     workflow_run_id,
                     brand_input.model_dump(mode="json"),
                     browser_runtime_mcp_url,
                     source_type_prompt_scope.model_dump(mode="json"),
                     result_dir,
-                    secret_ref,
                     source_type,
                 )
             source_type_result = source_type_handle.get_result()
@@ -130,7 +122,7 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
                 and table_extraction_payload_list
                 and source_type_summary.state == "passed"
             ):
-                coverage_prompt_scope = prompt_scope_with_product_type_request_list_get(
+                coverage_prompt_scope = self.prompt_scope_with_product_type_request_list_get(
                     product_type_request_list=remaining_product_type_list,
                     prompt_scope=prompt_scope,
                 )
@@ -150,6 +142,68 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
             result_dir,
             table_extraction_payload_list,
             source_type_summary_payload_list,
+        )
+
+    def prompt_scope_with_product_type_request_list_get(
+        self, *, product_type_request_list: list[str], prompt_scope: PromptScope
+    ) -> PromptScope:
+        """Return prompt scope narrowed to one product type request list.
+
+        Args:
+            product_type_request_list: Current requested product types.
+            prompt_scope: Original prompt scope.
+
+        Returns:
+            Prompt scope with the product type request list replaced.
+        """
+
+        return PromptScope(
+            priority_country_code=prompt_scope.priority_country_code,
+            product_type_request_list=product_type_request_list,
+            scope_warning_list=prompt_scope.scope_warning_list,
+            shared_instruction=prompt_scope.shared_instruction,
+            source_type_allow_list=prompt_scope.source_type_allow_list,
+            stage_instruction_list=prompt_scope.stage_instruction_list,
+        )
+
+    def source_type_list_get(self, prompt_scope: PromptScope) -> list[str]:
+        """Return source types in execution order.
+
+        Args:
+            prompt_scope: Parsed prompt scope.
+
+        Returns:
+            Source type list.
+        """
+
+        self._prompt_scope_validator.validate(prompt_scope)
+        return SOURCE_TYPE_REGISTRY.source_type_list_get(
+            have_product_type_request=bool(prompt_scope.product_type_request_list),
+            source_type_allow_list=prompt_scope.source_type_allow_list,
+        )
+
+    def source_type_prompt_scope_get(
+        self, *, prompt_scope: PromptScope, remaining_product_type_list: list[str], source_type: str
+    ) -> PromptScope:
+        """Return prompt scope for one source type.
+
+        Args:
+            prompt_scope: Root prompt scope.
+            remaining_product_type_list: Product types still uncovered by earlier source types.
+            source_type: Source type being executed.
+
+        Returns:
+            Source-type-local prompt scope.
+        """
+
+        if SOURCE_TYPE_REGISTRY.source_type_requires_product_type(source_type):
+            return self.prompt_scope_with_product_type_request_list_get(
+                product_type_request_list=remaining_product_type_list,
+                prompt_scope=prompt_scope,
+            )
+        return self.prompt_scope_with_product_type_request_list_get(
+            product_type_request_list=[],
+            prompt_scope=prompt_scope,
         )
 
     @DBOS.step(name="coverage_decide_write_step")
@@ -181,15 +235,15 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
             TableExtraction.model_validate(table_extraction_payload)
             for table_extraction_payload in table_extraction_payload_list
         ]
-        coverage_result = coverage_decision_semantic_result_get(
+        coverage_result = CoverageDecisionStage(
             brand_input=brand_input,
-            codex_stage_run_callable=codex_stage_run,
+            codex_stage_run_callable=self._codex_stage_runner.run,
             prompt_scope=prompt_scope,
             result_dir=result_dir_path,
             source_type=source_type,
             stage_dir=artifact_layout.coverage_decide_dir(brand_input, source_type),
             table_extraction_list=table_extraction_list,
-        )
+        ).run()
         return coverage_result.model_dump(mode="json")
 
     @DBOS.step(name="brand_selection_write_step")
@@ -232,18 +286,18 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
             if source_type_summary.state in {"failed", "blocked"}
             for blocker in source_type_summary.blocker_list
         ]
-        coverage_result = coverage_decision_semantic_result_get(
+        coverage_result = CoverageDecisionStage(
             brand_input=brand_input,
-            codex_stage_run_callable=codex_stage_run,
+            codex_stage_run_callable=self._codex_stage_runner.run,
             prompt_scope=prompt_scope,
             result_dir=result_dir_path,
             source_type="final_selection",
             stage_dir=artifact_layout.brand_coverage_decide_dir(brand_input),
             table_extraction_list=table_extraction_list,
-        )
+        ).run()
         canonical_selection_result = CanonicalSelectionStage(
             brand_name=brand_input.parsed_brand_name,
-            codex_stage_run_callable=codex_stage_run,
+            codex_stage_run_callable=self._codex_stage_runner.run,
             prompt_scope=prompt_scope,
             result_dir=result_dir_path,
             stage_dir=artifact_layout.canonical_select_dir(brand_input),
@@ -271,7 +325,7 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
                 )
             table_extraction = table_extraction_by_identity_key_map[table_extraction_identity_key]
             chart_path = artifact_layout.brand_size_chart_path(brand_input, selection.size_group_key)
-            ARTIFACT_WRITER.write(chart_path, table_extraction.chart)
+            JsonArtifactWriter().write(chart_path, table_extraction.chart)
             chart_path_list.append(artifact_layout.artifact_path(chart_path))
 
         brand_result_path = artifact_layout.brand_result_path(brand_input)
@@ -300,8 +354,9 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
             ),
         )
         manifest_path = artifact_layout.brand_manifest_path(brand_input)
-        ARTIFACT_WRITER.write(manifest_path, brand_result)
-        ARTIFACT_WRITER.write(brand_result_path, brand_result)
+        artifact_writer = JsonArtifactWriter()
+        artifact_writer.write(manifest_path, brand_result)
+        artifact_writer.write(brand_result_path, brand_result)
         artifact_reference_validator.path_list_validate(
             path_list=brand_result.size_chart_path_list,
             stage_key="brand_result",
@@ -314,14 +369,8 @@ class BrandSizeChartBrandWorkflow(DBOSConfiguredInstance):
 
 
 BRAND_SIZE_CHART_BRAND_WORKFLOW = BrandSizeChartBrandWorkflow()
-brand_selection_write_step = BRAND_SIZE_CHART_BRAND_WORKFLOW.selection_write_step
-brand_size_chart_brand = BRAND_SIZE_CHART_BRAND_WORKFLOW.run
-coverage_decide_write_step = BRAND_SIZE_CHART_BRAND_WORKFLOW.coverage_decide_write_step
 
 __all__ = [
     "BRAND_SIZE_CHART_BRAND_WORKFLOW",
     "BrandSizeChartBrandWorkflow",
-    "brand_selection_write_step",
-    "brand_size_chart_brand",
-    "coverage_decide_write_step",
 ]

@@ -1,8 +1,9 @@
-"""Public model imports for workflow artifacts and generated schemas."""
+"""Public model imports for workflow artifacts."""
 
 from brand_size_chart.model.base import (
     APPLICABILITY_STATUS_CANONICAL_SET,
     COUNTRY_CODE_PATTERN,
+    IdentifierComponent,
     SOURCE_COUNTRY_CODE_SPECIAL_SET,
     ApplicabilityStatus,
     StageStatus,
@@ -12,7 +13,6 @@ from brand_size_chart.model.brand import BrandInput, BrandListParseResult, Brand
 from brand_size_chart.model.chart import BrandSizeChart, BrandSizeChartMeasurement, BrandSizeChartRow
 from brand_size_chart.model.prompt import PromptScope, PromptStageInstruction
 from brand_size_chart.model.run import RunResult
-from brand_size_chart.model.schema_registry import schema_file_write, schema_model_map_get
 from brand_size_chart.model.selection import (
     CanonicalSelection,
     CanonicalSelectionResult,
@@ -48,6 +48,7 @@ __all__ = [
     "CanonicalSelectionResult",
     "CoverageDecision",
     "CoverageDecisionResult",
+    "IdentifierComponent",
     "PromptScope",
     "PromptStageInstruction",
     "RunResult",
@@ -61,6 +62,4 @@ __all__ = [
     "TableExtractionArtifact",
     "TableExtractionArtifactBatchResult",
     "TableExtractionBatchResult",
-    "schema_file_write",
-    "schema_model_map_get",
 ]

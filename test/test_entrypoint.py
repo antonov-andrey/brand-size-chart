@@ -164,7 +164,6 @@ def test_entrypoint_bootstraps_dbos_with_stable_ids_and_worker_concurrency(monke
                 (
                     "Run 01",
                     "Mavi\n",
-                    str(secret_dir),
                     str(output_dir),
                     "official_brand_size_guide only",
                     "http://browser-runtime:8931/mcp",
@@ -355,7 +354,6 @@ def test_entrypoint_materializes_input_secret_before_workflow_start(
             (
                 "Run 01",
                 "Mavi\n",
-                str(runtime_secret_path),
                 str(tmp_path / "out"),
                 "",
                 "http://browser-runtime:8931/mcp",

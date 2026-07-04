@@ -2,9 +2,9 @@
 
 from pathlib import Path
 
-from dbos import DBOS, DBOSConfiguredInstance
+from dbos import DBOS
 
-from brand_size_chart.artifact import ArtifactLayout, ArtifactReferenceValidator
+from brand_size_chart.artifact import ArtifactLayout, ArtifactReferenceValidator, JsonArtifactWriter
 from brand_size_chart.model import (
     BrandInput,
     PromptScope,
@@ -15,18 +15,13 @@ from brand_size_chart.model import (
     TableExtractionBatchResult,
 )
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
-from brand_size_chart.workflow.base import ARTIFACT_WRITER, source_discovery_result_get, table_extract_result_get
-from workflow_container_runtime.codex import codex_stage_run
+from brand_size_chart.stage import SourceDiscoveryStage, TableExtractionStage
+from brand_size_chart.workflow.codex import BrandSizeChartCodexWorkflow
 
 
 @DBOS.dbos_class("BrandSizeChartSourceTypeWorkflow")
-class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
+class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
     """DBOS owner for one source type and source-type side-effect steps."""
-
-    def __init__(self) -> None:
-        """Register the stable stateless DBOS instance."""
-
-        super().__init__("default")
 
     @DBOS.workflow(name="brand_size_chart_source_type")
     def run(
@@ -36,7 +31,6 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
         browser_runtime_mcp_url: str,
         prompt_scope_payload: dict[str, object],
         result_dir: str,
-        secret_ref: str,
         source_type: str,
     ) -> dict[str, object]:
         """Process one source type with one batch table-extraction step.
@@ -47,7 +41,6 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
             browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
             prompt_scope_payload: Serialized prompt scope.
             result_dir: Root result directory string.
-            secret_ref: Secret DataSource path string.
             source_type: Source type key.
 
         Returns:
@@ -64,7 +57,6 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
                 browser_runtime_mcp_url,
                 prompt_scope.model_dump(mode="json"),
                 result_dir,
-                secret_ref,
                 source_type,
             )
             discovery_result = SourceDiscoveryResult.model_validate(discovery_result_payload)
@@ -76,7 +68,6 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
                     browser_runtime_mcp_url,
                     prompt_scope.model_dump(mode="json"),
                     result_dir,
-                    secret_ref,
                     source_type,
                     [
                         source_discovery.model_dump(mode="json")
@@ -114,7 +105,6 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
         browser_runtime_mcp_url: str,
         prompt_scope_payload: dict[str, object],
         result_dir: str,
-        secret_ref: str,
         source_type: str,
     ) -> dict[str, object]:
         """Write source discovery result and verification.
@@ -124,7 +114,6 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
             browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
             prompt_scope_payload: Serialized prompt scope.
             result_dir: Root result directory string.
-            secret_ref: Secret DataSource path string.
             source_type: Source type key.
 
         Returns:
@@ -133,19 +122,15 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
         brand_input = BrandInput.model_validate(brand_input_payload)
         prompt_scope = PromptScope.model_validate(prompt_scope_payload)
         result_dir_path = Path(result_dir)
-        artifact_layout = ArtifactLayout(result_dir_path)
-        source_type_dir = artifact_layout.source_type_dir(brand_input, source_type)
-        discovery_result = source_discovery_result_get(
+        discovery_result = SourceDiscoveryStage(
             brand_input=brand_input,
             browser_runtime_mcp_url=browser_runtime_mcp_url,
-            codex_stage_run_callable=codex_stage_run,
+            codex_stage_run_callable=self._codex_stage_runner.run,
             prompt_scope=prompt_scope,
             result_dir=result_dir_path,
-            secret_path=Path(secret_ref),
             source_priority=SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type),
             source_type=source_type,
-            source_type_dir=source_type_dir,
-        )
+        ).run()
         return discovery_result.model_dump(mode="json")
 
     @DBOS.step(name="table_extract_write_step")
@@ -155,7 +140,6 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
         browser_runtime_mcp_url: str,
         prompt_scope_payload: dict[str, object],
         result_dir: str,
-        secret_ref: str,
         source_type: str,
         source_discovery_payload_list: list[dict[str, object]],
     ) -> dict[str, object]:
@@ -166,7 +150,6 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
             browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
             prompt_scope_payload: Serialized prompt scope.
             result_dir: Root result directory string.
-            secret_ref: Secret DataSource path string.
             source_type: Source type key.
             source_discovery_payload_list: Serialized source discoveries.
 
@@ -177,22 +160,18 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
         brand_input = BrandInput.model_validate(brand_input_payload)
         prompt_scope = PromptScope.model_validate(prompt_scope_payload)
         result_dir_path = Path(result_dir)
-        artifact_layout = ArtifactLayout(result_dir_path)
-        source_type_dir = artifact_layout.source_type_dir(brand_input, source_type)
-        table_extraction_batch_result = table_extract_result_get(
+        table_extraction_batch_result = TableExtractionStage(
             brand_input=brand_input,
             browser_runtime_mcp_url=browser_runtime_mcp_url,
-            codex_stage_run_callable=codex_stage_run,
+            codex_stage_run_callable=self._codex_stage_runner.run,
             prompt_scope=prompt_scope,
             result_dir=result_dir_path,
-            secret_path=Path(secret_ref),
             source_discovery_list=[
                 SourceDiscovery.model_validate(source_discovery_payload)
                 for source_discovery_payload in source_discovery_payload_list
             ],
             source_type=source_type,
-            source_type_dir=source_type_dir,
-        )
+        ).run()
         return table_extraction_batch_result.model_dump(mode="json")
 
     @DBOS.step(name="source_type_summary_write_step")
@@ -264,21 +243,13 @@ class BrandSizeChartSourceTypeWorkflow(DBOSConfiguredInstance):
             path_list=summary.evidence_manifest_path_list,
             stage_key="source_type_summary",
         )
-        ARTIFACT_WRITER.write(artifact_layout.source_type_summary_result_path(brand_input, source_type), summary)
+        JsonArtifactWriter().write(artifact_layout.source_type_summary_result_path(brand_input, source_type), summary)
         return summary.model_dump(mode="json")
 
 
 BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW = BrandSizeChartSourceTypeWorkflow()
-brand_size_chart_source_type = BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.run
-source_discover_write_step = BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.source_discover_write_step
-table_extract_write_step = BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.table_extract_write_step
-source_type_summary_write_step = BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.summary_write_step
 
 __all__ = [
     "BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW",
     "BrandSizeChartSourceTypeWorkflow",
-    "brand_size_chart_source_type",
-    "source_discover_write_step",
-    "table_extract_write_step",
-    "source_type_summary_write_step",
 ]
