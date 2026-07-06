@@ -2,12 +2,16 @@
 
 from pathlib import Path
 
+from workflow_container_runtime.prompt import PromptRenderer
+from workflow_container_runtime.stage import StageVerificationResult, VerifiedCodexStageRunner
+
 from brand_size_chart.artifact import ArtifactLayout, JsonArtifactWriter
-from brand_size_chart.model import PromptScope, StageVerification
+from brand_size_chart.model import PromptScope
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
-from brand_size_chart.stage.base import CodexStageRun
-from brand_size_chart.stage.semantic import SemanticStage
+from brand_size_chart.stage.base import CodexStageRun, verified_stage_config_get
 from brand_size_chart.validator import PromptScopeValidator
+
+PROJECT_TEMPLATE_DIR = Path(__file__).parents[1] / "prompt" / "template"
 
 
 class WorkflowRunPromptApplyStage:
@@ -42,17 +46,20 @@ class WorkflowRunPromptApplyStage:
             self._empty_prompt_artifact_write(prompt_scope)
             return prompt_scope
 
-        prompt_scope = SemanticStage(
+        prompt_scope = VerifiedCodexStageRunner(
             codex_stage_run_callable=self._codex_stage_run,
-            prompt_scope=prompt_scope,
-            result_dir=self._result_dir,
-            stage_dir=self._stage_dir,
-            stage_key="workflow_run_prompt_apply",
+            prompt_renderer=PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
         ).run(
+            config=verified_stage_config_get(
+                prompt_context=self._prompt_context_get(prompt_scope),
+                prompt_scope=prompt_scope,
+                result_dir=self._result_dir,
+                stage_dir=self._stage_dir,
+                stage_key="workflow_run_prompt_apply",
+            ),
             draft_result=prompt_scope,
             model_class=PromptScope,
-            prompt_context=self._prompt_context_get(prompt_scope),
-            result_error_list_get=self._prompt_scope_validator.error_list_get,
+            mechanical_error_list_get=self._prompt_scope_validator.error_list_get,
         )
         self._prompt_scope_validator.validate(prompt_scope)
         return prompt_scope
@@ -79,12 +86,7 @@ class WorkflowRunPromptApplyStage:
         self._artifact_writer.write(result_path, prompt_scope)
         self._artifact_writer.write(
             self._artifact_layout.stage_verification_path(self._stage_dir),
-            StageVerification(
-                artifact_path_list=[self._artifact_layout.artifact_path(result_path)],
-                message="Empty workflow prompt requires no rewrite.",
-                stage_key="workflow_run_prompt_apply",
-                status="success",
-            ),
+            StageVerificationResult(status="success"),
         )
 
     def _prompt_context_get(self, prompt_scope: PromptScope) -> str:
@@ -97,11 +99,24 @@ class WorkflowRunPromptApplyStage:
             Prompt context text.
         """
 
-        allowed_source_type_text = "\n".join(
-            f"- {source_type}" for source_type in sorted(SOURCE_TYPE_REGISTRY.source_type_priority_by_key_map)
+        _ = prompt_scope
+        source_type_catalog_text = "\n".join(
+            (
+                f"- source_type: {source_type}\n"
+                f"  source_priority: {SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type)}\n"
+                f"  requires_product_type: "
+                f"{str(SOURCE_TYPE_REGISTRY.source_type_requires_product_type(source_type)).lower()}\n"
+                "  discovery_instruction: "
+                f"{SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_get(source_type)}"
+            )
+            for source_type in sorted(
+                SOURCE_TYPE_REGISTRY.source_type_priority_by_key_map,
+                key=SOURCE_TYPE_REGISTRY.source_type_priority_get,
+                reverse=True,
+            )
         )
         return (
-            "Allowed source_type keys are:\n"
-            f"{allowed_source_type_text}\n\n"
+            "Source type catalog:\n"
+            f"{source_type_catalog_text}\n\n"
             f"Workflow run prompt:\n{self._workflow_run_prompt}\n"
         )

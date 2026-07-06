@@ -2,7 +2,6 @@
 
 from brand_size_chart.stage.canonical_selection import CanonicalSelectionStage
 from brand_size_chart.stage.coverage_decision import CoverageDecisionStage
-from brand_size_chart.stage.semantic import SemanticStage
 from brand_size_chart.stage.source_discovery import SourceDiscoveryStage
 from brand_size_chart.stage.table_extraction import TableExtractionStage
 from brand_size_chart.stage.workflow_run_prompt_apply import WorkflowRunPromptApplyStage
@@ -10,7 +9,6 @@ from brand_size_chart.stage.workflow_run_prompt_apply import WorkflowRunPromptAp
 __all__ = [
     "CanonicalSelectionStage",
     "CoverageDecisionStage",
-    "SemanticStage",
     "SourceDiscoveryStage",
     "TableExtractionStage",
     "WorkflowRunPromptApplyStage",

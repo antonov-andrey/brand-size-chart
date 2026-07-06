@@ -4,7 +4,9 @@
 
 {% include "runtime/partial/artifact_reference_contract.md.j2" %}
 
-Use browser screenshots, DOM extracts, rendered table text, downloaded browser-visible assets, and existing discovery evidence. Extract only the table whose browser-visible heading, tab, section, or table title matches Target size_group_key and Target source title. If the source page contains multiple chart tabs, groups, or tables, select the matching target table before reading rows. Do not extract a default, current, product-category, adjacent, or differently named table from the same page. Do not change size_group_key, source_type, source_url, or source_title.
+## Contracts
+
+Use browser screenshots, DOM extracts, rendered table text, downloaded browser-visible assets, and existing discovery evidence. Treat the table extraction execplan as an ordered batch worklist. Process every execplan item sequentially. For each item, use source_title and discovery evidence as the browser-visible selector for the table; size_group_key is the normalized artifact key to preserve, not as a browser-visible selector unless the source itself visibly contains that exact key. If the source page contains multiple chart tabs, groups, or tables, select the table matching the target source_title and discovery evidence before reading rows. Do not extract a default, current, product-category, adjacent, or differently named table from the same page. Do not change size_group_key, source_type, source_url, or source_title.
 
 The TableExtractionArtifactBatchResult must include browsing_error_list. Each item must contain url and error for one concrete URL that produced a browser-visible network error, timeout, DNS error, TLS error, HTTP blocker, CAPTCHA, bot-check, access-denied, redirect-loop, or equivalent browsing failure during this stage. Keep the list empty only when no opened URL failed. Do not hide browsing failures only in screenshots, notes, evidence files, or error_list; table_extract/result.json must make every URL plus error visible immediately.
 
@@ -14,7 +16,38 @@ Every chart row must also preserve row.size_label exactly as one measurement wit
 
 For each execplan item, write exactly one BrandSizeChart JSON artifact to its exact Chart artifact filesystem path using normal Codex filesystem access outside the browser. Do not use browser page context to write chart artifacts, result.json, verification.json, or audit JSON. A BrandSizeChart artifact must contain only description and row_list. Each row_list item must contain only size_label and measurement_list. Each measurement_list item must contain only name, unit, min_value, and max_value, and those values must be strings. Source URL, source title, source type, size_group_key, applicability, country, confidence, and evidence metadata belong only in the structured TableExtractionArtifactBatchResult item, not inside the chart artifact. The structured output must be TableExtractionArtifactBatchResult: return metadata and chart_path references only. Do not include chart, row_list, or measurement_list in the structured output. The chart_path value must be exactly the execplan Chart artifact path for that item.
 
-Set applicability_status from Source discovery country_code_list: ['GLOBAL'] means official_global, ['EU'] means official_eu_consensus, multiple explicit country codes means official_cross_locale_consensus, and one explicit priority-country code means priority_country_official.
+Set applicability_status from Priority country code and Source discovery country_code_list: ['GLOBAL'] means official_global, ['EU'] means official_eu_consensus, multiple explicit country codes means official_cross_locale_consensus, and exactly one explicit country code equal to Priority country code means priority_country_official.
+
+## Persistent State
+
+Before processing items, write state.json in the stage directory. It must contain one object per execplan item with item_index, source_type, source_url, source_title, size_group_key, chart_path, state, and error. Valid state values are pending, extracted, and failed. Update state.json after each item reaches a terminal item state. Before handoff, every item must be extracted or failed.
+
+## FSM
+
+Item transition rule: pending -> extracted | failed.
+
+Stage terminal rules:
+
+- status='success' requires every execplan item state='extracted', one matching metadata item, and one written chart artifact for every item.
+- Return status='success' only after every execplan item has one matching metadata item, one written chart artifact, and state='extracted' in state.json.
+- status='failed' when any execplan item state='failed'; error_list must include item-specific errors and browsing_error_list must include browser errors.
+- partial success is forbidden: do not silently omit the item, rename it, or return partial success.
+
+## Workflow Sequence
+
+Follow this order:
+
+1. On retry, read state.json first.
+2. Preserve already extracted chart artifacts unless verification feedback names a concrete error in that item.
+3. Process pending items in item_index order.
+4. For each item, open or reuse browser-visible evidence for the exact source_url and matching source_title or discovery evidence.
+5. Write the chart artifact to the exact chart_path for that item.
+6. Update that item's state to extracted or failed in state.json before moving to the next item.
+7. Return TableExtractionArtifactBatchResult only after state.json reflects the terminal state of every item.
+
+## Retry And Recovery
+
+On retry, read state.json and continue from the persisted item states. If verification feedback names one concrete item error, reset only that item to pending, correct its chart artifact, and preserve unrelated extracted items.
 
 {% include "partial/size_group_key_contract.md.j2" %}
 

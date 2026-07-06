@@ -2,12 +2,31 @@
 
 Use the provided brand scope and source policy. Produce only structured artifacts declared by the workflow stage.
 
-`source_type_allow_list` is an exact allow-list of source type keys. Do not place natural-language phrases in that field. When the workflow prompt asks for all source types, all supported source types, every source type, or equivalent unrestricted coverage, return an empty `source_type_allow_list`.
+## Contracts
 
-If the workflow prompt asks for all supported source types, leave source_type_allow_list empty. Use source_type_allow_list only when the prompt names exact allowed source_type keys from the list in the stage context.
+`source_type_allow_list` is an exact allow-list of source type keys. Do not place natural-language phrases in that field. Map clear natural-language source-scope instructions to exact source type keys from the stage context. When the workflow prompt asks for all source types, all supported source types, every source type, or equivalent unrestricted coverage, return an empty `source_type_allow_list`.
+
+Use the Source type catalog in prompt context as the only source-type authority. The catalog lists each source_type, source_priority, whether it requires product-type scope, and its discovery instruction. A source-scope instruction that clearly limits allowed source types must be represented in source_type_allow_list and must not remain only in shared_instruction. If the workflow prompt asks for all supported source types, leave source_type_allow_list empty. Keep one instruction in shared_instruction only when it is not a source-type allow-list restriction.
 
 `priority_country_code` contains the priority market country from the workflow prompt as one ISO 3166 alpha-2 uppercase country code. The workflow prompt must choose this country explicitly. Normalize clear country names and market names to that country code. If the workflow prompt does not choose a priority country, leave `priority_country_code` empty so mechanical validation can fail. Remove the priority-country request from `shared_instruction` after writing it to `priority_country_code`.
 
 `product_type_request_list` contains only requested product type phrases. Product type phrases must not be copied into `source_type_allow_list`. When the workflow prompt contains a product-type list, extract those values into `product_type_request_list` and remove that list from `shared_instruction`. `shared_instruction` must contain only instructions that apply to all stages; it must not repeat product type values from `product_type_request_list`.
+
+`stage_instruction_list` contains stage-scoped custom instructions. When the workflow prompt names one exact stage key and gives one instruction only for that stage, emit one PromptStageInstruction with that exact stage key and exact stage instruction. Remove stage-specific instructions from shared_instruction after writing them to stage_instruction_list. If one instruction does not clearly target one exact stage key, keep it in shared_instruction.
+
+## Workflow Sequence
+
+Follow this order:
+
+1. Read the workflow run prompt and the Source type catalog from prompt context.
+2. Extract source-scope instructions. If the source scope is unrestricted, write an empty source_type_allow_list. If the source scope clearly limits allowed source types, map it to exact source_type keys from the Source type catalog and remove that source-scope instruction from shared_instruction.
+3. Extract the priority country request into priority_country_code and remove that request from shared_instruction.
+4. Extract requested product type phrases into product_type_request_list and remove those phrases from shared_instruction.
+5. Extract exact stage-scoped instructions into stage_instruction_list and remove those stage-specific instructions from shared_instruction.
+6. Write only residual global instructions to shared_instruction.
+
+## Terminal Handoff
+
+Return one PromptScope. source_type_allow_list must contain only exact keys from the Source type catalog or be empty for unrestricted source coverage. shared_instruction must not duplicate clear source-type restrictions, priority-country requests, product-type request values, or exact stage-scoped instructions that were written to owned PromptScope fields.
 
 {% include "partial/stage_retry_context.md.j2" %}

@@ -16,17 +16,16 @@ from brand_size_chart.model import (
     PromptScope,
     SourceDiscovery,
     SourceDiscoveryResult,
-    StageVerification,
     TableExtraction,
     TableExtractionArtifact,
     TableExtractionArtifactBatchResult,
     TableExtractionBatchResult,
 )
-from brand_size_chart.stage.base import MAX_STAGE_ATTEMPT_COUNT
 from brand_size_chart.stage.source_discovery import SourceDiscoveryStage
 from brand_size_chart.stage.table_extraction import TableExtractionStage
 from workflow_container_runtime.codex import CodexStageRunner
 from workflow_container_runtime.codex import runner as codex_runner
+from workflow_container_runtime.stage import MAX_STAGE_ATTEMPT_COUNT, StageVerificationResult
 
 
 def _brand_input_get() -> BrandInput:
@@ -112,6 +111,25 @@ def _source_discovery_get(
     )
 
 
+def _source_discover_state_payload_get() -> dict[str, object]:
+    """Return an empty source-surface inventory payload for test doubles.
+
+    Returns:
+        Empty canonical source-surface inventory payload.
+    """
+
+    return {
+        "accepted_table_list": [],
+        "browsing_error_list": [],
+        "candidate_url_list": [],
+        "discovery_query_list": [],
+        "non_returned_table_list": [],
+        "opened_url_list": [],
+        "product_type_sex_worklist": [],
+        "rejected_url_list": [],
+    }
+
+
 def _table_evidence_path_get(*, result_dir: Path, source_type: str, size_group_key: str, suffix: str = "json") -> Path:
     """Return one browser evidence artifact path for batch table extraction.
 
@@ -140,29 +158,52 @@ def _table_evidence_path_get(*, result_dir: Path, source_type: str, size_group_k
     )
 
 
-def _source_surface_inventory_write(*, evidence_path: Path, result_dir: Path, stage_dir: Path) -> None:
+def _source_discover_state_write(
+    *, evidence_path: Path, result_dir: Path, source_discovery: SourceDiscovery | None = None, stage_dir: Path
+) -> None:
     """Write one canonical source-surface inventory for source-discovery test doubles.
 
     Args:
         evidence_path: Evidence artifact path referenced by the fake discovery.
         result_dir: Root result directory.
+        source_discovery: Optional discovered source matched by accepted table inventory.
         stage_dir: Source-discovery stage directory.
     """
 
-    inventory_path = stage_dir / "evidence" / "source_surface_inventory.json"
+    inventory_path = stage_dir / "state.json"
     inventory_path.parent.mkdir(parents=True, exist_ok=True)
+    evidence_artifact_path = evidence_path.relative_to(result_dir).as_posix()
+    inventory_payload = _source_discover_state_payload_get()
+    if source_discovery is not None:
+        inventory_payload["accepted_table_list"] = [
+            {
+                "country_code_list": source_discovery.country_code_list,
+                "covered_product_type_list": source_discovery.product_type_hint_list,
+                "evidence_path_list": [evidence_artifact_path],
+                "reason": "visible table",
+                "size_group_key": source_discovery.size_group_key,
+                "source_title": source_discovery.source_title,
+                "source_url": source_discovery.source_url,
+                "state": "accepted",
+            }
+        ]
+        opened_url = source_discovery.source_url
+        source_boundary_role = source_discovery.source_type
+    else:
+        opened_url = "https://defacto.example/size"
+        source_boundary_role = "source"
+    inventory_payload["opened_url_list"] = [
+        {
+            "evidence_path_list": [evidence_artifact_path],
+            "reason": "browser evidence observed",
+            "source_boundary_role": source_boundary_role,
+            "state": "opened",
+            "url": opened_url,
+        }
+    ]
     inventory_path.write_text(
         json.dumps(
-            {
-                "browsing_error_list": [],
-                "opened_urls": [
-                    {
-                        "evidence_path_list": [evidence_path.relative_to(result_dir).as_posix()],
-                        "result": "browser evidence observed",
-                        "url": "https://defacto.example/size",
-                    }
-                ],
-            },
+            inventory_payload,
             indent=2,
             sort_keys=True,
         )
@@ -241,6 +282,35 @@ def _table_extraction_artifact_get(
         source_title=source_title,
         source_type=source_type,
         source_url=source_url,
+    )
+
+
+def _table_extract_state_write(
+    *, stage_dir: Path, table_extraction_artifact_list: list[TableExtractionArtifact]
+) -> None:
+    """Write the durable table-extraction execplan for fake Codex extraction results.
+
+    Args:
+        stage_dir: Table-extraction stage directory.
+        table_extraction_artifact_list: Fake extraction artifacts returned by the stage.
+    """
+
+    execplan_payload = [
+        {
+            "chart_path": table_extraction_artifact.chart_path,
+            "error": "",
+            "item_index": item_index,
+            "size_group_key": table_extraction_artifact.size_group_key,
+            "source_title": table_extraction_artifact.source_title,
+            "source_type": table_extraction_artifact.source_type,
+            "source_url": table_extraction_artifact.source_url,
+            "state": "extracted",
+        }
+        for item_index, table_extraction_artifact in enumerate(table_extraction_artifact_list, start=1)
+    ]
+    (stage_dir / "state.json").write_text(
+        json.dumps(execplan_payload, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
     )
 
 
@@ -371,30 +441,31 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
         )
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
-        _source_surface_inventory_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
         if model_class is SourceDiscoveryResult:
+            source_discovery = SourceDiscovery(
+                confidence=1.0,
+                country_code_list=["TR"],
+                evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
+                size_group_key="women_upper",
+                source_priority=300,
+                source_title="Official marketplace product page size answer",
+                source_type="official_marketplace_product_page",
+                source_url="https://www.trendyol.com/defacto/example-p-1",
+            )
+            _source_discover_state_write(
+                evidence_path=evidence_path,
+                result_dir=result_dir,
+                source_discovery=source_discovery,
+                stage_dir=stage_dir,
+            )
             return SourceDiscoveryResult(
-                discovered_source_list=[
-                    SourceDiscovery(
-                        confidence=1.0,
-                        country_code_list=["TR"],
-                        evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
-                        size_group_key="women_upper",
-                        source_priority=300,
-                        source_title="Official marketplace product page size answer",
-                        source_type="official_marketplace_product_page",
-                        source_url="https://www.trendyol.com/defacto/example-p-1",
-                    )
-                ],
+                message="test result",
+                discovered_source_list=[source_discovery],
                 source_type="official_marketplace_product_page",
                 status="success",
-                message="browser discovery completed",
             )
-        return StageVerification(
-            artifact_path_list=[],
-            stage_key="source_discover",
+        return StageVerificationResult(
             status="success",
-            message="verified",
         )
 
     result = _source_discovery_result_get(
@@ -431,7 +502,8 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
         "Do not create one source candidate from product category, product title, variant labels, or option labels "
         "alone." in str(call_list[0]["prompt_text"])
     )
-    assert "The candidate size_group_key must match one concrete browser-visible chart group or table heading" in str(
+    assert "source_title is the browser-visible chart group or table heading" in str(call_list[0]["prompt_text"])
+    assert "size_group_key is the normalized table key derived from source_title and evidence" in str(
         call_list[0]["prompt_text"]
     )
     assert "Only search official marketplace product page evidence for requested product types." in str(
@@ -482,61 +554,64 @@ def test_source_discovery_retries_page_level_size_group_key(monkeypatch: object,
         evidence_path = stage_dir / "evidence" / "defacto_size_guide.md"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("browser-visible evidence\n", encoding="utf-8")
-        _source_surface_inventory_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
         if (
             model_class is SourceDiscoveryResult
             and len([call for call in call_list if call["model_class"] is SourceDiscoveryResult]) == 1
         ):
+            source_discovery = SourceDiscovery(
+                confidence=1.0,
+                country_code_list=["TR"],
+                evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
+                size_group_key="defacto_tr_beden_rehberi_all",
+                source_priority=600,
+                source_title="Beden Rehberi",
+                source_type="official_brand_size_guide",
+                source_url="https://www.defacto.com.tr/brand-size-guide",
+            )
+            _source_discover_state_write(
+                evidence_path=evidence_path,
+                result_dir=result_dir,
+                source_discovery=source_discovery,
+                stage_dir=stage_dir,
+            )
             return SourceDiscoveryResult(
-                discovered_source_list=[
-                    SourceDiscovery(
-                        confidence=1.0,
-                        country_code_list=["TR"],
-                        evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
-                        size_group_key="defacto_tr_beden_rehberi_all",
-                        source_priority=600,
-                        source_title="Beden Rehberi",
-                        source_type="official_brand_size_guide",
-                        source_url="https://www.defacto.com.tr/brand-size-guide",
-                    )
-                ],
+                message="test result",
+                discovered_source_list=[source_discovery],
                 source_type="official_brand_size_guide",
                 status="success",
-                message="browser discovery completed",
             )
         if model_class is SourceDiscoveryResult:
             assert "aggregate token" in prompt_text
+            source_discovery = SourceDiscovery(
+                confidence=1.0,
+                country_code_list=["TR"],
+                evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
+                size_group_key="women_upper",
+                source_priority=600,
+                source_title="Kadın Üst Beden Tablosu",
+                source_type="official_brand_size_guide",
+                source_url="https://www.defacto.com.tr/brand-size-guide",
+            )
+            _source_discover_state_write(
+                evidence_path=evidence_path,
+                result_dir=result_dir,
+                source_discovery=source_discovery,
+                stage_dir=stage_dir,
+            )
             return SourceDiscoveryResult(
-                discovered_source_list=[
-                    SourceDiscovery(
-                        confidence=1.0,
-                        country_code_list=["TR"],
-                        evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
-                        size_group_key="women_upper",
-                        source_priority=600,
-                        source_title="Kadın Üst Beden Tablosu",
-                        source_type="official_brand_size_guide",
-                        source_url="https://www.defacto.com.tr/brand-size-guide",
-                    )
-                ],
+                message="test result",
+                discovered_source_list=[source_discovery],
                 source_type="official_brand_size_guide",
                 status="success",
-                message="browser discovery completed",
             )
         if len([call for call in call_list if call["model_class"] is SourceDiscoveryResult]) == 1:
-            return StageVerification(
-                artifact_path_list=[],
+            return StageVerificationResult(
                 error_list=["SourceDiscovery.size_group_key contains aggregate token."],
                 feedback_list=["SourceDiscovery.size_group_key contains aggregate token."],
-                stage_key="source_discover",
                 status="failed",
-                message="Aggregate source discovery must be fixed by the main stage.",
             )
-        return StageVerification(
-            artifact_path_list=[],
-            stage_key="source_discover",
+        return StageVerificationResult(
             status="success",
-            message="verified",
         )
 
     result = _source_discovery_result_get(
@@ -592,61 +667,64 @@ def test_source_discovery_retry_prompt_includes_previous_result(monkeypatch: obj
         evidence_path = stage_dir / "evidence" / "fr_ma_size_charts_dom_tables.json"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text('{"table": "Tableau Des Tailles Femmes"}\n', encoding="utf-8")
-        _source_surface_inventory_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
         discovery_call_count = len([call for call in call_list if call["model_class"] is SourceDiscoveryResult])
         if model_class is SourceDiscoveryResult and discovery_call_count == 1:
+            source_discovery = SourceDiscovery(
+                confidence=1.0,
+                country_code_list=["TR"],
+                evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
+                size_group_key="women_upper",
+                source_priority=600,
+                source_title="Tableau Des Tailles Femmes",
+                source_type="official_brand_size_guide",
+                source_url="https://www.defacto.com/fr-ma/static/size-charts",
+            )
+            _source_discover_state_write(
+                evidence_path=evidence_path,
+                result_dir=result_dir,
+                source_discovery=source_discovery,
+                stage_dir=stage_dir,
+            )
             return SourceDiscoveryResult(
-                discovered_source_list=[
-                    SourceDiscovery(
-                        confidence=1.0,
-                        country_code_list=["TR"],
-                        evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
-                        size_group_key="women_upper",
-                        source_priority=600,
-                        source_title="Tableau Des Tailles Femmes",
-                        source_type="official_brand_size_guide",
-                        source_url="https://www.defacto.com/fr-ma/static/size-charts",
-                    )
-                ],
+                message="test result",
+                discovered_source_list=[source_discovery],
                 source_type="official_brand_size_guide",
                 status="success",
-                message="partial browser discovery completed",
             )
         if model_class is SourceDiscoveryResult:
             assert "Previous stage result JSON" in prompt_text
             assert "women_upper" in prompt_text
             assert "https://www.defacto.com/fr-ma/static/size-charts" in prompt_text
+            source_discovery = SourceDiscovery(
+                confidence=1.0,
+                country_code_list=["TR"],
+                evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
+                size_group_key="women_upper",
+                source_priority=600,
+                source_title="Tableau Des Tailles Femmes",
+                source_type="official_brand_size_guide",
+                source_url="https://www.defacto.com/fr-ma/static/size-charts",
+            )
+            _source_discover_state_write(
+                evidence_path=evidence_path,
+                result_dir=result_dir,
+                source_discovery=source_discovery,
+                stage_dir=stage_dir,
+            )
             return SourceDiscoveryResult(
-                discovered_source_list=[
-                    SourceDiscovery(
-                        confidence=1.0,
-                        country_code_list=["TR"],
-                        evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
-                        size_group_key="women_upper",
-                        source_priority=600,
-                        source_title="Tableau Des Tailles Femmes",
-                        source_type="official_brand_size_guide",
-                        source_url="https://www.defacto.com/fr-ma/static/size-charts",
-                    )
-                ],
+                message="test result",
+                discovered_source_list=[source_discovery],
                 source_type="official_brand_size_guide",
                 status="success",
-                message="completed browser discovery preserved previous candidates",
             )
         if discovery_call_count == 1:
-            return StageVerification(
-                artifact_path_list=[],
+            return StageVerificationResult(
                 error_list=["Inventory is incomplete."],
                 feedback_list=["Inventory is incomplete."],
-                stage_key="source_discover",
                 status="failed",
-                message="Discovery inventory must be completed.",
             )
-        return StageVerification(
-            artifact_path_list=[],
-            stage_key="source_discover",
+        return StageVerificationResult(
             status="success",
-            message="verified",
         )
 
     result = _source_discovery_result_get(
@@ -702,39 +780,41 @@ def test_source_discovery_retries_after_mechanical_guard_failure(monkeypatch: ob
         evidence_path = stage_dir / "evidence" / "defacto_size_guide.json"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
-        _source_surface_inventory_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
         discovery_call_count = len([call for call in call_list if call["model_class"] is SourceDiscoveryResult])
         if model_class is SourceDiscoveryResult and discovery_call_count == 1:
+            _source_discover_state_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
             return SourceDiscoveryResult(
+                message="test result",
                 discovered_source_list=[],
                 source_type="official_brand_size_guide",
                 status="failed",
-                message="No concrete tables found.",
             )
         if model_class is SourceDiscoveryResult:
             assert "failed source_discover must include concrete error_list blockers" in prompt_text
+            source_discovery = SourceDiscovery(
+                confidence=1.0,
+                country_code_list=["TR"],
+                evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
+                size_group_key="women_upper",
+                source_priority=600,
+                source_title="Kadın Üst Beden Tablosu",
+                source_type="official_brand_size_guide",
+                source_url="https://www.defacto.com.tr/brand-size-guide",
+            )
+            _source_discover_state_write(
+                evidence_path=evidence_path,
+                result_dir=result_dir,
+                source_discovery=source_discovery,
+                stage_dir=stage_dir,
+            )
             return SourceDiscoveryResult(
-                discovered_source_list=[
-                    SourceDiscovery(
-                        confidence=1.0,
-                        country_code_list=["TR"],
-                        evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
-                        size_group_key="women_upper",
-                        source_priority=600,
-                        source_title="Kadın Üst Beden Tablosu",
-                        source_type="official_brand_size_guide",
-                        source_url="https://www.defacto.com.tr/brand-size-guide",
-                    )
-                ],
+                message="test result",
+                discovered_source_list=[source_discovery],
                 source_type="official_brand_size_guide",
                 status="success",
-                message="browser discovery completed",
             )
-        return StageVerification(
-            artifact_path_list=[],
-            stage_key="source_discover",
+        return StageVerificationResult(
             status="success",
-            message="verified",
         )
 
     result = _source_discovery_result_get(
@@ -790,23 +870,20 @@ def test_source_discovery_accepts_failed_result_with_canonical_inventory(monkeyp
         _ = stage_name
         call_list.append({"model_class": model_class})
         if model_class is SourceDiscoveryResult:
-            inventory_path = stage_dir / "evidence" / "source_surface_inventory.json"
+            inventory_path = stage_dir / "state.json"
             inventory_path.parent.mkdir(parents=True, exist_ok=True)
             inventory_path.write_text(
-                '{"browsing_error_list": [], "opened_url_list": [], "rejected_url_list": []}\n',
+                json.dumps(_source_discover_state_payload_get(), indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
             return SourceDiscoveryResult(
+                message="test result",
                 discovered_source_list=[],
                 error_list=["No official seller size-guide table was visible in browser evidence."],
                 source_type="official_seller_size_guide",
                 status="failed",
-                message="No concrete official seller size guide found.",
             )
-        return StageVerification(
-            artifact_path_list=[],
-            message="verified",
-            stage_key="source_discover",
+        return StageVerificationResult(
             status="success",
         )
 
@@ -864,23 +941,20 @@ def test_source_discovery_materializes_browser_inventory_before_guard(monkeypatc
         call_list.append({"model_class": model_class})
         if model_class is SourceDiscoveryResult:
             inventory_path = result_dir / ".playwright-mcp" / "current" / stage_dir.relative_to(result_dir)
-            inventory_path = inventory_path / "evidence" / "source_surface_inventory.json"
+            inventory_path = inventory_path / "state.json"
             inventory_path.parent.mkdir(parents=True, exist_ok=True)
             inventory_path.write_text(
-                '{"browsing_error_list": [], "opened_url_list": [], "rejected_url_list": []}\n',
+                json.dumps(_source_discover_state_payload_get(), indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
             return SourceDiscoveryResult(
+                message="test result",
                 discovered_source_list=[],
                 error_list=["No official seller size-guide table was visible in browser evidence."],
                 source_type="official_seller_size_guide",
                 status="failed",
-                message="No concrete official seller size guide found.",
             )
-        return StageVerification(
-            artifact_path_list=[],
-            message="verified",
-            stage_key="source_discover",
+        return StageVerificationResult(
             status="success",
         )
 
@@ -894,7 +968,7 @@ def test_source_discovery_materializes_browser_inventory_before_guard(monkeypatc
         source_type="official_seller_size_guide",
     )
 
-    canonical_inventory_path = source_type_dir / "source_discover" / "evidence" / "source_surface_inventory.json"
+    canonical_inventory_path = source_type_dir / "source_discover" / "state.json"
     discovery_call_list = [call for call in call_list if call["model_class"] is SourceDiscoveryResult]
 
     assert len(discovery_call_list) == 1
@@ -945,19 +1019,21 @@ def test_source_discovery_prepares_browser_evidence_directory_before_codex(monke
         if model_class is SourceDiscoveryResult:
             evidence_path = evidence_dir / "seller_size_guide_absence.json"
             evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
-            inventory_path = evidence_dir / "source_surface_inventory.json"
+            inventory_path = stage_dir / "state.json"
+            inventory_path.parent.mkdir(parents=True, exist_ok=True)
+            inventory_payload = _source_discover_state_payload_get()
+            inventory_payload["rejected_url_list"] = [
+                {
+                    "evidence_path_list": [evidence_path.relative_to(result_dir).as_posix()],
+                    "reason": "No concrete seller size guide was visible.",
+                    "source_boundary_role": source_type,
+                    "state": "rejected",
+                    "url": "https://www.defacto.com.tr",
+                }
+            ]
             inventory_path.write_text(
                 json.dumps(
-                    {
-                        "browsing_error_list": [],
-                        "rejected_urls": [
-                            {
-                                "evidence_path_list": [evidence_path.relative_to(result_dir).as_posix()],
-                                "reason": "No concrete seller size guide was visible.",
-                                "url": "https://www.defacto.com.tr",
-                            }
-                        ],
-                    },
+                    inventory_payload,
                     indent=2,
                     sort_keys=True,
                 )
@@ -965,16 +1041,13 @@ def test_source_discovery_prepares_browser_evidence_directory_before_codex(monke
                 encoding="utf-8",
             )
             return SourceDiscoveryResult(
+                message="test result",
                 discovered_source_list=[],
                 error_list=["No official seller size-guide table was visible in browser evidence."],
-                message="No concrete official seller size guide found.",
                 source_type=source_type,
                 status="failed",
             )
-        return StageVerification(
-            artifact_path_list=[],
-            message="verified",
-            stage_key="source_discover",
+        return StageVerificationResult(
             status="success",
         )
 
@@ -1029,30 +1102,31 @@ def test_source_discovery_prompt_has_no_hardcoded_size_guide_routes(monkeypatch:
         evidence_path = stage_dir / "evidence" / "defacto_size_guide.md"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("browser-visible evidence\n", encoding="utf-8")
-        _source_surface_inventory_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
         if model_class is SourceDiscoveryResult:
+            source_discovery = SourceDiscovery(
+                confidence=1.0,
+                country_code_list=["TR"],
+                evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
+                size_group_key="women_upper",
+                source_priority=600,
+                source_title="Kadın Üst Beden Tablosu",
+                source_type="official_brand_size_guide",
+                source_url="https://www.defacto.com.tr/brand-size-guide",
+            )
+            _source_discover_state_write(
+                evidence_path=evidence_path,
+                result_dir=result_dir,
+                source_discovery=source_discovery,
+                stage_dir=stage_dir,
+            )
             return SourceDiscoveryResult(
-                discovered_source_list=[
-                    SourceDiscovery(
-                        confidence=1.0,
-                        country_code_list=["TR"],
-                        evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
-                        size_group_key="women_upper",
-                        source_priority=600,
-                        source_title="Kadın Üst Beden Tablosu",
-                        source_type="official_brand_size_guide",
-                        source_url="https://www.defacto.com.tr/brand-size-guide",
-                    )
-                ],
+                message="test result",
+                discovered_source_list=[source_discovery],
                 source_type="official_brand_size_guide",
                 status="success",
-                message="browser discovery completed",
             )
-        return StageVerification(
-            artifact_path_list=[],
-            stage_key="source_discover",
+        return StageVerificationResult(
             status="success",
-            message="verified",
         )
 
     _source_discovery_result_get(
@@ -1113,18 +1187,15 @@ def test_source_discovery_retries_then_fails_empty_skipped_result(monkeypatch: o
         call_list.append({"model_class": model_class, "prompt_text": prompt_text})
         if model_class is SourceDiscoveryResult:
             return SourceDiscoveryResult(
+                message="test result",
                 discovered_source_list=[],
                 source_type="official_brand_size_guide",
                 status="skipped",
-                message="No official brand-owned standalone size-guide page was found.",
             )
-        return StageVerification(
-            artifact_path_list=[],
+        return StageVerificationResult(
             error_list=["Empty source discovery is forbidden."],
             feedback_list=["Empty source discovery is forbidden."],
-            stage_key="source_discover",
             status="failed",
-            message="Empty source discovery must be fixed by the main stage.",
         )
 
     try:
@@ -1217,28 +1288,30 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
             for evidence_path in evidence_path_by_size_group_key_map.values():
                 evidence_path.parent.mkdir(parents=True, exist_ok=True)
                 evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
+            table_extraction_artifact_list = [
+                _table_extraction_artifact_get(
+                    chart_path=stage_dir / "chart" / f"{source_discovery.size_group_key}.json",
+                    evidence_path=evidence_path_by_size_group_key_map[source_discovery.size_group_key],
+                    result_dir=result_dir,
+                    size_group_key=source_discovery.size_group_key,
+                    source_title=source_discovery.source_title,
+                    source_type=source_discovery.source_type,
+                    source_url=source_discovery.source_url,
+                )
+                for source_discovery in source_discovery_list
+            ]
+            _table_extract_state_write(
+                stage_dir=stage_dir,
+                table_extraction_artifact_list=table_extraction_artifact_list,
+            )
             return TableExtractionArtifactBatchResult(
-                message="browser extraction completed",
+                message="test result",
                 source_type="official_marketplace_product_page",
                 status="success",
-                table_extraction_artifact_list=[
-                    _table_extraction_artifact_get(
-                        chart_path=stage_dir / "chart" / f"{source_discovery.size_group_key}.json",
-                        evidence_path=evidence_path_by_size_group_key_map[source_discovery.size_group_key],
-                        result_dir=result_dir,
-                        size_group_key=source_discovery.size_group_key,
-                        source_title=source_discovery.source_title,
-                        source_type=source_discovery.source_type,
-                        source_url=source_discovery.source_url,
-                    )
-                    for source_discovery in source_discovery_list
-                ],
+                table_extraction_artifact_list=table_extraction_artifact_list,
             )
-        return StageVerification(
-            artifact_path_list=[],
-            stage_key="table_extract",
+        return StageVerificationResult(
             status="success",
-            message="verified",
         )
 
     result = _table_extract_result_get(
@@ -1261,6 +1334,7 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
     assert table_extract_call_list[0]["browser_runtime_mcp_url"] == "http://127.0.0.1:12000/mcp"
     assert table_extract_call_list[0]["stage_name"] == "table_extract"
     assert "Use the configured browser" in str(table_extract_call_list[0]["prompt_text"])
+    assert "Priority country code: TR" in str(table_extract_call_list[0]["prompt_text"])
     assert (
         f"Browser evidence write directory: "
         f"{tmp_path / '.playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/official_marketplace_product_page/table_extract/evidence/women_upper'}"
@@ -1357,11 +1431,8 @@ def test_table_extract_batch_loads_chart_artifacts_from_lightweight_codex_result
         _ = browser_runtime_mcp_url
         _ = stage_name
         call_list.append({"model_class": model_class, "prompt_text": prompt_text})
-        if model_class is StageVerification:
-            return StageVerification(
-                artifact_path_list=[],
-                message="verified",
-                stage_key="table_extract",
+        if model_class is StageVerificationResult:
+            return StageVerificationResult(
                 status="success",
             )
         assert model_class is TableExtractionArtifactBatchResult
@@ -1392,8 +1463,12 @@ def test_table_extract_batch_loads_chart_artifacts_from_lightweight_codex_result
                     source_url=source_discovery.source_url,
                 )
             )
+        _table_extract_state_write(
+            stage_dir=stage_dir,
+            table_extraction_artifact_list=table_extraction_artifact_list,
+        )
         return TableExtractionArtifactBatchResult(
-            message="browser extraction completed",
+            message="test result",
             source_type=source_type,
             status="success",
             table_extraction_artifact_list=table_extraction_artifact_list,
@@ -1464,11 +1539,8 @@ def test_table_extract_prepares_chart_and_browser_evidence_directories_before_co
         _ = prompt_text
         _ = stage_name
         assert (stage_dir / "chart").is_dir()
-        if model_class is StageVerification:
-            return StageVerification(
-                artifact_path_list=[],
-                message="verified",
-                stage_key="table_extract",
+        if model_class is StageVerificationResult:
+            return StageVerificationResult(
                 status="success",
             )
         table_extraction_artifact_list = []
@@ -1492,8 +1564,12 @@ def test_table_extract_prepares_chart_and_browser_evidence_directories_before_co
                     source_url=source_discovery.source_url,
                 )
             )
+        _table_extract_state_write(
+            stage_dir=stage_dir,
+            table_extraction_artifact_list=table_extraction_artifact_list,
+        )
         return TableExtractionArtifactBatchResult(
-            message="browser extraction completed",
+            message="test result",
             source_type=source_type,
             status="success",
             table_extraction_artifact_list=table_extraction_artifact_list,
@@ -1552,11 +1628,8 @@ def test_table_extract_batch_rejects_missing_discovery(monkeypatch: object, tmp_
         _ = browser_runtime_mcp_url
         _ = stage_name
         call_list.append({"model_class": model_class, "prompt_text": prompt_text})
-        if model_class is StageVerification:
-            return StageVerification(
-                artifact_path_list=[],
-                message="verified",
-                stage_key="table_extract",
+        if model_class is StageVerificationResult:
+            return StageVerificationResult(
                 status="success",
             )
 
@@ -1587,8 +1660,12 @@ def test_table_extract_batch_rejects_missing_discovery(monkeypatch: object, tmp_
                     source_url=source_discovery.source_url,
                 )
             )
+        _table_extract_state_write(
+            stage_dir=stage_dir,
+            table_extraction_artifact_list=table_extraction_artifact_list,
+        )
         return TableExtractionArtifactBatchResult(
-            message="browser extraction completed",
+            message="test result",
             source_type="official_brand_size_guide",
             status="success",
             table_extraction_artifact_list=table_extraction_artifact_list,
@@ -1646,11 +1723,8 @@ def test_table_extract_batch_rejects_extra_discovery(monkeypatch: object, tmp_pa
         _ = browser_runtime_mcp_url
         _ = stage_name
         call_list.append({"model_class": model_class, "prompt_text": prompt_text})
-        if model_class is StageVerification:
-            return StageVerification(
-                artifact_path_list=[],
-                message="verified",
-                stage_key="table_extract",
+        if model_class is StageVerificationResult:
+            return StageVerificationResult(
                 status="success",
             )
 
@@ -1679,8 +1753,12 @@ def test_table_extract_batch_rejects_extra_discovery(monkeypatch: object, tmp_pa
                     source_title="Women upper" if size_group_key == "women_upper" else "Women extra",
                 )
             )
+        _table_extract_state_write(
+            stage_dir=stage_dir,
+            table_extraction_artifact_list=table_extraction_artifact_list,
+        )
         return TableExtractionArtifactBatchResult(
-            message="browser extraction completed",
+            message="test result",
             source_type="official_brand_size_guide",
             status="success",
             table_extraction_artifact_list=table_extraction_artifact_list,
@@ -1740,18 +1818,15 @@ def test_source_discovery_rejects_skipped_result_even_when_verification_passes(
         evidence_path = stage_dir / "evidence" / "empty_discovery.md"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("no table evidence\n", encoding="utf-8")
-        _source_surface_inventory_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
+        _source_discover_state_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
         if model_class is SourceDiscoveryResult:
             return SourceDiscoveryResult(
+                message="test result",
                 discovered_source_list=[],
-                message="No tables found.",
                 source_type="official_brand_size_guide",
                 status="skipped",
             )
-        return StageVerification(
-            artifact_path_list=[],
-            message="verified",
-            stage_key="source_discover",
+        return StageVerificationResult(
             status="success",
         )
 
@@ -1811,7 +1886,6 @@ def test_source_discovery_rejects_duplicate_size_group_key(monkeypatch: object, 
         evidence_path = stage_dir / "evidence" / "guide.md"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("browser evidence", encoding="utf-8")
-        _source_surface_inventory_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
         if model_class is SourceDiscoveryResult:
             discovery = SourceDiscovery(
                 confidence=1.0,
@@ -1823,16 +1897,19 @@ def test_source_discovery_rejects_duplicate_size_group_key(monkeypatch: object, 
                 source_type="official_brand_size_guide",
                 source_url="https://defacto.example/size",
             )
+            _source_discover_state_write(
+                evidence_path=evidence_path,
+                result_dir=result_dir,
+                source_discovery=discovery,
+                stage_dir=stage_dir,
+            )
             return SourceDiscoveryResult(
+                message="test result",
                 discovered_source_list=[discovery, discovery],
-                message="browser discovery completed",
                 source_type="official_brand_size_guide",
                 status="success",
             )
-        return StageVerification(
-            artifact_path_list=[],
-            message="verified",
-            stage_key="source_discover",
+        return StageVerificationResult(
             status="success",
         )
 
@@ -1900,7 +1977,7 @@ def test_table_extract_batch_rejects_identity_change(monkeypatch: object, tmp_pa
         evidence_path.write_text("table evidence", encoding="utf-8")
         if model_class is TableExtractionArtifactBatchResult:
             return TableExtractionArtifactBatchResult(
-                message="browser extraction completed",
+                message="test result",
                 source_type="official_brand_size_guide",
                 status="success",
                 table_extraction_artifact_list=[
@@ -1913,10 +1990,7 @@ def test_table_extract_batch_rejects_identity_change(monkeypatch: object, tmp_pa
                     )
                 ],
             )
-        return StageVerification(
-            artifact_path_list=[],
-            message="verified",
-            stage_key="table_extract",
+        return StageVerificationResult(
             status="success",
         )
 
@@ -1974,11 +2048,8 @@ def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, t
         captured_command.extend(command)
         output_path = Path(command[command.index("--output-last-message") + 1])
         output_path.write_text(
-            StageVerification(
-                artifact_path_list=[],
-                stage_key="source_discover",
+            StageVerificationResult(
                 status="success",
-                message="verified",
             ).model_dump_json(),
             encoding="utf-8",
         )
@@ -1993,7 +2064,7 @@ def test_codex_browser_stage_uses_browser_vpn_runtime_mcp(monkeypatch: object, t
     CodexStageRunner(workflow_container_name="brand-size-chart").run(
         allow_user_config=True,
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-        model_class=StageVerification,
+        model_class=StageVerificationResult,
         prompt_text="verify",
         result_dir=result_dir,
         stage_dir=stage_dir,
@@ -2044,11 +2115,8 @@ def test_codex_browser_stage_rejects_browser_run_code_unsafe(monkeypatch: object
         _ = stage_dir
         output_path = Path(command[command.index("--output-last-message") + 1])
         output_path.write_text(
-            StageVerification(
-                artifact_path_list=[],
-                stage_key="source_discover",
+            StageVerificationResult(
                 status="success",
-                message="verified",
             ).model_dump_json(),
             encoding="utf-8",
         )
@@ -2074,7 +2142,7 @@ def test_codex_browser_stage_rejects_browser_run_code_unsafe(monkeypatch: object
         CodexStageRunner(workflow_container_name="brand-size-chart").run(
             allow_user_config=True,
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-            model_class=StageVerification,
+            model_class=StageVerificationResult,
             prompt_text="verify",
             result_dir=tmp_path,
             stage_dir=tmp_path / "stage",
@@ -2115,11 +2183,8 @@ def test_codex_browser_stage_rejects_node_api_inside_browser_evaluate(monkeypatc
         _ = stage_dir
         output_path = Path(command[command.index("--output-last-message") + 1])
         output_path.write_text(
-            StageVerification(
-                artifact_path_list=[],
-                stage_key="source_discover",
+            StageVerificationResult(
                 status="success",
-                message="verified",
             ).model_dump_json(),
             encoding="utf-8",
         )
@@ -2145,7 +2210,7 @@ def test_codex_browser_stage_rejects_node_api_inside_browser_evaluate(monkeypatc
         CodexStageRunner(workflow_container_name="brand-size-chart").run(
             allow_user_config=True,
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-            model_class=StageVerification,
+            model_class=StageVerificationResult,
             prompt_text="verify",
             result_dir=tmp_path,
             stage_dir=tmp_path / "stage",
@@ -2164,12 +2229,9 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
     result_dir.mkdir()
     diagnostic_dir.mkdir(parents=True)
     output_path.write_text(
-        StageVerification(
-            artifact_path_list=[],
+        StageVerificationResult(
             error_list=["old error"],
-            stage_key="source_discover",
             status="failed",
-            message="old verification",
         ).model_dump_json(),
         encoding="utf-8",
     )
@@ -2208,11 +2270,8 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
         assert not stderr_path.exists()
         fresh_output_path = Path(command[command.index("--output-last-message") + 1])
         fresh_output_path.write_text(
-            StageVerification(
-                artifact_path_list=[],
-                stage_key="source_discover",
+            StageVerificationResult(
                 status="success",
-                message="fresh verification",
             ).model_dump_json(),
             encoding="utf-8",
         )
@@ -2221,7 +2280,7 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
     monkeypatch.setattr(codex_runner.CodexStageRunner, "_subprocess_run", fake_codex_subprocess_run)
 
     result = CodexStageRunner(workflow_container_name="brand-size-chart").run(
-        model_class=StageVerification,
+        model_class=StageVerificationResult,
         prompt_text="verify current result",
         result_dir=result_dir,
         stage_dir=stage_dir,
@@ -2229,7 +2288,6 @@ def test_codex_stage_run_removes_stale_diagnostics_before_subprocess(monkeypatch
     )
 
     assert result.status == "success"
-    assert result.message == "fresh verification"
     assert event_path.read_text(encoding="utf-8") == '{"type":"turn.completed"}\n'
 
 

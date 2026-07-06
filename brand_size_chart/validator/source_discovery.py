@@ -6,7 +6,13 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from brand_size_chart.artifact import ArtifactReferenceValidator
-from brand_size_chart.model import BrowsingError, PromptScope, SourceDiscoveryResult
+from brand_size_chart.model import (
+    PromptScope,
+    SourceDiscovery,
+    SourceDiscoveryResult,
+    SourceSurfaceInventory,
+    SourceSurfaceTable,
+)
 from brand_size_chart.validator.base import MechanicalValidator
 
 
@@ -226,25 +232,27 @@ class SourceDiscoveryValidator(MechanicalValidator):
             for item in value:
                 self._inventory_evidence_path_list_get(evidence_path_list=evidence_path_list, value=item)
 
-    def _inventory_payload_get(self) -> object:
+    def _inventory_payload_get(self) -> SourceSurfaceInventory:
         """Return parsed canonical source-surface inventory.
 
         Returns:
-            Parsed inventory JSON payload.
+            Parsed source-surface inventory.
 
         Raises:
             RuntimeError: If the inventory is missing or invalid JSON.
         """
 
-        inventory_path = self._stage_dir / "evidence" / "source_surface_inventory.json"
+        inventory_path = self._stage_dir / "state.json"
         if not inventory_path.is_file():
-            raise RuntimeError("source_discover must write canonical evidence/source_surface_inventory.json")
+            raise RuntimeError("source_discover must write state.json")
         try:
-            return json.loads(inventory_path.read_text(encoding="utf-8"))
+            inventory_payload = json.loads(inventory_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
-            raise RuntimeError(
-                "source_discover canonical evidence/source_surface_inventory.json is invalid JSON"
-            ) from exc
+            raise RuntimeError("source_discover state.json is invalid JSON") from exc
+        try:
+            return SourceSurfaceInventory.model_validate(inventory_payload)
+        except ValidationError as exc:
+            raise RuntimeError(f"source_discover state.json violates SourceSurfaceInventory contract: {exc}") from exc
 
     def _inventory_validate(self, discovery_result: SourceDiscoveryResult) -> None:
         """Validate canonical source-surface inventory artifact references.
@@ -253,62 +261,52 @@ class SourceDiscoveryValidator(MechanicalValidator):
             discovery_result: Source discovery result to compare with the inventory.
         """
 
-        inventory_payload = self._inventory_payload_get()
+        inventory = self._inventory_payload_get()
         self._inventory_browsing_error_list_validate(
             discovery_result=discovery_result,
-            inventory_payload=inventory_payload,
+            inventory=inventory,
         )
+        self._inventory_discovery_list_validate(
+            discovery_result=discovery_result,
+            inventory=inventory,
+        )
+        self._inventory_product_type_worklist_validate(inventory=inventory)
         evidence_path_list: list[str] = []
         self._inventory_evidence_path_list_get(
             evidence_path_list=evidence_path_list,
-            value=inventory_payload,
+            value=inventory.model_dump(mode="python"),
         )
         self._artifact_reference_validator.path_list_validate(
             path_list=evidence_path_list,
             stage_key="source_discover inventory",
         )
 
-    def _inventory_browsing_error_identity_list_get(self, inventory_payload: object) -> list[tuple[str, str]]:
+    def _inventory_browsing_error_identity_list_get(self, inventory: SourceSurfaceInventory) -> list[tuple[str, str]]:
         """Return canonical inventory browsing-error identities.
 
         Args:
-            inventory_payload: Parsed inventory JSON payload.
+            inventory: Parsed source-surface inventory.
 
         Returns:
             Inventory browsing-error identities.
-
-        Raises:
-            RuntimeError: If the inventory does not expose a valid browsing-error list.
         """
 
-        if not isinstance(inventory_payload, dict):
-            raise RuntimeError("source_discover inventory must be a JSON object")
-        browsing_error_payload_list = inventory_payload.get("browsing_error_list")
-        if not isinstance(browsing_error_payload_list, list):
-            raise RuntimeError("source_discover inventory must include browsing_error_list as a list")
-        try:
-            browsing_error_list = [
-                BrowsingError.model_validate(browsing_error_payload)
-                for browsing_error_payload in browsing_error_payload_list
-            ]
-        except ValidationError as exc:
-            raise RuntimeError("source_discover inventory contains invalid browsing_error_list items") from exc
-        return [(browsing_error.url, browsing_error.error) for browsing_error in browsing_error_list]
+        return [(browsing_error.url, browsing_error.error) for browsing_error in inventory.browsing_error_list]
 
     def _inventory_browsing_error_list_validate(
-        self, *, discovery_result: SourceDiscoveryResult, inventory_payload: object
+        self, *, discovery_result: SourceDiscoveryResult, inventory: SourceSurfaceInventory
     ) -> None:
         """Validate result-level browsing errors against inventory-level browsing errors.
 
         Args:
             discovery_result: Source discovery result to compare with the inventory.
-            inventory_payload: Parsed inventory JSON payload.
+            inventory: Parsed source-surface inventory.
 
         Raises:
             RuntimeError: If inventory and result browsing-error lists differ.
         """
 
-        inventory_browsing_error_identity_list = self._inventory_browsing_error_identity_list_get(inventory_payload)
+        inventory_browsing_error_identity_list = self._inventory_browsing_error_identity_list_get(inventory)
         result_browsing_error_identity_list = [
             (browsing_error.url, browsing_error.error) for browsing_error in discovery_result.browsing_error_list
         ]
@@ -318,3 +316,140 @@ class SourceDiscoveryValidator(MechanicalValidator):
                 f"inventory={sorted(inventory_browsing_error_identity_list)}; "
                 f"result={sorted(result_browsing_error_identity_list)}"
             )
+
+    def _inventory_product_type_worklist_validate(self, *, inventory: SourceSurfaceInventory) -> None:
+        """Validate product-type worklist closure in the source-surface inventory.
+
+        Args:
+            inventory: Parsed source-surface inventory.
+
+        Raises:
+            RuntimeError: If one worklist row is not linked to concrete inventory evidence.
+        """
+
+        worklist_key_set = {worklist_item.worklist_key for worklist_item in inventory.product_type_sex_worklist}
+        if len(worklist_key_set) != len(inventory.product_type_sex_worklist):
+            raise RuntimeError("source_discover duplicate product_type_sex_worklist worklist_key values")
+
+        linked_worklist_key_set: set[str] = set()
+        for source_surface_url in [
+            *inventory.opened_url_list,
+            *inventory.rejected_url_list,
+        ]:
+            linked_worklist_key_set.update(source_surface_url.worklist_key_list)
+        for source_surface_table in [
+            *inventory.accepted_table_list,
+            *inventory.non_returned_table_list,
+        ]:
+            linked_worklist_key_set.update(source_surface_table.worklist_key_list)
+
+        unknown_worklist_key_list = sorted(linked_worklist_key_set - worklist_key_set)
+        if unknown_worklist_key_list:
+            raise RuntimeError(
+                "source_discover inventory references unknown product_type_sex_worklist keys: "
+                f"{unknown_worklist_key_list}"
+            )
+
+        unlinked_worklist_key_list = sorted(worklist_key_set - linked_worklist_key_set)
+        if unlinked_worklist_key_list:
+            raise RuntimeError(
+                "source_discover unlinked product_type_sex_worklist keys: " f"{unlinked_worklist_key_list}"
+            )
+
+    def _inventory_discovery_list_validate(
+        self,
+        *,
+        discovery_result: SourceDiscoveryResult,
+        inventory: SourceSurfaceInventory,
+    ) -> None:
+        """Validate accepted inventory tables against discovered source candidates.
+
+        Args:
+            discovery_result: Source discovery result to compare with the inventory.
+            inventory: Parsed source-surface inventory.
+
+        Raises:
+            RuntimeError: If discovered source candidates and accepted inventory tables diverge.
+        """
+
+        invalid_accepted_table_state_list = [
+            self._source_surface_table_identity_get(source_surface_table)
+            for source_surface_table in inventory.accepted_table_list
+            if source_surface_table.state != "accepted"
+        ]
+        if invalid_accepted_table_state_list:
+            raise RuntimeError(
+                "source_discover accepted_table_list entries must have state=accepted: "
+                f"{invalid_accepted_table_state_list}"
+            )
+        invalid_non_returned_table_state_list = [
+            self._source_surface_table_identity_get(source_surface_table)
+            for source_surface_table in inventory.non_returned_table_list
+            if source_surface_table.state == "accepted"
+        ]
+        if invalid_non_returned_table_state_list:
+            raise RuntimeError(
+                "source_discover non_returned_table_list entries must not have state=accepted: "
+                f"{invalid_non_returned_table_state_list}"
+            )
+
+        discovery_identity_set = {
+            self._source_discovery_identity_get(source_discovery)
+            for source_discovery in discovery_result.discovered_source_list
+        }
+        accepted_table_by_identity_map = {
+            self._source_surface_table_identity_get(source_surface_table): source_surface_table
+            for source_surface_table in inventory.accepted_table_list
+        }
+        accepted_identity_set = set(accepted_table_by_identity_map)
+        missing_accepted_identity_list = sorted(discovery_identity_set - accepted_identity_set)
+        if missing_accepted_identity_list:
+            raise RuntimeError(
+                "source_discover accepted_table_list missing discovered_source_list items: "
+                f"{missing_accepted_identity_list}"
+            )
+
+        extra_accepted_identity_list = sorted(accepted_identity_set - discovery_identity_set)
+        if extra_accepted_identity_list:
+            raise RuntimeError(
+                "source_discover accepted_table_list contains entries not returned in discovered_source_list: "
+                f"{extra_accepted_identity_list}"
+            )
+
+    def _source_discovery_identity_get(
+        self, source_discovery: SourceDiscovery
+    ) -> tuple[str, str, str, tuple[str, ...]]:
+        """Return source-discovery table identity.
+
+        Args:
+            source_discovery: Source-discovery item.
+
+        Returns:
+            Stable source table identity.
+        """
+
+        return (
+            source_discovery.size_group_key,
+            source_discovery.source_url,
+            source_discovery.source_title,
+            tuple(sorted(source_discovery.country_code_list)),
+        )
+
+    def _source_surface_table_identity_get(
+        self, source_surface_table: SourceSurfaceTable
+    ) -> tuple[str, str, str, tuple[str, ...]]:
+        """Return source-surface inventory table identity.
+
+        Args:
+            source_surface_table: Inventory table entry.
+
+        Returns:
+            Stable source table identity.
+        """
+
+        return (
+            source_surface_table.size_group_key,
+            source_surface_table.source_url,
+            source_surface_table.source_title,
+            tuple(sorted(source_surface_table.country_code_list)),
+        )

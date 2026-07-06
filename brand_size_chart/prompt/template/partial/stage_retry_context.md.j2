@@ -11,10 +11,10 @@ Stage context:
 {{ prompt_context }}
 
 Draft stage result JSON:
-{{ draft_result_json_text }}
+{{ draft_result_json }}
 
 Previous stage result JSON:
-{% if previous_result_json_text %}{{ previous_result_json_text }}{% else %}- none{% endif %}
+{% if previous_result_json %}{{ previous_result_json }}{% else %}- none{% endif %}
 
 Verification feedback from previous attempt:
 {% if feedback_list %}{% for feedback in feedback_list %}- {{ feedback }}

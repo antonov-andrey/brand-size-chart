@@ -1,11 +1,15 @@
 """Table-extraction mechanical validation."""
 
+import json
 from pathlib import Path
+
+from pydantic import TypeAdapter, ValidationError
 
 from brand_size_chart.artifact import ArtifactReferenceValidator
 from brand_size_chart.model import (
     BrandSizeChart,
     SourceDiscovery,
+    TableExtractExecplanItem,
     TableExtraction,
     TableExtractionArtifact,
     TableExtractionArtifactBatchResult,
@@ -17,15 +21,17 @@ from brand_size_chart.validator.base import MechanicalValidator
 class TableExtractionValidator(MechanicalValidator):
     """Validate table-extraction structural consistency."""
 
-    def __init__(self, result_dir: Path) -> None:
+    def __init__(self, result_dir: Path, *, stage_dir: Path | None = None) -> None:
         """Store the explicit result directory.
 
         Args:
             result_dir: Root result directory.
+            stage_dir: Table-extraction stage directory.
         """
 
         self._artifact_reference_validator = ArtifactReferenceValidator(result_dir)
         self._result_dir = result_dir
+        self._stage_dir = stage_dir
 
     def artifact_error_list_get(
         self,
@@ -94,6 +100,10 @@ class TableExtractionValidator(MechanicalValidator):
                 source_discovery=source_discovery_by_size_group_key_map[size_group_key],
                 table_extraction_artifact=table_extraction_artifact,
             )
+        self._execplan_validate(
+            source_discovery_by_size_group_key_map=source_discovery_by_size_group_key_map,
+            table_extraction_artifact_by_size_group_key_map=table_extraction_artifact_by_size_group_key_map,
+        )
 
     def error_list_get(
         self,
@@ -164,6 +174,7 @@ class TableExtractionValidator(MechanicalValidator):
             applicability_description=table_extraction_artifact.applicability_description,
             applicability_status=table_extraction_artifact.applicability_status,
             chart=self._chart_get(table_extraction_artifact),
+            chart_path=table_extraction_artifact.chart_path,
             evidence_path_list=table_extraction_artifact.evidence_path_list,
             product_type_hint_list=table_extraction_artifact.product_type_hint_list,
             size_group_key=table_extraction_artifact.size_group_key,
@@ -269,6 +280,109 @@ class TableExtractionValidator(MechanicalValidator):
             raise RuntimeError(
                 f"table_extraction chart artifact is invalid for {table_extraction_artifact.size_group_key}: {exc}"
             ) from exc
+
+    def _execplan_item_list_get(self) -> list[TableExtractExecplanItem]:
+        """Return validated durable table-extraction execplan items.
+
+        Returns:
+            Validated execplan item list.
+
+        Raises:
+            RuntimeError: If the stage directory is missing or the execplan artifact is invalid.
+        """
+
+        if self._stage_dir is None:
+            return []
+        execplan_path = self._stage_dir / "state.json"
+        if not execplan_path.is_file():
+            raise RuntimeError("table_extract must write state.json")
+        try:
+            execplan_payload = json.loads(execplan_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("state.json is invalid JSON") from exc
+        try:
+            return TypeAdapter(list[TableExtractExecplanItem]).validate_python(execplan_payload)
+        except ValidationError as exc:
+            raise RuntimeError(f"state.json violates TableExtractExecplanItem contract: {exc}") from exc
+
+    def _execplan_validate(
+        self,
+        *,
+        source_discovery_by_size_group_key_map: dict[str, SourceDiscovery],
+        table_extraction_artifact_by_size_group_key_map: dict[str, TableExtractionArtifact],
+    ) -> None:
+        """Validate durable table-extraction execplan against source and result identity.
+
+        Args:
+            source_discovery_by_size_group_key_map: Source discoveries keyed by size group key.
+            table_extraction_artifact_by_size_group_key_map: Table extraction artifacts keyed by size group key.
+
+        Raises:
+            RuntimeError: If the execplan is missing, stale, or inconsistent.
+        """
+
+        execplan_item_list = self._execplan_item_list_get()
+        if not execplan_item_list:
+            return
+        item_index_set: set[int] = set()
+        for execplan_item in execplan_item_list:
+            if execplan_item.item_index in item_index_set:
+                raise RuntimeError(f"state.json duplicate item_index: {execplan_item.item_index}")
+            item_index_set.add(execplan_item.item_index)
+        execplan_item_by_size_group_key_map = {
+            execplan_item.size_group_key: execplan_item for execplan_item in execplan_item_list
+        }
+        if len(execplan_item_by_size_group_key_map) != len(execplan_item_list):
+            raise RuntimeError("state.json contains duplicate size_group_key values")
+        discovery_size_group_key_set = set(source_discovery_by_size_group_key_map)
+        execplan_size_group_key_set = set(execplan_item_by_size_group_key_map)
+        if discovery_size_group_key_set != execplan_size_group_key_set:
+            raise RuntimeError(
+                "state.json size_group_key set mismatch: "
+                f"execplan={sorted(execplan_size_group_key_set)}; discovery={sorted(discovery_size_group_key_set)}"
+            )
+        for size_group_key, execplan_item in execplan_item_by_size_group_key_map.items():
+            source_discovery = source_discovery_by_size_group_key_map[size_group_key]
+            table_extraction_artifact = table_extraction_artifact_by_size_group_key_map[size_group_key]
+            self._execplan_item_validate(
+                execplan_item=execplan_item,
+                source_discovery=source_discovery,
+                table_extraction_artifact=table_extraction_artifact,
+            )
+
+    def _execplan_item_validate(
+        self,
+        *,
+        execplan_item: TableExtractExecplanItem,
+        source_discovery: SourceDiscovery,
+        table_extraction_artifact: TableExtractionArtifact,
+    ) -> None:
+        """Validate one execplan item against its source discovery and extraction artifact.
+
+        Args:
+            execplan_item: Durable execplan item.
+            source_discovery: Matching source discovery.
+            table_extraction_artifact: Matching extraction artifact.
+
+        Raises:
+            RuntimeError: If one execplan field is stale or inconsistent.
+        """
+
+        if execplan_item.state != "extracted":
+            raise RuntimeError(
+                f"state.json item for {execplan_item.size_group_key} must be extracted "
+                f"when table_extract result is success"
+            )
+        if execplan_item.error:
+            raise RuntimeError(f"state.json extracted item has error: {execplan_item.error}")
+        if execplan_item.source_type != source_discovery.source_type:
+            raise RuntimeError(f"state.json source_type mismatch for {execplan_item.size_group_key}")
+        if execplan_item.source_url != source_discovery.source_url:
+            raise RuntimeError(f"state.json source_url mismatch for {execplan_item.size_group_key}")
+        if execplan_item.source_title != source_discovery.source_title:
+            raise RuntimeError(f"state.json source_title mismatch for {execplan_item.size_group_key}")
+        if execplan_item.chart_path != table_extraction_artifact.chart_path:
+            raise RuntimeError(f"state.json chart_path mismatch for {execplan_item.size_group_key}")
 
     def _source_discovery_by_size_group_key_map_get(
         self, source_discovery_list: list[SourceDiscovery]

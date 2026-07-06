@@ -1,6 +1,20 @@
 # Canonical Select
 
-Select one canonical chart per size group from the supplied draft result only. Do not add a `size_group_key`, `selected_source_type`, or `selected_source_url` that is absent from the supplied draft result. Prefer the highest numeric `source_priority` for the same `size_group_key` and record unresolved conflicts with all compared decision values.
+Select one canonical chart per size group from verified canonical candidates. Do not add a `size_group_key`, `selected_source_type`, or `selected_source_url` that is absent from the supplied draft result or verified table context.
+
+Read every candidate chart_path as a local JSON artifact before claiming same-priority candidate equivalence.
+
+Follow this order:
+
+1. group verified eligible TableExtraction items by size_group_key.
+2. For each group, choose the maximum source_priority.
+3. If one candidate remains, select it.
+4. If multiple maximum-priority candidates remain, read every candidate chart_path as a local JSON artifact through normal filesystem access.
+5. Normalize each candidate chart by row size_label and measurement name, unit, min_value, and max_value; compare normalized chart content together with applicability_status, applicability_description, product_type_hint_list, evidence_path_list, source_url, and source_title.
+6. If multiple maximum-priority candidates remain, select only when evidence proves they are equivalent by normalized chart content and applicability scope. source_url and source_title are compared evidence fields, not equivalence keys.
+7. When selecting between equivalent maximum-priority candidates, choose the deterministic representative by sorting candidates by chart_path, then source_url, then source_title, then select the first candidate.
+8. When equivalence is unresolved, return status='failed', do not create a canonical selection for that size_group_key, and record one conflict object for every compared candidate. Each conflict object must include size_group_key, source_type, source_url, source_priority, applicability_status, chart_path, and reason.
+9. Prefer the highest numeric source_priority only inside the same size_group_key group; do not compare unrelated size groups.
 
 {% include "partial/size_group_key_contract.md.j2" %}
 

@@ -2,10 +2,14 @@
 
 from pathlib import Path
 
+from workflow_container_runtime.prompt import PromptRenderer
+from workflow_container_runtime.stage import VerifiedCodexStageRunner
+
 from brand_size_chart.model import BrandInput, CoverageDecision, CoverageDecisionResult, PromptScope, TableExtraction
-from brand_size_chart.stage.base import CodexStageRun
-from brand_size_chart.stage.semantic import SemanticStage
+from brand_size_chart.stage.base import CodexStageRun, verified_stage_config_get
 from brand_size_chart.validator import CoverageDecisionValidator
+
+PROJECT_TEMPLATE_DIR = Path(__file__).parents[1] / "prompt" / "template"
 
 
 class CoverageDecisionStage:
@@ -50,20 +54,23 @@ class CoverageDecisionStage:
             Verified coverage decision result.
         """
 
-        coverage_decision_result = SemanticStage(
+        coverage_decision_result = VerifiedCodexStageRunner(
             codex_stage_run_callable=self._codex_stage_run,
-            prompt_scope=self._prompt_scope,
-            result_dir=self._result_dir,
-            stage_dir=self._stage_dir,
-            stage_key="coverage_decide",
+            prompt_renderer=PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
         ).run(
+            config=verified_stage_config_get(
+                prompt_context=self._prompt_context_get(),
+                prompt_scope=self._prompt_scope,
+                result_dir=self._result_dir,
+                stage_dir=self._stage_dir,
+                stage_key="coverage_decide",
+            ),
             draft_result=self.draft_result_get(
                 prompt_scope=self._prompt_scope,
                 table_extraction_list=self._table_extraction_list,
             ),
             model_class=CoverageDecisionResult,
-            prompt_context=self._prompt_context_get(),
-            result_error_list_get=lambda result: self._validator.error_list_get(
+            mechanical_error_list_get=lambda result: self._validator.error_list_get(
                 result,
                 prompt_scope=self._prompt_scope,
             ),
@@ -84,25 +91,23 @@ class CoverageDecisionStage:
             Coverage decision result.
         """
 
-        available_size_group_key_list = [table_extraction.size_group_key for table_extraction in table_extraction_list]
         coverage_decision_list = [
             CoverageDecision(
-                is_covered=True,
-                reason="Verified source table exists.",
-                size_group_key=size_group_key,
+                is_covered=False,
+                reason="Deterministic draft does not infer product-type coverage without explicit table evidence.",
+                size_group_key=table_extraction.size_group_key,
             )
-            for size_group_key in available_size_group_key_list
-        ]
-        uncovered_product_type_list = [
-            product_type
-            for product_type in prompt_scope.product_type_request_list
-            if not any(product_type in size_group_key for size_group_key in available_size_group_key_list)
+            for table_extraction in table_extraction_list
         ]
         return CoverageDecisionResult(
             coverage_decision_list=coverage_decision_list,
+            error_list=[
+                f"{product_type}: no explicit table applicability evidence in deterministic draft"
+                for product_type in prompt_scope.product_type_request_list
+            ],
             message="Coverage decision completed." if table_extraction_list else "No verified tables for coverage.",
             status="success" if table_extraction_list else "skipped",
-            uncovered_product_type_list=uncovered_product_type_list,
+            uncovered_product_type_list=list(prompt_scope.product_type_request_list),
         )
 
     def _prompt_context_get(self) -> str:
@@ -116,6 +121,10 @@ class CoverageDecisionStage:
             (
                 f"- {table_extraction.size_group_key}: source_type={table_extraction.source_type}; "
                 f"source_title={table_extraction.source_title}; "
+                f"source_url={table_extraction.source_url}; "
+                f"applicability_status={table_extraction.applicability_status}; "
+                f"chart_path={table_extraction.chart_path}; "
+                f"evidence_path_list={table_extraction.evidence_path_list}; "
                 f"product_type_hint_list={table_extraction.product_type_hint_list}; "
                 f"applicability_description={table_extraction.applicability_description}; "
                 f"chart_description={table_extraction.chart.description}"

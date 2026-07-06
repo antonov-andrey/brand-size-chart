@@ -15,6 +15,7 @@ from brand_size_chart.model.prompt import PromptScope, PromptStageInstruction
 from brand_size_chart.model.run import RunResult
 from brand_size_chart.model.selection import (
     CanonicalSelection,
+    CanonicalSelectionConflict,
     CanonicalSelectionResult,
     CoverageDecision,
     CoverageDecisionResult,
@@ -23,13 +24,18 @@ from brand_size_chart.model.source import (
     BrowsingError,
     SourceDiscovery,
     SourceDiscoveryResult,
+    SourceSurfaceDiscoveryQuery,
+    SourceSurfaceInventory,
+    SourceSurfaceProductTypeSex,
+    SourceSurfaceTable,
+    SourceSurfaceUrl,
     SourceTypeSummary,
+    TableExtractExecplanItem,
     TableExtraction,
     TableExtractionArtifact,
     TableExtractionArtifactBatchResult,
     TableExtractionBatchResult,
 )
-from brand_size_chart.model.stage import StageVerification
 
 __all__ = [
     "APPLICABILITY_STATUS_CANONICAL_SET",
@@ -45,6 +51,7 @@ __all__ = [
     "BrandSizeChartRow",
     "BrowsingError",
     "CanonicalSelection",
+    "CanonicalSelectionConflict",
     "CanonicalSelectionResult",
     "CoverageDecision",
     "CoverageDecisionResult",
@@ -54,10 +61,15 @@ __all__ = [
     "RunResult",
     "SourceDiscovery",
     "SourceDiscoveryResult",
+    "SourceSurfaceDiscoveryQuery",
+    "SourceSurfaceInventory",
+    "SourceSurfaceProductTypeSex",
+    "SourceSurfaceTable",
+    "SourceSurfaceUrl",
     "SourceTypeSummary",
     "StageStatus",
-    "StageVerification",
     "StrictBaseModel",
+    "TableExtractExecplanItem",
     "TableExtraction",
     "TableExtractionArtifact",
     "TableExtractionArtifactBatchResult",

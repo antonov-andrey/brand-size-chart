@@ -3,6 +3,9 @@
 from functools import partial
 from pathlib import Path
 
+from workflow_container_runtime.prompt import PromptRenderer
+from workflow_container_runtime.stage import VerifiedCodexStageRunner
+
 from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import (
     BrandInput,
@@ -12,9 +15,10 @@ from brand_size_chart.model import (
     TableExtractionArtifactBatchResult,
     TableExtractionBatchResult,
 )
-from brand_size_chart.stage.base import CodexStageRun
-from brand_size_chart.stage.semantic import SemanticStage
+from brand_size_chart.stage.base import CodexStageRun, verified_stage_config_get
 from brand_size_chart.validator import TableExtractionValidator
+
+PROJECT_TEMPLATE_DIR = Path(__file__).parents[1] / "prompt" / "template"
 
 
 class TableExtractionStage:
@@ -51,7 +55,8 @@ class TableExtractionStage:
         self._result_dir = result_dir
         self._source_discovery_list = source_discovery_list
         self._source_type = source_type
-        self._validator = TableExtractionValidator(result_dir)
+        self._stage_dir = self._artifact_layout.table_extract_dir(self._brand_input, self._source_type)
+        self._validator = TableExtractionValidator(result_dir, stage_dir=self._stage_dir)
 
     def run(self) -> TableExtractionBatchResult:
         """Run batch table extraction plus verification.
@@ -61,19 +66,22 @@ class TableExtractionStage:
         """
 
         self._artifact_directory_prepare()
-        table_extraction_artifact_batch_result = SemanticStage(
-            browser_access=True,
-            browser_runtime_mcp_url=self._browser_runtime_mcp_url,
+        table_extraction_artifact_batch_result = VerifiedCodexStageRunner(
             codex_stage_run_callable=self._codex_stage_run,
-            prompt_scope=self._prompt_scope,
-            result_dir=self._result_dir,
-            stage_dir=self._artifact_layout.table_extract_dir(self._brand_input, self._source_type),
-            stage_key="table_extract",
+            prompt_renderer=PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
         ).run(
+            config=verified_stage_config_get(
+                allow_user_config=True,
+                browser_runtime_mcp_url=self._browser_runtime_mcp_url,
+                prompt_context=self._prompt_context_get(),
+                prompt_scope=self._prompt_scope,
+                result_dir=self._result_dir,
+                stage_dir=self._stage_dir,
+                stage_key="table_extract",
+            ),
             draft_result=self._draft_artifact_result_get(),
             model_class=TableExtractionArtifactBatchResult,
-            prompt_context=self._prompt_context_get(),
-            result_error_list_get=partial(
+            mechanical_error_list_get=partial(
                 self._validator.artifact_error_list_get,
                 source_discovery_list=self._source_discovery_list,
             ),
@@ -153,9 +161,13 @@ class TableExtractionStage:
                 )
             )
         execplan_text = "\n".join(execplan_line_list)
+        state_path = self._stage_dir / "state.json"
         return (
             f"Brand: {self._brand_input.parsed_brand_name}\n"
             f"Source type: {self._source_type}\n"
+            f"Priority country code: {self._prompt_scope.priority_country_code}\n"
+            f"Stage state artifact path: {self._artifact_layout.artifact_path(state_path)}\n"
+            f"Stage state filesystem path: {self._artifact_layout.filesystem_path_get(state_path)}\n"
             f"Stage chart artifact write directory: {self._artifact_layout.filesystem_path_get(chart_dir)}\n"
             "Batch table_extract execplan:\n"
             f"{execplan_text}\n"

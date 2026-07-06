@@ -3,12 +3,16 @@
 from functools import partial
 from pathlib import Path
 
+from workflow_container_runtime.prompt import PromptRenderer
+from workflow_container_runtime.stage import VerifiedCodexStageRunner
+
 from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import BrandInput, PromptScope, SourceDiscoveryResult
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
-from brand_size_chart.stage.base import CodexStageRun
-from brand_size_chart.stage.semantic import SemanticStage
+from brand_size_chart.stage.base import CodexStageRun, verified_stage_config_get
 from brand_size_chart.validator import SourceDiscoveryValidator
+
+PROJECT_TEMPLATE_DIR = Path(__file__).parents[1] / "prompt" / "template"
 
 
 class SourceDiscoveryStage:
@@ -57,19 +61,22 @@ class SourceDiscoveryStage:
 
         self._artifact_directory_prepare()
         draft_result = self._draft_result_get()
-        return SemanticStage(
-            browser_access=True,
-            browser_runtime_mcp_url=self._browser_runtime_mcp_url,
+        return VerifiedCodexStageRunner(
             codex_stage_run_callable=self._codex_stage_run,
-            prompt_scope=self._prompt_scope,
-            result_dir=self._result_dir,
-            stage_dir=self._stage_dir,
-            stage_key="source_discover",
+            prompt_renderer=PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
         ).run(
+            config=verified_stage_config_get(
+                allow_user_config=True,
+                browser_runtime_mcp_url=self._browser_runtime_mcp_url,
+                prompt_context=self._prompt_context_get(draft_result),
+                prompt_scope=self._prompt_scope,
+                result_dir=self._result_dir,
+                stage_dir=self._stage_dir,
+                stage_key="source_discover",
+            ),
             draft_result=draft_result,
             model_class=SourceDiscoveryResult,
-            prompt_context=self._prompt_context_get(draft_result),
-            result_error_list_get=partial(
+            mechanical_error_list_get=partial(
                 self._validator.error_list_get,
                 expected_source_priority=self._source_priority,
                 expected_source_type=self._source_type,
@@ -117,6 +124,7 @@ class SourceDiscoveryStage:
         """
 
         evidence_dir = self._artifact_layout.source_discover_evidence_dir(self._brand_input, self._source_type)
+        state_path = self._stage_dir / "state.json"
         requested_product_type_text = (
             "\n".join(f"- {product_type}" for product_type in self._prompt_scope.product_type_request_list) or "- none"
         )
@@ -127,6 +135,8 @@ class SourceDiscoveryStage:
             f"Priority country code: {self._prompt_scope.priority_country_code}\n"
             f"Requested product types:\n{requested_product_type_text}\n"
             f"Source type instruction: {SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_get(self._source_type)}\n"
+            f"Stage state artifact path: {self._artifact_layout.artifact_path(state_path)}\n"
+            f"Stage state filesystem path: {self._artifact_layout.filesystem_path_get(state_path)}\n"
             f"Browser evidence write directory: {self._artifact_layout.filesystem_path_get(evidence_dir)}\n"
             f"Evidence reference directory: {self._artifact_layout.artifact_path(evidence_dir)}\n"
         )

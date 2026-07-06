@@ -2,19 +2,25 @@
 
 {% include "runtime/partial/stage_verification_contract.md.j2" %}
 
-For coverage_decide, verify that requested product types are covered only by explicit table applicability evidence in the verified table summary. Do not infer coverage from weak substring matches alone. Do not report missing evidence when the verified table summary is non-empty and directly supports the coverage decision.
+For coverage_decide, verify that requested product types are covered only by explicit table applicability evidence in the verified table summary. Do not infer coverage from weak substring matches alone. Do not report missing evidence for one table-level CoverageDecision when the specific verified table summary entry used by that decision is present; still emit uncovered_product_type_list and one error_list reason for each requested product type that is not explicitly supported by any verified table. Absence from uncovered_product_type_list is not coverage evidence. Each covered requested product type must appear in one positive CoverageDecision.covered_product_type_list with table evidence described in CoverageDecision.reason. Every requested product type must appear either in at least one positive CoverageDecision.covered_product_type_list or in uncovered_product_type_list, never both.
+
+For coverage_decide, verify that every positive CoverageDecision is backed by explicit applicability evidence from the matching verified table summary entry. chart_path and evidence_path_list are artifact references, not product-type coverage evidence. Verify that coverage_decide read every referenced chart_path and relevant evidence_path_list artifact before using those artifacts for coverage. Positive coverage may be backed by loaded chart content, loaded evidence content, applicability_description, product_type_hint_list, or chart description. Verification must fail when positive coverage depends only on path strings. Identifier-only fields are supporting context, not coverage evidence. source_url, source_title, size_group_key, and applicability_status identify the table and source authority, but they must not be the only basis for a positive product-type coverage decision.
+
+Verify that each uncovered product type has one result-level error_list reason and that table-scoped fields are not used for product-level gaps. CoverageDecision.reason and CoverageDecision.missing_size_list may explain only one table or one size_group_key; they must not be the only location that explains why one requested product type remains in uncovered_product_type_list. Verify that covered requested product types are written to CoverageDecision.covered_product_type_list and are not encoded only in CoverageDecision.reason.
 
 Stage: {{ stage_key }}
 
 Prompt context:
 {{ prompt_context }}
 
-Artifact path list:
-{% for artifact_path in artifact_path_list %}- {{ artifact_path }}
-{% endfor %}
+Stage result path:
+{{ stage_result_path }}
+
+Stage state path:
+{{ stage_state_path }}
 
 Stage result JSON:
-{{ stage_result_json_text }}
+{{ stage_result_json }}
 
 Draft verification JSON:
-{{ draft_verification_json_text }}
+{{ draft_verification_json }}

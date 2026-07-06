@@ -2,19 +2,23 @@
 
 {% include "runtime/partial/stage_verification_contract.md.j2" %}
 
-For canonical_select, verify that one canonical chart is selected per eligible size group, higher-priority source types are preferred, and unresolved conflicts are recorded with compared decision values.
+For canonical_select, verify that one canonical chart is selected per eligible size group unless same-priority equivalence is unresolved. When same-priority equivalence is unresolved for one size_group_key, verify status='failed' and no canonical selection for that size_group_key, and verify unresolved conflicts are recorded with compared decision values.
+
+For canonical_select, verify grouping by size_group_key before checking selected rows. For every selected eligible group, verify the selected candidate has the maximum source_priority available in that group. If several maximum-priority candidates exist, read every candidate chart_path as a local JSON artifact through normal filesystem access before accepting equivalence. Verify that selection is backed by evidence that candidates are equivalent by normalized chart content and applicability scope. Normalized chart content means row size_label and measurement name, unit, min_value, and max_value. Applicability scope means applicability_status, applicability_description, product_type_hint_list, evidence_path_list, source_url, and source_title. source_url and source_title are compared evidence fields, not equivalence keys. For equivalent maximum-priority candidates, verify the selected candidate is the deterministic representative after sorting candidates by chart_path, then source_url, then source_title. Otherwise, verify status='failed' and no canonical selection for that size_group_key, and verify that conflict_list records every compared candidate. Verify every conflict object records the compared decision values: size_group_key, source_type, source_url, source_priority, applicability_status, chart_path, and reason.
 
 Stage: {{ stage_key }}
 
 Prompt context:
 {{ prompt_context }}
 
-Artifact path list:
-{% for artifact_path in artifact_path_list %}- {{ artifact_path }}
-{% endfor %}
+Stage result path:
+{{ stage_result_path }}
+
+Stage state path:
+{{ stage_state_path }}
 
 Stage result JSON:
-{{ stage_result_json_text }}
+{{ stage_result_json }}
 
 Draft verification JSON:
-{{ draft_verification_json_text }}
+{{ draft_verification_json }}

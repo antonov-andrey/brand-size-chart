@@ -7,10 +7,8 @@ from jinja2 import UndefinedError
 from pydantic import BaseModel
 
 from brand_size_chart.model import PromptScope
-from brand_size_chart.model import StageVerification
-from brand_size_chart.stage import semantic
-from brand_size_chart.stage.semantic import SemanticStage
 from workflow_container_runtime.prompt import PromptRenderer
+from workflow_container_runtime.stage import StageVerificationResult, VerifiedCodexStageConfig, VerifiedCodexStageRunner
 
 PROJECT_TEMPLATE_DIR = Path("brand_size_chart/prompt/template")
 
@@ -35,9 +33,9 @@ def test_source_discover_template_includes_stage_runtime_context() -> None:
         "source_discover.md.j2",
         {
             "attempt_index": 2,
-            "draft_result_json_text": '{"draft":"result"}',
+            "draft_result_json": '{"draft":"result"}',
             "feedback_list": ["retry feedback"],
-            "previous_result_json_text": '{"previous":"result"}',
+            "previous_result_json": '{"previous":"result"}',
             "prompt_context": "Brand: Defacto\nSource type: official_brand_size_guide",
             "shared_instruction": "shared instruction text",
             "stage_instruction_text": "- stage-specific instruction",
@@ -57,8 +55,8 @@ def test_source_discover_template_includes_stage_runtime_context() -> None:
     assert "A `size_group_key` is a stable table identifier" in prompt_text
 
 
-def test_semantic_stage_reuses_one_prompt_renderer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Reuse one prompt renderer for main and verification prompts in one stage run."""
+def test_verified_stage_runner_reuses_one_prompt_renderer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Reuse one prompt renderer for action and verification prompts in one stage run."""
     renderer_instance_list: list[object] = []
 
     class FakePromptRenderer:
@@ -113,18 +111,25 @@ def test_semantic_stage_reuses_one_prompt_renderer(monkeypatch: pytest.MonkeyPat
         _ = prompt_text
         _ = result_dir
         _ = stage_dir
-        if model_class is StageVerification:
-            return StageVerification(message="verified", stage_key=stage_name, status="success")
+        if model_class is StageVerificationResult:
+            return StageVerificationResult(status="success")
         return PromptScope()
 
-    monkeypatch.setattr(semantic, "PromptRenderer", FakePromptRenderer)
+    monkeypatch.setattr("workflow_container_runtime.stage.runner.PromptRenderer", FakePromptRenderer)
 
-    SemanticStage(
+    VerifiedCodexStageRunner(
         codex_stage_run_callable=fake_codex_stage_run,
-        prompt_scope=PromptScope(),
-        result_dir=tmp_path,
-        stage_dir=tmp_path / "stage",
-        stage_key="source_discover",
-    ).run(draft_result=PromptScope(), model_class=PromptScope, prompt_context="Brand: Defacto")
+    ).run(
+        config=VerifiedCodexStageConfig(
+            action_template_name="source_discover.md.j2",
+            prompt_context="Brand: Defacto",
+            result_dir=tmp_path,
+            stage_dir=tmp_path / "stage",
+            stage_key="source_discover",
+            verification_template_name="source_discover_verify.md.j2",
+        ),
+        draft_result=PromptScope(),
+        model_class=PromptScope,
+    )
 
     assert len(renderer_instance_list) == 1
