@@ -33,7 +33,8 @@ class SourceTypeRegistry:
                     "size-guide surfaces, help sections, FAQ sections, and other official brand-owned non-product "
                     "surfaces. Do not return ordinary product pages from this source type; product-page measurement "
                     "sections belong only to official_brand_product_page. Build an inventory of official host "
-                    "candidates, accepted tables, rejected URLs, and rejection reasons before returning candidates."
+                    "candidates, accepted tables, rejected URL entries, and rejection reasons before returning "
+                    "candidates."
                 ),
                 "official_seller_size_guide": (
                     "Find official or authorized reseller or distributor size-guide surfaces for the brand when the "

@@ -5,10 +5,9 @@ from collections.abc import Collection
 from brand_size_chart.model import PromptScope
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
 from brand_size_chart.stage.base import STAGE_KEY_SET
-from brand_size_chart.validator.base import MechanicalValidator
 
 
-class PromptScopeValidator(MechanicalValidator):
+class PromptScopeValidator:
     """Validate prompt-derived execution keys and scope isolation."""
 
     def __init__(
@@ -26,18 +25,6 @@ class PromptScopeValidator(MechanicalValidator):
 
         self._source_type_set = set(source_type_set)
         self._stage_key_set = set(stage_key_set)
-
-    def error_list_get(self, prompt_scope: PromptScope) -> list[str]:
-        """Return prompt-scope mechanical validation errors.
-
-        Args:
-            prompt_scope: Parsed prompt scope.
-
-        Returns:
-            Validation error list.
-        """
-
-        return self._error_list_get(lambda: self.validate(prompt_scope))
 
     def validate(self, prompt_scope: PromptScope) -> None:
         """Validate prompt-derived execution keys.

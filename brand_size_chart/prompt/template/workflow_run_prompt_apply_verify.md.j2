@@ -4,25 +4,8 @@
 
 ## Verification Workflow
 
-For workflow_run_prompt_apply, source_type_allow_list must contain only exact source type keys from the Source type catalog in prompt context. Natural-language phrases such as all supported source types are not source type keys. Map clear natural-language source-scope instructions to exact source type keys from the prompt context. An unrestricted request for all source types must be represented by an empty source_type_allow_list. A source-scope instruction that clearly limits allowed source types must be represented in source_type_allow_list and must not remain only in shared_instruction. Product type values must be separated from shared_instruction: product_type_request_list owns requested product type phrases, and shared_instruction must not repeat those values.
+For workflow_run_prompt_apply, verify that source-scope instructions from workflow_run_prompt are represented in source_type_allow_list when they clearly limit allowed source types. An unrestricted request for all source types must be represented by an empty source_type_allow_list. A source-scope instruction that clearly limits allowed source types must not remain only in shared_instruction. Product type values must be separated from shared_instruction: product_type_request_list owns requested product type phrases, and shared_instruction must not repeat those values.
 
 For workflow_run_prompt_apply, priority_country_code must reflect the priority country requested in the workflow prompt as one ISO 3166 alpha-2 uppercase country code. The stage must not invent a default country when the workflow prompt does not choose one. The priority-country request must not remain duplicated in shared_instruction.
 
-For workflow_run_prompt_apply, stage_instruction_list must contain only PromptStageInstruction objects extracted from exact stage instruction text in the workflow prompt. Verify that each stage-specific instruction uses an exact supported stage key, preserves the user's exact stage instruction meaning, and no longer remains duplicated in shared_instruction. Remove stage-specific instructions from shared_instruction is the required action-stage behavior; verification must fail when the result keeps one stage-specific instruction only in shared_instruction.
-
-Stage: {{ stage_key }}
-
-Prompt context:
-{{ prompt_context }}
-
-Stage result path:
-{{ stage_result_path }}
-
-Stage state path:
-{{ stage_state_path }}
-
-Stage result JSON:
-{{ stage_result_json }}
-
-Draft verification JSON:
-{{ draft_verification_json }}
+For workflow_run_prompt_apply, stage_instruction_list must preserve exact stage-specific instruction meaning from the workflow prompt and no longer duplicate those instructions in shared_instruction. Remove stage-specific instructions from shared_instruction is the required action-stage behavior; verification must fail when the result keeps one stage-specific instruction only in shared_instruction.

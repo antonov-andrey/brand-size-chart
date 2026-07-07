@@ -1,21 +1,23 @@
 """Table-extraction stage owner."""
 
-from functools import partial
 from pathlib import Path
 
 from workflow_container_runtime.prompt import PromptRenderer
-from workflow_container_runtime.stage import VerifiedCodexStageRunner
+from workflow_container_runtime.stage import VerifiedCodexStageConfig, VerifiedCodexStageRunner
 
 from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import (
+    ArtifactWriteTarget,
     BrandInput,
     PromptScope,
     SourceDiscovery,
     TableExtractionArtifact,
-    TableExtractionArtifactBatchResult,
-    TableExtractionBatchResult,
+    TableExtractionDelta,
+    TableExtractionDeltaBatchResult,
+    TableExtractionExecplanItem,
+    TableExtractionPromptContext,
 )
-from brand_size_chart.stage.base import CodexStageRun, verified_stage_config_get
+from brand_size_chart.stage.base import CodexStageRun, stage_instruction_list_get
 from brand_size_chart.validator import TableExtractionValidator
 
 PROJECT_TEMPLATE_DIR = Path(__file__).parents[1] / "prompt" / "template"
@@ -56,39 +58,36 @@ class TableExtractionStage:
         self._source_discovery_list = source_discovery_list
         self._source_type = source_type
         self._stage_dir = self._artifact_layout.table_extract_dir(self._brand_input, self._source_type)
-        self._validator = TableExtractionValidator(result_dir, stage_dir=self._stage_dir)
 
-    def run(self) -> TableExtractionBatchResult:
+    def run(self) -> list[TableExtractionArtifact]:
         """Run batch table extraction plus verification.
 
         Returns:
-            Verified batch table extraction.
+            Verified artifact-backed table extractions.
         """
 
         self._artifact_directory_prepare()
-        table_extraction_artifact_batch_result = VerifiedCodexStageRunner(
+        prompt_context = self._prompt_context_get()
+        table_extraction_delta_batch_result = VerifiedCodexStageRunner(
             codex_stage_run_callable=self._codex_stage_run,
             prompt_renderer=PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
         ).run(
-            config=verified_stage_config_get(
-                allow_user_config=True,
+            config=VerifiedCodexStageConfig(
                 browser_runtime_mcp_url=self._browser_runtime_mcp_url,
-                prompt_context=self._prompt_context_get(),
-                prompt_scope=self._prompt_scope,
+                prompt_context=prompt_context,
                 result_dir=self._result_dir,
                 stage_dir=self._stage_dir,
                 stage_key="table_extract",
             ),
-            draft_result=self._draft_artifact_result_get(),
-            model_class=TableExtractionArtifactBatchResult,
-            mechanical_error_list_get=partial(
-                self._validator.artifact_error_list_get,
-                source_discovery_list=self._source_discovery_list,
-            ),
+            model_class=TableExtractionDeltaBatchResult,
+            mechanical_validate=TableExtractionValidator(
+                prompt_context=prompt_context,
+                result_dir=self._result_dir,
+            ).validate,
         )
-        return self._validator.table_extraction_batch_result_get(
-            table_extraction_artifact_batch_result,
-            source_discovery_list=self._source_discovery_list,
+        return self._table_extraction_artifact_list_get(
+            prompt_context=prompt_context,
+            table_extraction_delta_batch_result=table_extraction_delta_batch_result,
         )
 
     def _artifact_directory_prepare(self) -> None:
@@ -101,76 +100,45 @@ class TableExtractionStage:
         for source_discovery in self._source_discovery_list:
             self._table_extract_evidence_dir_get(source_discovery).mkdir(parents=True, exist_ok=True)
 
-    def _draft_artifact_result_get(self) -> TableExtractionArtifactBatchResult:
-        """Return deterministic draft extraction-artifact batch from source discoveries.
-
-        Returns:
-            Draft batch table extraction artifact result.
-        """
-
-        return TableExtractionArtifactBatchResult(
-            message="Codex table extraction has not produced chart artifacts yet.",
-            source_type=self._source_type,
-            status="skipped",
-            table_extraction_artifact_list=[
-                self._table_extraction_artifact_from_discovery_get(
-                    chart_path=self._artifact_layout.table_extract_chart_path(
-                        self._brand_input,
-                        self._source_type,
-                        source_discovery.size_group_key,
-                    ),
-                    source_discovery=source_discovery,
-                )
-                for source_discovery in self._source_discovery_list
-            ],
-        )
-
-    def _prompt_context_get(self) -> str:
+    def _prompt_context_get(self) -> TableExtractionPromptContext:
         """Return batch table-extraction prompt context.
 
         Returns:
-            Prompt context text.
+            Prompt context object.
         """
 
-        execplan_line_list = []
-        chart_dir = self._artifact_layout.table_extract_dir(self._brand_input, self._source_type) / "chart"
-        for discovery_index, source_discovery in enumerate(self._source_discovery_list, start=1):
+        execplan_item_list = []
+        for source_discovery in self._source_discovery_list:
             evidence_dir = self._table_extract_evidence_dir_get(source_discovery)
             chart_path = self._artifact_layout.table_extract_chart_path(
                 self._brand_input,
                 self._source_type,
                 source_discovery.size_group_key,
             )
-            execplan_line_list.append(
-                "\n".join(
-                    [
-                        f"{discovery_index}. size_group_key={source_discovery.size_group_key}",
-                        f"   Source title: {source_discovery.source_title}",
-                        f"   Source URL: {source_discovery.source_url}",
-                        f"   Source discovery source_type: {source_discovery.source_type}",
-                        f"   Source discovery product_type_hint_list: {source_discovery.product_type_hint_list}",
-                        f"   Target size_group_key: {source_discovery.size_group_key}",
-                        f"   Target source title: {source_discovery.source_title}",
-                        f"   Source discovery country_code_list: {source_discovery.country_code_list}",
-                        f"   Browser evidence write directory: {self._artifact_layout.filesystem_path_get(evidence_dir)}",
-                        f"   Evidence reference directory: {self._artifact_layout.artifact_path(evidence_dir)}",
-                        f"   Source discovery evidence paths: {source_discovery.evidence_path_list}",
-                        f"   Chart artifact path: {self._artifact_layout.artifact_path(chart_path)}",
-                        f"   Chart artifact filesystem path: {self._artifact_layout.filesystem_path_get(chart_path)}",
-                    ]
+            execplan_item_list.append(
+                TableExtractionExecplanItem(
+                    chart_write_target=ArtifactWriteTarget(
+                        artifact_path=self._artifact_layout.artifact_path(chart_path),
+                        filesystem_path=self._artifact_layout.filesystem_path_get(chart_path),
+                    ),
+                    evidence_write_target=ArtifactWriteTarget(
+                        artifact_path=self._artifact_layout.artifact_path(evidence_dir),
+                        filesystem_path=self._artifact_layout.filesystem_path_get(evidence_dir),
+                    ),
+                    size_group_key=source_discovery.size_group_key,
+                    source_discovery_evidence_path_list=source_discovery.evidence_path_list,
+                    source_title=source_discovery.source_title,
+                    source_url=source_discovery.source_url,
                 )
             )
-        execplan_text = "\n".join(execplan_line_list)
-        state_path = self._stage_dir / "state.json"
-        return (
-            f"Brand: {self._brand_input.parsed_brand_name}\n"
-            f"Source type: {self._source_type}\n"
-            f"Priority country code: {self._prompt_scope.priority_country_code}\n"
-            f"Stage state artifact path: {self._artifact_layout.artifact_path(state_path)}\n"
-            f"Stage state filesystem path: {self._artifact_layout.filesystem_path_get(state_path)}\n"
-            f"Stage chart artifact write directory: {self._artifact_layout.filesystem_path_get(chart_dir)}\n"
-            "Batch table_extract execplan:\n"
-            f"{execplan_text}\n"
+        return TableExtractionPromptContext(
+            brand_name=self._brand_input.parsed_brand_name,
+            execplan_item_list=execplan_item_list,
+            shared_instruction=self._prompt_scope.shared_instruction,
+            stage_instruction_list=stage_instruction_list_get(
+                prompt_scope=self._prompt_scope,
+                stage_key="table_extract",
+            ),
         )
 
     def _table_extract_evidence_dir_get(self, source_discovery: SourceDiscovery) -> Path:
@@ -185,30 +153,67 @@ class TableExtractionStage:
 
         return self._artifact_layout.table_extract_evidence_dir(
             self._brand_input,
-            source_discovery.source_type,
+            self._source_type,
             source_discovery.size_group_key,
         )
 
-    def _table_extraction_artifact_from_discovery_get(
-        self, *, chart_path: Path, source_discovery: SourceDiscovery
+    def _table_extraction_artifact_get(
+        self,
+        *,
+        execplan_item: TableExtractionExecplanItem,
+        source_discovery: SourceDiscovery,
+        table_extraction_delta: TableExtractionDelta,
     ) -> TableExtractionArtifact:
-        """Return an empty artifact-backed draft for one discovered table.
+        """Build one cross-stage artifact handle from execplan identity and extraction delta.
 
         Args:
-            chart_path: Expected chart artifact path for the source discovery.
-            source_discovery: Verified source discovery.
+            execplan_item: Table-extraction execplan item that owns identity and chart target.
+            source_discovery: Verified source discovery that owns immutable table identity.
+            table_extraction_delta: Codex-owned extraction delta.
 
         Returns:
-            Draft table extraction artifact that Codex must complete.
+            Cross-stage artifact handle.
         """
 
         return TableExtractionArtifact(
-            applicability_description=source_discovery.source_title,
-            chart_path=chart_path.relative_to(self._result_dir).as_posix(),
-            evidence_path_list=source_discovery.evidence_path_list,
-            product_type_hint_list=source_discovery.product_type_hint_list,
-            size_group_key=source_discovery.size_group_key,
-            source_title=source_discovery.source_title,
-            source_type=source_discovery.source_type,
-            source_url=source_discovery.source_url,
+            applicability_description=table_extraction_delta.applicability_description,
+            chart_path=execplan_item.chart_write_target.artifact_path,
+            country_code_list=source_discovery.country_code_list,
+            evidence_path_list=table_extraction_delta.evidence_path_list,
+            size_group_key=execplan_item.size_group_key,
+            source_title=execplan_item.source_title,
+            source_type=self._source_type,
+            source_url=execplan_item.source_url,
         )
+
+    def _table_extraction_artifact_list_get(
+        self,
+        *,
+        prompt_context: TableExtractionPromptContext,
+        table_extraction_delta_batch_result: TableExtractionDeltaBatchResult,
+    ) -> list[TableExtractionArtifact]:
+        """Build cross-stage artifact handles from one Codex delta result.
+
+        Args:
+            prompt_context: Table-extraction prompt context used by the action and validator.
+            table_extraction_delta_batch_result: Codex-owned extraction deltas.
+
+        Returns:
+            Cross-stage artifact handle list.
+        """
+
+        source_discovery_by_size_group_key_map = {
+            source_discovery.size_group_key: source_discovery for source_discovery in self._source_discovery_list
+        }
+        return [
+            self._table_extraction_artifact_get(
+                execplan_item=execplan_item,
+                source_discovery=source_discovery_by_size_group_key_map[execplan_item.size_group_key],
+                table_extraction_delta=table_extraction_delta,
+            )
+            for execplan_item, table_extraction_delta in zip(
+                prompt_context.execplan_item_list,
+                table_extraction_delta_batch_result.table_extraction_delta_list,
+                strict=True,
+            )
+        ]

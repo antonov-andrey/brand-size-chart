@@ -2,27 +2,6 @@
 
 {% include "runtime/partial/stage_verification_contract.md.j2" %}
 
-Verification must be based on the current Stage result JSON, the current state JSON, and the current artifact files referenced by those JSON artifacts. Feedback from previous attempts is not evidence. Do not repeat a previous error unless it is still true in the current Stage result JSON and current artifact files.
+{% include "runtime/partial/browser_browsing_error_verification_contract.md.j2" %}
 
-Load state.json before accepting the Stage result. It must contain one item for every current execplan row, each item must have unique item_index, and each item must use the same source_url, source_title, source_type, size_group_key, and chart_path as the current prompt context and Stage result. Accepted handoff requires every execplan item state='extracted', Stage result status='success', chart_path exists for each item, and one matching result item with the same size_group_key, source_url, source_title, source_type, and chart_path. Any failed execplan item must make verification status='failed'; failed item feedback must go to feedback_list with the exact item_index, size_group_key, chart_path, and correction needed for the next table_extract attempt. If state.json is missing, stale, or inconsistent with Stage result JSON, verification must fail before table-content accuracy checks.
-
-For table_extract, verify that Stage result JSON includes browsing_error_list and that it lists every browser-visible network error, timeout, DNS error, TLS error, HTTP blocker, CAPTCHA, bot-check, access-denied, redirect-loop, or equivalent failed browsing URL visible in evidence. Verify every item has the concrete url and error. A failed helper, source, or target URL must still be listed even when table extraction succeeds through another page or saved discovery evidence.
-
-For table_extract, Read every chart_path as a local JSON artifact through filesystem access and verify every source row, column, unit, size label, measurement, applicability description, source URL, and source title against the saved browser-visible evidence; verify size_group_key derivation from source_title and evidence through the Size Group Key Contract; do not require the normalized size_group_key to appear as browser-visible text. Do not use browser tools, file://, localhost, or 127.0.0.1 for chart_path. Missing chart_path files, missing source columns, or empty charts must fail verification. When raw DOM or diagnostic evidence contains hidden or non-rendered rows, compare those rows against the current extracted chart artifact before failing. Do not report hidden or non-rendered rows as an extraction error when the current chart artifact already omits them and the current visible rows, size labels, units, and measurements match browser-visible evidence. If you report a hidden-row or stale-row error, quote the exact current extracted row, measurement name, and value that still contains the hidden data.
-
-Stage: {{ stage_key }}
-
-Prompt context:
-{{ prompt_context }}
-
-Stage result path:
-{{ stage_result_path }}
-
-Stage state path:
-{{ stage_state_path }}
-
-Stage result JSON:
-{{ stage_result_json }}
-
-Draft verification JSON:
-{{ draft_verification_json }}
+For table_extract, read every execplan item's chart_write_target.artifact_path as a local JSON artifact through filesystem access and verify every source row, column, unit, size label, measurement, applicability description, source URL, and source title against the saved browser-visible evidence. Do not derive, rename, or validate size_group_key naming in this verifier. Do not use browser tools, file://, localhost, or 127.0.0.1 for chart_write_target.artifact_path or chart_write_target.filesystem_path. Missing source columns must fail verification. When raw DOM or diagnostic evidence contains hidden or non-rendered rows, compare those rows against the current extracted chart artifact before failing. Do not report hidden or non-rendered rows as an extraction error when the current chart artifact already omits them and the current visible rows, size labels, units, and measurements match browser-visible evidence. If you report a hidden-row or stale-row error, quote the exact current extracted row, measurement name, and value that still contains the hidden data.

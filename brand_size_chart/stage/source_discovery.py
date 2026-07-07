@@ -1,15 +1,24 @@
 """Source-discovery stage owner."""
 
-from functools import partial
 from pathlib import Path
 
+from workflow_container_runtime.artifact import JsonArtifactWriter
 from workflow_container_runtime.prompt import PromptRenderer
-from workflow_container_runtime.stage import VerifiedCodexStageRunner
+from workflow_container_runtime.stage import VerifiedCodexStageConfig, VerifiedCodexStageRunner
 
 from brand_size_chart.artifact import ArtifactLayout
-from brand_size_chart.model import BrandInput, PromptScope, SourceDiscoveryResult
+from brand_size_chart.model import (
+    ArtifactWriteTarget,
+    BrandInput,
+    PromptScope,
+    SourceDiscovery,
+    SourceDiscoveryDeltaResult,
+    SourceDiscoveryPromptContext,
+    SourceDiscoveryResult,
+    SourceSurfaceInventory,
+)
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
-from brand_size_chart.stage.base import CodexStageRun, verified_stage_config_get
+from brand_size_chart.stage.base import CodexStageRun, stage_instruction_list_get
 from brand_size_chart.validator import SourceDiscoveryValidator
 
 PROJECT_TEMPLATE_DIR = Path(__file__).parents[1] / "prompt" / "template"
@@ -26,7 +35,6 @@ class SourceDiscoveryStage:
         codex_stage_run_callable: CodexStageRun,
         prompt_scope: PromptScope,
         result_dir: Path,
-        source_priority: int,
         source_type: str,
     ) -> None:
         """Store source-discovery stage dependencies.
@@ -37,20 +45,18 @@ class SourceDiscoveryStage:
             codex_stage_run_callable: Codex stage execution boundary.
             prompt_scope: Parsed prompt scope for source discovery.
             result_dir: Result root directory.
-            source_priority: Source type priority.
             source_type: Source type key.
         """
 
         self._artifact_layout = ArtifactLayout(result_dir)
+        self._artifact_writer = JsonArtifactWriter()
         self._brand_input = brand_input
         self._browser_runtime_mcp_url = browser_runtime_mcp_url
         self._codex_stage_run = codex_stage_run_callable
         self._prompt_scope = prompt_scope
         self._result_dir = result_dir
-        self._source_priority = source_priority
         self._source_type = source_type
         self._stage_dir = self._artifact_layout.source_discover_dir(brand_input, source_type)
-        self._validator = SourceDiscoveryValidator(result_dir=result_dir, stage_dir=self._stage_dir)
 
     def run(self) -> SourceDiscoveryResult:
         """Run source discovery from rendered evidence.
@@ -60,83 +66,96 @@ class SourceDiscoveryStage:
         """
 
         self._artifact_directory_prepare()
-        draft_result = self._draft_result_get()
-        return VerifiedCodexStageRunner(
+        prompt_context = self._prompt_context_get()
+        VerifiedCodexStageRunner(
             codex_stage_run_callable=self._codex_stage_run,
             prompt_renderer=PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
         ).run(
-            config=verified_stage_config_get(
-                allow_user_config=True,
+            config=VerifiedCodexStageConfig(
                 browser_runtime_mcp_url=self._browser_runtime_mcp_url,
-                prompt_context=self._prompt_context_get(draft_result),
-                prompt_scope=self._prompt_scope,
+                prompt_context=prompt_context,
                 result_dir=self._result_dir,
                 stage_dir=self._stage_dir,
                 stage_key="source_discover",
             ),
-            draft_result=draft_result,
-            model_class=SourceDiscoveryResult,
-            mechanical_error_list_get=partial(
-                self._validator.error_list_get,
-                expected_source_priority=self._source_priority,
-                expected_source_type=self._source_type,
-                prompt_scope=self._prompt_scope,
-            ),
+            model_class=SourceDiscoveryDeltaResult,
+            mechanical_validate=SourceDiscoveryValidator(
+                prompt_context=prompt_context,
+                result_dir=self._result_dir,
+                stage_dir=self._stage_dir,
+            ).validate,
         )
+        return self._source_discovery_result_get()
 
     def _artifact_directory_prepare(self) -> None:
         """Create source-discovery directories required before Codex browser execution."""
 
+        self._stage_dir.mkdir(parents=True, exist_ok=True)
         self._artifact_layout.source_discover_evidence_dir(self._brand_input, self._source_type).mkdir(
             parents=True,
             exist_ok=True,
         )
-
-    def _draft_result_get(self) -> SourceDiscoveryResult:
-        """Return draft source discovery for one source type.
-
-        Returns:
-            Draft source discovery result.
-        """
-
-        if self._source_type not in SOURCE_TYPE_REGISTRY.source_type_priority_by_key_map:
-            return SourceDiscoveryResult(
-                discovered_source_list=[],
-                message="Unknown source type.",
-                source_type=self._source_type,
-                status="failed",
-            )
-        return SourceDiscoveryResult(
-            discovered_source_list=[],
-            message="Codex source discovery has not produced source candidates yet.",
-            source_type=self._source_type,
-            status="skipped",
+        self._artifact_writer.write(
+            self._state_schema_path_get(),
+            SourceSurfaceInventory.model_json_schema(),
         )
 
-    def _prompt_context_get(self, draft_result: SourceDiscoveryResult) -> str:
+    def _prompt_context_get(self) -> SourceDiscoveryPromptContext:
         """Return source-discovery prompt context.
 
-        Args:
-            draft_result: Deterministic draft source discovery.
-
         Returns:
-            Prompt context text.
+            Prompt context object.
         """
 
         evidence_dir = self._artifact_layout.source_discover_evidence_dir(self._brand_input, self._source_type)
-        state_path = self._stage_dir / "state.json"
-        requested_product_type_text = (
-            "\n".join(f"- {product_type}" for product_type in self._prompt_scope.product_type_request_list) or "- none"
+        return SourceDiscoveryPromptContext(
+            brand_name=self._brand_input.parsed_brand_name,
+            evidence_write_target=ArtifactWriteTarget(
+                artifact_path=self._artifact_layout.artifact_path(evidence_dir),
+                filesystem_path=self._artifact_layout.filesystem_path_get(evidence_dir),
+            ),
+            priority_country_code=self._prompt_scope.priority_country_code,
+            requested_product_type_list=self._prompt_scope.product_type_request_list,
+            shared_instruction=self._prompt_scope.shared_instruction,
+            source_type=self._source_type,
+            source_type_instruction=SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_get(self._source_type),
+            stage_instruction_list=stage_instruction_list_get(
+                prompt_scope=self._prompt_scope,
+                stage_key="source_discover",
+            ),
         )
-        return (
-            f"Brand: {self._brand_input.parsed_brand_name}\n"
-            f"Source type: {self._source_type}\n"
-            f"Source priority: {self._source_priority}\n"
-            f"Priority country code: {self._prompt_scope.priority_country_code}\n"
-            f"Requested product types:\n{requested_product_type_text}\n"
-            f"Source type instruction: {SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_get(self._source_type)}\n"
-            f"Stage state artifact path: {self._artifact_layout.artifact_path(state_path)}\n"
-            f"Stage state filesystem path: {self._artifact_layout.filesystem_path_get(state_path)}\n"
-            f"Browser evidence write directory: {self._artifact_layout.filesystem_path_get(evidence_dir)}\n"
-            f"Evidence reference directory: {self._artifact_layout.artifact_path(evidence_dir)}\n"
+
+    def _state_schema_path_get(self) -> Path:
+        """Return generated source-surface inventory schema path.
+
+        Returns:
+            Source-surface inventory schema artifact path.
+        """
+
+        return self._stage_dir / "state.schema.json"
+
+    def _source_discovery_result_get(self) -> SourceDiscoveryResult:
+        """Build cross-stage source discovery result from validated inventory.
+
+        Returns:
+            Python-built cross-stage source discovery result.
+        """
+
+        inventory = SourceSurfaceInventory.model_validate_json(
+            (self._stage_dir / "state.json").read_text(encoding="utf-8")
+        )
+        discovered_source_list = [
+            SourceDiscovery(
+                country_code_list=source_surface_table.country_code_list,
+                evidence_path_list=source_surface_table.evidence_path_list,
+                size_group_key=source_surface_table.size_group_key,
+                source_title=source_surface_table.source_title,
+                source_url=source_surface_table.source_url,
+            )
+            for source_surface_table in inventory.table_list
+            if source_surface_table.state == "accepted"
+        ]
+        return SourceDiscoveryResult(
+            discovered_source_list=discovered_source_list,
+            no_table_reason_list=[] if discovered_source_list else inventory.no_table_reason_list_get(),
         )

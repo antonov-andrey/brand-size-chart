@@ -1,50 +1,26 @@
 """Brand-level DBOS workflow owner."""
 
-import json
 from pathlib import Path
 
 from dbos import DBOS, SetWorkflowID
+from workflow_container_runtime.artifact import JsonArtifactWriter
 
-from brand_size_chart.artifact import ArtifactLayout, ArtifactReferenceValidator, JsonArtifactWriter
+from brand_size_chart.artifact import ArtifactLayout, ArtifactReferenceValidator, TableExtractionChartReader
 from brand_size_chart.identifier import dbos_identifier
 from brand_size_chart.model import (
     BrandInput,
     BrandResult,
-    CanonicalSelectionResult,
+    CoverageDecisionProductTypeGap,
     CoverageDecisionResult,
     PromptScope,
     SourceTypeSummary,
-    TableExtraction,
+    TableExtractionArtifact,
 )
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
 from brand_size_chart.stage import CanonicalSelectionStage, CoverageDecisionStage
 from brand_size_chart.workflow.codex import BrandSizeChartCodexWorkflow
 from brand_size_chart.workflow.source_type import BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW
 from brand_size_chart.validator import PromptScopeValidator
-
-
-def _table_extraction_identity_key_get(*, size_group_key: str, source_type: str, source_url: str) -> str:
-    """Return deterministic exact-match key for one extracted table identity.
-
-    Args:
-        size_group_key: Size group key.
-        source_type: Source type key.
-        source_url: Source URL.
-
-    Returns:
-        JSON identity key.
-    """
-
-    return json.dumps(
-        {
-            "size_group_key": size_group_key,
-            "source_type": source_type,
-            "source_url": source_url,
-        },
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    )
 
 
 @DBOS.dbos_class("BrandSizeChartBrandWorkflow")
@@ -82,6 +58,10 @@ class BrandSizeChartBrandWorkflow(BrandSizeChartCodexWorkflow):
         prompt_scope = PromptScope.model_validate(prompt_scope_payload)
         source_type_list = self.source_type_list_get(prompt_scope)
         remaining_product_type_list = list(prompt_scope.product_type_request_list)
+        final_coverage_result_payload = CoverageDecisionResult(
+            covered_product_type_list=[],
+            uncovered_product_type_gap_list=[],
+        ).model_dump(mode="json")
         source_type_summary_payload_list: list[dict[str, object]] = []
         table_extraction_payload_list: list[dict[str, object]] = []
         queue_name = dbos_identifier("queue", workflow_run_id)
@@ -122,19 +102,22 @@ class BrandSizeChartBrandWorkflow(BrandSizeChartCodexWorkflow):
                 and table_extraction_payload_list
                 and source_type_summary.state == "passed"
             ):
-                coverage_prompt_scope = self.prompt_scope_with_product_type_request_list_get(
-                    product_type_request_list=remaining_product_type_list,
-                    prompt_scope=prompt_scope,
-                )
                 coverage_check_payload = self.coverage_decide_write_step(
                     brand_input.model_dump(mode="json"),
-                    coverage_prompt_scope.model_dump(mode="json"),
+                    prompt_scope.model_dump(mode="json"),
                     result_dir,
                     source_type,
                     table_extraction_payload_list,
                 )
                 coverage_check = CoverageDecisionResult.model_validate(coverage_check_payload)
-                remaining_product_type_list = coverage_check.uncovered_product_type_list
+                final_coverage_result_payload = coverage_check.model_dump(mode="json")
+                remaining_product_type_list = [
+                    product_type_gap.product_type for product_type_gap in coverage_check.uncovered_product_type_gap_list
+                ]
+        if prompt_scope.product_type_request_list and not table_extraction_payload_list:
+            final_coverage_result_payload = self._coverage_result_without_table_get(
+                product_type_request_list=remaining_product_type_list,
+            ).model_dump(mode="json")
 
         return self.selection_write_step(
             brand_input.model_dump(mode="json"),
@@ -142,6 +125,28 @@ class BrandSizeChartBrandWorkflow(BrandSizeChartCodexWorkflow):
             result_dir,
             table_extraction_payload_list,
             source_type_summary_payload_list,
+            final_coverage_result_payload,
+        )
+
+    def _coverage_result_without_table_get(self, *, product_type_request_list: list[str]) -> CoverageDecisionResult:
+        """Return deterministic uncovered coverage result when no verified table exists.
+
+        Args:
+            product_type_request_list: Product types that still need coverage.
+
+        Returns:
+            Coverage result with structured gaps for every requested product type.
+        """
+
+        return CoverageDecisionResult(
+            covered_product_type_list=[],
+            uncovered_product_type_gap_list=[
+                CoverageDecisionProductTypeGap(
+                    product_type=product_type,
+                    reason="No verified table artifact was found for this requested product type.",
+                )
+                for product_type in product_type_request_list
+            ],
         )
 
     def prompt_scope_with_product_type_request_list_get(
@@ -232,7 +237,7 @@ class BrandSizeChartBrandWorkflow(BrandSizeChartCodexWorkflow):
         result_dir_path = Path(result_dir)
         artifact_layout = ArtifactLayout(result_dir_path)
         table_extraction_list = [
-            TableExtraction.model_validate(table_extraction_payload)
+            TableExtractionArtifact.model_validate(table_extraction_payload)
             for table_extraction_payload in table_extraction_payload_list
         ]
         coverage_result = CoverageDecisionStage(
@@ -240,7 +245,6 @@ class BrandSizeChartBrandWorkflow(BrandSizeChartCodexWorkflow):
             codex_stage_run_callable=self._codex_stage_runner.run,
             prompt_scope=prompt_scope,
             result_dir=result_dir_path,
-            source_type=source_type,
             stage_dir=artifact_layout.coverage_decide_dir(brand_input, source_type),
             table_extraction_list=table_extraction_list,
         ).run()
@@ -254,8 +258,9 @@ class BrandSizeChartBrandWorkflow(BrandSizeChartCodexWorkflow):
         result_dir: str,
         table_extraction_payload_list: list[dict[str, object]],
         source_type_summary_payload_list: list[dict[str, object]],
+        coverage_result_payload: dict[str, object],
     ) -> dict[str, object]:
-        """Write brand-level coverage, canonical output, and brand result.
+        """Write canonical output and brand result from verified stage payloads.
 
         Args:
             brand_input_payload: Serialized brand input.
@@ -263,6 +268,7 @@ class BrandSizeChartBrandWorkflow(BrandSizeChartCodexWorkflow):
             result_dir: Root result directory string.
             table_extraction_payload_list: Serialized verified table extractions.
             source_type_summary_payload_list: Serialized source-type summaries.
+            coverage_result_payload: Serialized cumulative coverage result.
 
         Returns:
             Serialized brand result.
@@ -273,9 +279,10 @@ class BrandSizeChartBrandWorkflow(BrandSizeChartCodexWorkflow):
         brand_input = BrandInput.model_validate(brand_input_payload)
         prompt_scope = PromptScope.model_validate(prompt_scope_payload)
         table_extraction_list = [
-            TableExtraction.model_validate(table_extraction_payload)
+            TableExtractionArtifact.model_validate(table_extraction_payload)
             for table_extraction_payload in table_extraction_payload_list
         ]
+        chart_reader = TableExtractionChartReader(result_dir_path)
         source_type_summary_list = [
             SourceTypeSummary.model_validate(source_type_summary_payload)
             for source_type_summary_payload in source_type_summary_payload_list
@@ -283,18 +290,10 @@ class BrandSizeChartBrandWorkflow(BrandSizeChartCodexWorkflow):
         source_type_error_list = [
             f"{source_type_summary.source_type}: {blocker}"
             for source_type_summary in source_type_summary_list
-            if source_type_summary.state in {"failed", "blocked"}
+            if source_type_summary.state == "failed"
             for blocker in source_type_summary.blocker_list
         ]
-        coverage_result = CoverageDecisionStage(
-            brand_input=brand_input,
-            codex_stage_run_callable=self._codex_stage_runner.run,
-            prompt_scope=prompt_scope,
-            result_dir=result_dir_path,
-            source_type="final_selection",
-            stage_dir=artifact_layout.brand_coverage_decide_dir(brand_input),
-            table_extraction_list=table_extraction_list,
-        ).run()
+        coverage_result = CoverageDecisionResult.model_validate(coverage_result_payload)
         canonical_selection_result = CanonicalSelectionStage(
             brand_name=brand_input.parsed_brand_name,
             codex_stage_run_callable=self._codex_stage_runner.run,
@@ -303,33 +302,28 @@ class BrandSizeChartBrandWorkflow(BrandSizeChartCodexWorkflow):
             stage_dir=artifact_layout.canonical_select_dir(brand_input),
             table_extraction_list=table_extraction_list,
         ).run()
-        table_extraction_by_identity_key_map = {
-            _table_extraction_identity_key_get(
-                size_group_key=table_extraction.size_group_key,
-                source_type=table_extraction.source_type,
-                source_url=table_extraction.source_url,
-            ): table_extraction
-            for table_extraction in table_extraction_list
+        table_extraction_by_chart_path_map = {
+            table_extraction.chart_path: table_extraction for table_extraction in table_extraction_list
         }
         chart_path_list: list[str] = []
         for selection in canonical_selection_result.canonical_selection_list:
-            table_extraction_identity_key = _table_extraction_identity_key_get(
-                size_group_key=selection.size_group_key,
-                source_type=selection.selected_source_type,
-                source_url=selection.selected_source_url,
-            )
-            if table_extraction_identity_key not in table_extraction_by_identity_key_map:
+            if selection.selected_chart_path not in table_extraction_by_chart_path_map:
                 raise RuntimeError(
-                    "canonical_select selected missing table_extraction: "
-                    f"{selection.size_group_key} {selection.selected_source_type} {selection.selected_source_url}"
+                    f"canonical_select selected missing table_extraction: {selection.selected_chart_path}"
                 )
-            table_extraction = table_extraction_by_identity_key_map[table_extraction_identity_key]
-            chart_path = artifact_layout.brand_size_chart_path(brand_input, selection.size_group_key)
-            JsonArtifactWriter().write(chart_path, table_extraction.chart)
+            table_extraction = table_extraction_by_chart_path_map[selection.selected_chart_path]
+            chart_path = artifact_layout.brand_size_chart_path(brand_input, table_extraction.size_group_key)
+            JsonArtifactWriter().write(chart_path, chart_reader.chart_get(table_extraction))
             chart_path_list.append(artifact_layout.artifact_path(chart_path))
 
         brand_result_path = artifact_layout.brand_result_path(brand_input)
-        brand_error_list = [*source_type_error_list, *coverage_result.uncovered_product_type_list]
+        brand_error_list = [
+            *source_type_error_list,
+            *[
+                f"{product_type_gap.product_type}: {product_type_gap.reason}"
+                for product_type_gap in coverage_result.uncovered_product_type_gap_list
+            ],
+        ]
         brand_result = BrandResult(
             audit_artifact_path_list=[artifact_layout.artifact_path(brand_result_path)],
             canonical_selection_list=canonical_selection_result.canonical_selection_list,

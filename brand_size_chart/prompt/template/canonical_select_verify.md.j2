@@ -2,23 +2,8 @@
 
 {% include "runtime/partial/stage_verification_contract.md.j2" %}
 
-For canonical_select, verify that one canonical chart is selected per eligible size group unless same-priority equivalence is unresolved. When same-priority equivalence is unresolved for one size_group_key, verify status='failed' and no canonical selection for that size_group_key, and verify unresolved conflicts are recorded with compared decision values.
+For canonical_select, verify semantic equivalence only. The result has already passed mechanical validation for grouping, eligible size-group coverage, priority ordering, missing or extra selections, and unresolved-conflict derivation from omitted size groups.
 
-For canonical_select, verify grouping by size_group_key before checking selected rows. For every selected eligible group, verify the selected candidate has the maximum source_priority available in that group. If several maximum-priority candidates exist, read every candidate chart_path as a local JSON artifact through normal filesystem access before accepting equivalence. Verify that selection is backed by evidence that candidates are equivalent by normalized chart content and applicability scope. Normalized chart content means row size_label and measurement name, unit, min_value, and max_value. Applicability scope means applicability_status, applicability_description, product_type_hint_list, evidence_path_list, source_url, and source_title. source_url and source_title are compared evidence fields, not equivalence keys. For equivalent maximum-priority candidates, verify the selected candidate is the deterministic representative after sorting candidates by chart_path, then source_url, then source_title. Otherwise, verify status='failed' and no canonical selection for that size_group_key, and verify that conflict_list records every compared candidate. Verify every conflict object records the compared decision values: size_group_key, source_type, source_url, source_priority, applicability_status, chart_path, and reason.
+Use the mechanically valid result and prompt context to identify selected charts and omitted size_group_key groups. For each selected chart whose size_group_key has same-priority alternatives in the prompt context, read the selected chart_path and the alternative chart_path values as local JSON artifacts through normal filesystem access. Verify that selection is backed by evidence that those candidates are equivalent by normalized chart content and applicability scope. Normalized chart content means row size_label and measurement name, unit, min_value, and max_value. Applicability scope means Python-computed applicability_status, country_code_list, applicability_description, evidence_path_list, source_url, and source_title. source_url and source_title are compared evidence fields, not equivalence keys.
 
-Stage: {{ stage_key }}
-
-Prompt context:
-{{ prompt_context }}
-
-Stage result path:
-{{ stage_result_path }}
-
-Stage state path:
-{{ stage_state_path }}
-
-Stage result JSON:
-{{ stage_result_json }}
-
-Draft verification JSON:
-{{ draft_verification_json }}
+For every omitted size_group_key group, read every maximum-priority candidate chart artifact and verify that unresolved conflict status reflects a real semantic disagreement in normalized chart content or applicability scope. Do not re-check omitted-group eligibility, candidate priority, selected size_group_key coverage, or deterministic representative ordering in this verifier; those are mechanical validator ownership.

@@ -3,18 +3,17 @@
 from pathlib import Path
 
 from dbos import DBOS
+from workflow_container_runtime.artifact import JsonArtifactWriter
 
-from brand_size_chart.artifact import ArtifactLayout, ArtifactReferenceValidator, JsonArtifactWriter
+from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import (
     BrandInput,
     PromptScope,
     SourceDiscovery,
     SourceDiscoveryResult,
     SourceTypeSummary,
-    TableExtraction,
-    TableExtractionBatchResult,
+    TableExtractionArtifact,
 )
-from brand_size_chart.source import SOURCE_TYPE_REGISTRY
 from brand_size_chart.stage import SourceDiscoveryStage, TableExtractionStage
 from brand_size_chart.workflow.codex import BrandSizeChartCodexWorkflow
 
@@ -60,10 +59,10 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
                 source_type,
             )
             discovery_result = SourceDiscoveryResult.model_validate(discovery_result_payload)
-            if discovery_result.status == "failed":
-                warning_list.extend(discovery_result.error_list or [discovery_result.message])
+            if not discovery_result.discovered_source_list:
+                warning_list.extend(discovery_result.no_table_reason_list)
             else:
-                table_extraction_batch_result_payload = self.table_extract_write_step(
+                table_extraction_payload_list = self.table_extract_write_step(
                     brand_input.model_dump(mode="json"),
                     browser_runtime_mcp_url,
                     prompt_scope.model_dump(mode="json"),
@@ -74,13 +73,10 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
                         for source_discovery in discovery_result.discovered_source_list
                     ],
                 )
-                table_extraction_batch_result = TableExtractionBatchResult.model_validate(
-                    table_extraction_batch_result_payload
-                )
                 verified_table_extraction_payload_list.extend(
                     [
-                        table_extraction.model_dump(mode="json")
-                        for table_extraction in table_extraction_batch_result.table_extraction_list
+                        TableExtractionArtifact.model_validate(table_extraction_payload).model_dump(mode="json")
+                        for table_extraction_payload in table_extraction_payload_list
                     ]
                 )
         except RuntimeError as exc:
@@ -128,7 +124,6 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
             codex_stage_run_callable=self._codex_stage_runner.run,
             prompt_scope=prompt_scope,
             result_dir=result_dir_path,
-            source_priority=SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type),
             source_type=source_type,
         ).run()
         return discovery_result.model_dump(mode="json")
@@ -142,7 +137,7 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
         result_dir: str,
         source_type: str,
         source_discovery_payload_list: list[dict[str, object]],
-    ) -> dict[str, object]:
+    ) -> list[dict[str, object]]:
         """Write batch table extraction and chart artifacts.
 
         Args:
@@ -154,13 +149,13 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
             source_discovery_payload_list: Serialized source discoveries.
 
         Returns:
-            Serialized verified batch table extraction.
+            Serialized verified table extraction list.
         """
 
         brand_input = BrandInput.model_validate(brand_input_payload)
         prompt_scope = PromptScope.model_validate(prompt_scope_payload)
         result_dir_path = Path(result_dir)
-        table_extraction_batch_result = TableExtractionStage(
+        table_extraction_list = TableExtractionStage(
             brand_input=brand_input,
             browser_runtime_mcp_url=browser_runtime_mcp_url,
             codex_stage_run_callable=self._codex_stage_runner.run,
@@ -172,7 +167,7 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
             ],
             source_type=source_type,
         ).run()
-        return table_extraction_batch_result.model_dump(mode="json")
+        return [table_extraction.model_dump(mode="json") for table_extraction in table_extraction_list]
 
     @DBOS.step(name="source_type_summary_write_step")
     def summary_write_step(
@@ -200,48 +195,15 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
         brand_input = BrandInput.model_validate(brand_input_payload)
         result_dir_path = Path(result_dir)
         artifact_layout = ArtifactLayout(result_dir_path)
-        artifact_reference_validator = ArtifactReferenceValidator(result_dir_path)
         table_extraction_list = [
-            TableExtraction.model_validate(table_extraction_payload)
+            TableExtractionArtifact.model_validate(table_extraction_payload)
             for table_extraction_payload in table_extraction_payload_list
-        ]
-        table_result_path_by_size_group_key_map = {
-            table_extraction.size_group_key: artifact_layout.artifact_path(
-                artifact_layout.table_extract_chart_path(
-                    brand_input,
-                    source_type,
-                    table_extraction.size_group_key,
-                )
-            )
-            for table_extraction in table_extraction_list
-        }
-        evidence_manifest_path_list = [
-            artifact_layout.artifact_path(artifact_path)
-            for artifact_path in [
-                artifact_layout.stage_result_path(artifact_layout.source_discover_dir(brand_input, source_type)),
-                artifact_layout.stage_verification_path(artifact_layout.source_discover_dir(brand_input, source_type)),
-            ]
-            if artifact_path.is_file()
         ]
         summary = SourceTypeSummary(
             blocker_list=blocker_list,
-            evidence_manifest_path_list=evidence_manifest_path_list,
-            source_priority=SOURCE_TYPE_REGISTRY.source_type_priority_get(source_type),
             source_type=source_type,
             state="failed" if blocker_list else ("passed" if table_extraction_list else "skipped"),
-            table_result_path_by_size_group_key_map=table_result_path_by_size_group_key_map,
-            verified_size_group_key_list=list(table_result_path_by_size_group_key_map),
             warning_list=warning_list,
-        )
-        if sorted(summary.verified_size_group_key_list) != sorted(summary.table_result_path_by_size_group_key_map):
-            raise RuntimeError(f"source_type_summary key mismatch for {source_type}")
-        artifact_reference_validator.path_list_validate(
-            path_list=list(summary.table_result_path_by_size_group_key_map.values()),
-            stage_key="source_type_summary",
-        )
-        artifact_reference_validator.path_list_validate(
-            path_list=summary.evidence_manifest_path_list,
-            stage_key="source_type_summary",
         )
         JsonArtifactWriter().write(artifact_layout.source_type_summary_result_path(brand_input, source_type), summary)
         return summary.model_dump(mode="json")

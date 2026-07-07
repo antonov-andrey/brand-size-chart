@@ -1,23 +1,19 @@
 # Coverage Decide
 
-Check whether verified tables cover requested product types. Verified table summary is supplied below as stage input. Do not report missing evidence for one table-level CoverageDecision when the specific verified table summary entry used by that decision is present; still emit uncovered_product_type_list and one error_list reason for each requested product type that is not explicitly supported by any verified table. Absence from uncovered_product_type_list is not coverage evidence. Each covered requested product type must appear in one positive CoverageDecision.covered_product_type_list with table evidence described in CoverageDecision.reason. Every requested product type must appear either in at least one positive CoverageDecision.covered_product_type_list or in uncovered_product_type_list, never both. Refine the draft coverage decision from these verified tables instead of discarding it.
+Check whether verified tables cover requested product types. Read requested_product_type_list and verified_table_artifact_list from the Stage prompt context path before deciding coverage. Return one positive CoveredProductType entry for each evidence-backed covered requested product type and structured uncovered_product_type_gap_list entries for requested product types that remain unsupported after semantic review. Build the coverage decision only from the verified table context and referenced artifacts.
 
 Follow this order:
 
-1. Load requested product types and the verified table summary.
-2. For each verified table summary entry, read its source_url, chart_path, evidence_path_list, applicability_status, product_type_hint_list, applicability_description, source_title, size_group_key, and chart description.
+1. Load requested product types and the verified table artifacts.
+2. For each verified table artifact, read its source_url, chart_path, evidence_path_list, country_code_list, applicability_description, source_title, size_group_key, and chart description.
 3. chart_path and evidence_path_list are artifact references, not product-type coverage evidence. coverage_decide must read every referenced chart_path and relevant evidence_path_list artifact through normal filesystem access before using those artifacts for coverage.
-4. For each requested product type, compare it against product_type_hint_list, applicability_description, chart description, loaded chart artifact content, and loaded evidence artifact content.
-5. Identifier-only fields are supporting context, not coverage evidence. Do not use source_url, source_title, size_group_key, or applicability_status as product-type coverage proof.
+4. For each requested product type, compare it against applicability_description, chart description, loaded chart artifact content, and loaded evidence artifact content.
+5. Identifier-only fields are supporting context, not coverage evidence. Do not use source_url, source_title, size_group_key, or country_code_list as product-type coverage proof.
 6. Treat a product type as covered only when the table explicitly applies to it; do not infer coverage from weak substring matches alone.
 7. If one table clearly covers multiple requested product types, mark all of those product types covered.
-8. emit CoverageDecision only per table and per size_group_key. CoverageDecision.covered_product_type_list owns covered requested product types for that table. CoverageDecision.reason and CoverageDecision.missing_size_list are table-scoped and must describe only the table decision for one size_group_key.
-9. emit uncovered_product_type_list for requested product types without explicit coverage.
-10. error_list must contain one reason for each uncovered product type, formatted as "<product_type>: <reason>". uncovered_product_type_list owns product types without coverage.
-11. do not encode covered requested product types only in CoverageDecision.reason; write them to CoverageDecision.covered_product_type_list.
+8. Return positive CoveredProductType entries for requested product types explicitly covered by one verified table artifact. Put the requested product type in product_type, the physical table handle in chart_path, and the table-specific evidence explanation in reason.
+9. Return structured uncovered_product_type_gap_list entries for requested product types without explicit coverage.
 
-Verification must fail when positive coverage depends only on path strings. CoverageDecision.reason must name the explicit loaded chart content, loaded evidence content, applicability_description, product_type_hint_list, or chart description that proves the covered requested product type.
+Positive coverage must not depend only on path strings. CoveredProductType.reason must name the explicit loaded chart content, loaded evidence content, applicability_description, or chart description that proves the covered requested product type.
 
-{% include "partial/size_group_key_contract.md.j2" %}
-
-{% include "partial/stage_retry_context.md.j2" %}
+{% include "runtime/partial/stage_retry_context.md.j2" %}

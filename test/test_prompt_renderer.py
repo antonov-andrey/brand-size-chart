@@ -33,25 +33,21 @@ def test_source_discover_template_includes_stage_runtime_context() -> None:
         "source_discover.md.j2",
         {
             "attempt_index": 2,
-            "draft_result_json": '{"draft":"result"}',
             "feedback_list": ["retry feedback"],
-            "previous_result_json": '{"previous":"result"}',
-            "prompt_context": "Brand: Defacto\nSource type: official_brand_size_guide",
-            "shared_instruction": "shared instruction text",
-            "stage_instruction_text": "- stage-specific instruction",
+            "prompt_context_path": "brand_size_chart_audit/brand/defacto/source_discover/prompt_context.json",
             "stage_key": "source_discover",
+            "previous_stage_result_path": "brand_size_chart_audit/brand/defacto/source_type/source/result.json",
         },
     )
 
     assert "Stage: source_discover" in prompt_text
     assert "Attempt: 2" in prompt_text
-    assert "shared instruction text" in prompt_text
-    assert "stage-specific instruction" in prompt_text
+    assert "Stage prompt context path:" in prompt_text
+    assert "brand_size_chart_audit/brand/defacto/source_discover/prompt_context.json" in prompt_text
     assert "retry feedback" in prompt_text
-    assert '{"previous":"result"}' in prompt_text
-    assert '{"draft":"result"}' in prompt_text
-    assert "Brand: Defacto" in prompt_text
-    assert "Source type: official_brand_size_guide" in prompt_text
+    assert "Previous stage result path:" in prompt_text
+    assert "brand_size_chart_audit/brand/defacto/source_type/source/result.json" in prompt_text
+    assert "Previous stage result JSON" not in prompt_text
     assert "A `size_group_key` is a stable table identifier" in prompt_text
 
 
@@ -83,7 +79,6 @@ def test_verified_stage_runner_reuses_one_prompt_renderer(monkeypatch: pytest.Mo
 
     def fake_codex_stage_run(
         *,
-        allow_user_config: bool,
         browser_runtime_mcp_url: str,
         model_class: type[BaseModel],
         prompt_text: str,
@@ -94,7 +89,6 @@ def test_verified_stage_runner_reuses_one_prompt_renderer(monkeypatch: pytest.Mo
         """Return successful fake stage outputs.
 
         Args:
-            allow_user_config: Whether browser config is enabled.
             browser_runtime_mcp_url: Browser MCP URL.
             model_class: Expected result model.
             prompt_text: Rendered prompt text.
@@ -105,8 +99,6 @@ def test_verified_stage_runner_reuses_one_prompt_renderer(monkeypatch: pytest.Mo
         Returns:
             Fake stage result.
         """
-
-        _ = allow_user_config
         _ = browser_runtime_mcp_url
         _ = prompt_text
         _ = result_dir
@@ -121,14 +113,12 @@ def test_verified_stage_runner_reuses_one_prompt_renderer(monkeypatch: pytest.Mo
         codex_stage_run_callable=fake_codex_stage_run,
     ).run(
         config=VerifiedCodexStageConfig(
-            action_template_name="source_discover.md.j2",
-            prompt_context="Brand: Defacto",
+            prompt_context=PromptScope(priority_country_code="TR"),
             result_dir=tmp_path,
             stage_dir=tmp_path / "stage",
             stage_key="source_discover",
-            verification_template_name="source_discover_verify.md.j2",
         ),
-        draft_result=PromptScope(),
+        mechanical_validate=lambda result: None,
         model_class=PromptScope,
     )
 

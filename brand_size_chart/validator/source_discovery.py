@@ -7,50 +7,57 @@ from pydantic import ValidationError
 
 from brand_size_chart.artifact import ArtifactReferenceValidator
 from brand_size_chart.model import (
-    PromptScope,
-    SourceDiscovery,
-    SourceDiscoveryResult,
+    SourceDiscoveryDeltaResult,
+    SourceDiscoveryPromptContext,
     SourceSurfaceInventory,
     SourceSurfaceTable,
 )
-from brand_size_chart.validator.base import MechanicalValidator
+
+WORKLIST_CLOSING_TABLE_STATE_SET = {"accepted", "market_filtered"}
 
 
-class SourceDiscoveryValidator(MechanicalValidator):
+class SourceDiscoveryValidator:
     """Validate source-discovery structural consistency."""
 
-    def __init__(self, *, result_dir: Path, stage_dir: Path) -> None:
-        """Store explicit source-discovery artifact paths.
+    def __init__(
+        self,
+        *,
+        prompt_context: SourceDiscoveryPromptContext,
+        result_dir: Path,
+        stage_dir: Path,
+    ) -> None:
+        """Store source-discovery validation context.
 
         Args:
+            prompt_context: Source-discovery prompt context used by the action.
             result_dir: Root result directory.
             stage_dir: Source-discovery stage artifact directory.
         """
 
         self._artifact_reference_validator = ArtifactReferenceValidator(result_dir)
+        self._prompt_context = prompt_context
         self._stage_dir = stage_dir
 
-    def country_selection_validate(self, *, discovery_result: SourceDiscoveryResult, prompt_scope: PromptScope) -> None:
+    def _country_selection_validate(self, *, accepted_table_list: list[SourceSurfaceTable]) -> None:
         """Validate the source-discovery market selection ladder.
 
         Args:
-            discovery_result: Verified source discovery result.
-            prompt_scope: Current prompt scope.
+            accepted_table_list: Accepted source-surface table rows.
 
         Raises:
             RuntimeError: If lower-priority market scopes are mixed into a higher-priority result.
         """
 
-        priority_country_code = prompt_scope.priority_country_code
+        priority_country_code = self._prompt_context.priority_country_code
         priority_country_source_list = [
             source_discover
-            for source_discover in discovery_result.discovered_source_list
+            for source_discover in accepted_table_list
             if priority_country_code in source_discover.country_code_list
         ]
         if priority_country_source_list:
             non_priority_country_size_group_key_list = [
                 source_discover.size_group_key
-                for source_discover in discovery_result.discovered_source_list
+                for source_discover in accepted_table_list
                 if priority_country_code not in source_discover.country_code_list
             ]
             if non_priority_country_size_group_key_list:
@@ -62,14 +69,12 @@ class SourceDiscoveryValidator(MechanicalValidator):
             return
 
         global_source_list = [
-            source_discover
-            for source_discover in discovery_result.discovered_source_list
-            if "GLOBAL" in source_discover.country_code_list
+            source_discover for source_discover in accepted_table_list if "GLOBAL" in source_discover.country_code_list
         ]
         if global_source_list:
             non_global_size_group_key_list = [
                 source_discover.size_group_key
-                for source_discover in discovery_result.discovered_source_list
+                for source_discover in accepted_table_list
                 if "GLOBAL" not in source_discover.country_code_list
             ]
             if non_global_size_group_key_list:
@@ -82,7 +87,7 @@ class SourceDiscoveryValidator(MechanicalValidator):
 
         non_europe_size_group_key_list = [
             source_discover.size_group_key
-            for source_discover in discovery_result.discovered_source_list
+            for source_discover in accepted_table_list
             if "EU" not in source_discover.country_code_list
         ]
         if non_europe_size_group_key_list:
@@ -92,145 +97,104 @@ class SourceDiscoveryValidator(MechanicalValidator):
                 f"size_group_key_list={sorted(non_europe_size_group_key_list)}"
             )
 
-    def error_list_get(
-        self,
-        discovery_result: SourceDiscoveryResult,
-        *,
-        expected_source_priority: int,
-        expected_source_type: str,
-        prompt_scope: PromptScope,
-    ) -> list[str]:
-        """Return source-discovery mechanical validation errors.
+    def validate(self, source_discovery_delta_result: SourceDiscoveryDeltaResult) -> None:
+        """Validate source-discovery structural consistency before semantic verification.
 
         Args:
-            discovery_result: Source discovery result to validate.
-            expected_source_priority: Registry priority for the source type being processed.
-            expected_source_type: Source type being processed.
-            prompt_scope: Current prompt scope.
-
-        Returns:
-            Mechanical validation errors.
-        """
-
-        return self._error_list_get(
-            lambda: self.validate(
-                discovery_result=discovery_result,
-                expected_source_priority=expected_source_priority,
-                expected_source_type=expected_source_type,
-                prompt_scope=prompt_scope,
-            )
-        )
-
-    def validate(
-        self,
-        *,
-        discovery_result: SourceDiscoveryResult,
-        expected_source_priority: int,
-        expected_source_type: str,
-        prompt_scope: PromptScope,
-    ) -> None:
-        """Validate source-discovery structural consistency after semantic verification.
-
-        Args:
-            discovery_result: Verified source discovery result.
-            expected_source_priority: Registry priority for the source type being processed.
-            expected_source_type: Source type being processed.
-            prompt_scope: Current prompt scope.
+            source_discovery_delta_result: Codex-owned source discovery delta result.
 
         Raises:
             RuntimeError: If discovery is structurally inconsistent.
         """
 
-        if discovery_result.source_type != expected_source_type:
+        inventory = self._inventory_validate()
+        market_conflict_table_list = [
+            source_surface_table
+            for source_surface_table in inventory.table_list
+            if source_surface_table.state == "market_conflict"
+        ]
+        if market_conflict_table_list:
             raise RuntimeError(
-                f"source_discover source_type mismatch: {discovery_result.source_type} != {expected_source_type}"
+                "source_discover found conflicting European country tables; this is a blocker, not a no-table "
+                f"source result: size_group_key_list={sorted({table.size_group_key for table in market_conflict_table_list})}"
             )
-        self._inventory_validate(discovery_result)
-        if discovery_result.status == "failed":
-            if discovery_result.discovered_source_list:
-                raise RuntimeError("failed source_discover must not return discovered_source_list items")
-            if not discovery_result.error_list:
-                raise RuntimeError("failed source_discover must include concrete error_list blockers")
-            return
-        if discovery_result.status != "success":
-            raise RuntimeError(f"source_discover status must be success or failed, got {discovery_result.status}")
-        if not discovery_result.discovered_source_list:
-            raise RuntimeError("source_discover returned no discovered_source_list items")
-        self.country_selection_validate(
-            discovery_result=discovery_result,
-            prompt_scope=prompt_scope,
+        accepted_table_list = [
+            source_surface_table
+            for source_surface_table in inventory.table_list
+            if source_surface_table.state == "accepted"
+        ]
+        self._duplicate_equivalent_table_validate(
+            accepted_size_group_key_set={table.size_group_key for table in accepted_table_list},
+            inventory=inventory,
         )
+        if not accepted_table_list:
+            _ = source_discovery_delta_result
+            if not inventory.no_table_reason_list_get():
+                raise RuntimeError(
+                    "source_discover returned no accepted table rows and no evidence-backed no-table inventory reasons"
+                )
+            return
+        self._country_selection_validate(accepted_table_list=accepted_table_list)
         size_group_key_set: set[str] = set()
-        requested_product_type_set = set(prompt_scope.product_type_request_list)
-        for source_discover in discovery_result.discovered_source_list:
+        for source_discover in accepted_table_list:
             if source_discover.size_group_key in size_group_key_set:
                 raise RuntimeError(f"source_discover duplicate size_group_key: {source_discover.size_group_key}")
             size_group_key_set.add(source_discover.size_group_key)
-            if source_discover.source_type != expected_source_type:
-                raise RuntimeError(
-                    f"source_discover item source_type mismatch for {source_discover.size_group_key}: "
-                    f"{source_discover.source_type} != {expected_source_type}"
-                )
-            if source_discover.source_priority != expected_source_priority:
-                raise RuntimeError(
-                    f"source_discover source_priority mismatch for {source_discover.size_group_key}: "
-                    f"{source_discover.source_priority} != {expected_source_priority}"
-                )
             if not source_discover.source_url.strip():
                 raise RuntimeError(f"source_discover returned empty source_url for {source_discover.size_group_key}")
             if not source_discover.source_title.strip():
                 raise RuntimeError(f"source_discover returned empty source_title for {source_discover.size_group_key}")
-            if requested_product_type_set:
-                hint_product_type_set = set(source_discover.product_type_hint_list)
-                if not hint_product_type_set.issubset(requested_product_type_set):
-                    unexpected_product_type_list = sorted(hint_product_type_set - requested_product_type_set)
-                    raise RuntimeError(
-                        f"source_discover returned unexpected product_type_hint_list for "
-                        f"{source_discover.size_group_key}: {unexpected_product_type_list}"
-                    )
             self._artifact_reference_validator.evidence_path_list_validate(
                 evidence_path_list=source_discover.evidence_path_list,
                 stage_key="source_discover",
             )
 
-    def _inventory_evidence_path_list_extend(
-        self, *, evidence_path_list: list[str], field_name: str, value: object
+    def _duplicate_equivalent_table_validate(
+        self, *, accepted_size_group_key_set: set[str], inventory: SourceSurfaceInventory
     ) -> None:
-        """Collect evidence path references from one inventory field value.
+        """Validate duplicate and equivalent table rows against accepted rows.
 
         Args:
-            evidence_path_list: Mutable evidence path accumulator.
-            field_name: Current inventory field name.
-            value: Current inventory field value.
+            accepted_size_group_key_set: Accepted size-group keys in the current inventory.
+            inventory: Parsed source-surface inventory.
+
+        Raises:
+            RuntimeError: If one duplicate or equivalent row has no accepted row with the same size group.
         """
 
-        if field_name.endswith("evidence_path") and isinstance(value, str):
-            evidence_path_list.append(value)
-            return
-        if field_name.endswith("evidence_path_list") and isinstance(value, list):
-            evidence_path_list.extend(item for item in value if isinstance(item, str))
-            return
-        self._inventory_evidence_path_list_get(evidence_path_list=evidence_path_list, value=value)
+        orphan_table_list = [
+            source_surface_table
+            for source_surface_table in inventory.table_list
+            if source_surface_table.state in {"duplicate", "equivalent"}
+            and source_surface_table.size_group_key not in accepted_size_group_key_set
+        ]
+        if orphan_table_list:
+            raise RuntimeError(
+                "source_discover duplicate/equivalent table rows must reference an accepted table with the same "
+                "size_group_key: "
+                f"{sorted({table.size_group_key for table in orphan_table_list})}"
+            )
 
-    def _inventory_evidence_path_list_get(self, *, evidence_path_list: list[str], value: object) -> None:
-        """Collect evidence path references from the source-surface inventory payload.
+    def _inventory_evidence_path_list_get(self, inventory: SourceSurfaceInventory) -> list[str]:
+        """Return explicit evidence path references from the source-surface inventory.
 
         Args:
-            evidence_path_list: Mutable evidence path accumulator.
-            value: Current inventory JSON value.
+            inventory: Parsed source-surface inventory.
+
+        Returns:
+            Evidence path list from explicit inventory evidence fields.
         """
 
-        if isinstance(value, dict):
-            for field_name, field_value in value.items():
-                self._inventory_evidence_path_list_extend(
-                    evidence_path_list=evidence_path_list,
-                    field_name=field_name,
-                    value=field_value,
-                )
-            return
-        if isinstance(value, list):
-            for item in value:
-                self._inventory_evidence_path_list_get(evidence_path_list=evidence_path_list, value=item)
+        evidence_path_list: list[str] = []
+        for discovery_query in inventory.discovery_query_list:
+            evidence_path_list.extend(discovery_query.evidence_path_list)
+        for product_type_sex_worklist_item in inventory.product_type_sex_worklist:
+            evidence_path_list.extend(product_type_sex_worklist_item.evidence_path_list)
+        for source_surface_table in inventory.table_list:
+            evidence_path_list.extend(source_surface_table.evidence_path_list)
+        for source_surface_url in inventory.url_list:
+            evidence_path_list.extend(source_surface_url.evidence_path_list)
+        return evidence_path_list
 
     def _inventory_payload_get(self) -> SourceSurfaceInventory:
         """Return parsed canonical source-surface inventory.
@@ -254,68 +218,20 @@ class SourceDiscoveryValidator(MechanicalValidator):
         except ValidationError as exc:
             raise RuntimeError(f"source_discover state.json violates SourceSurfaceInventory contract: {exc}") from exc
 
-    def _inventory_validate(self, discovery_result: SourceDiscoveryResult) -> None:
+    def _inventory_validate(self) -> SourceSurfaceInventory:
         """Validate canonical source-surface inventory artifact references.
 
-        Args:
-            discovery_result: Source discovery result to compare with the inventory.
+        Returns:
+            Parsed source-surface inventory.
         """
 
         inventory = self._inventory_payload_get()
-        self._inventory_browsing_error_list_validate(
-            discovery_result=discovery_result,
-            inventory=inventory,
-        )
-        self._inventory_discovery_list_validate(
-            discovery_result=discovery_result,
-            inventory=inventory,
-        )
         self._inventory_product_type_worklist_validate(inventory=inventory)
-        evidence_path_list: list[str] = []
-        self._inventory_evidence_path_list_get(
-            evidence_path_list=evidence_path_list,
-            value=inventory.model_dump(mode="python"),
-        )
         self._artifact_reference_validator.path_list_validate(
-            path_list=evidence_path_list,
+            path_list=self._inventory_evidence_path_list_get(inventory),
             stage_key="source_discover inventory",
         )
-
-    def _inventory_browsing_error_identity_list_get(self, inventory: SourceSurfaceInventory) -> list[tuple[str, str]]:
-        """Return canonical inventory browsing-error identities.
-
-        Args:
-            inventory: Parsed source-surface inventory.
-
-        Returns:
-            Inventory browsing-error identities.
-        """
-
-        return [(browsing_error.url, browsing_error.error) for browsing_error in inventory.browsing_error_list]
-
-    def _inventory_browsing_error_list_validate(
-        self, *, discovery_result: SourceDiscoveryResult, inventory: SourceSurfaceInventory
-    ) -> None:
-        """Validate result-level browsing errors against inventory-level browsing errors.
-
-        Args:
-            discovery_result: Source discovery result to compare with the inventory.
-            inventory: Parsed source-surface inventory.
-
-        Raises:
-            RuntimeError: If inventory and result browsing-error lists differ.
-        """
-
-        inventory_browsing_error_identity_list = self._inventory_browsing_error_identity_list_get(inventory)
-        result_browsing_error_identity_list = [
-            (browsing_error.url, browsing_error.error) for browsing_error in discovery_result.browsing_error_list
-        ]
-        if sorted(inventory_browsing_error_identity_list) != sorted(result_browsing_error_identity_list):
-            raise RuntimeError(
-                "source_discover browsing_error_list mismatch: "
-                f"inventory={sorted(inventory_browsing_error_identity_list)}; "
-                f"result={sorted(result_browsing_error_identity_list)}"
-            )
+        return inventory
 
     def _inventory_product_type_worklist_validate(self, *, inventory: SourceSurfaceInventory) -> None:
         """Validate product-type worklist closure in the source-surface inventory.
@@ -330,18 +246,31 @@ class SourceDiscoveryValidator(MechanicalValidator):
         worklist_key_set = {worklist_item.worklist_key for worklist_item in inventory.product_type_sex_worklist}
         if len(worklist_key_set) != len(inventory.product_type_sex_worklist):
             raise RuntimeError("source_discover duplicate product_type_sex_worklist worklist_key values")
+        active_worklist_key_set: set[str] = set()
+        for worklist_item in inventory.product_type_sex_worklist:
+            if worklist_item.state == "active":
+                active_worklist_key_set.add(worklist_item.worklist_key)
+                continue
+            if not worklist_item.reason.strip():
+                raise RuntimeError(
+                    "source_discover rejected product_type_sex_worklist row has empty reason: "
+                    f"{worklist_item.worklist_key}"
+                )
+            if not worklist_item.evidence_path_list:
+                raise RuntimeError(
+                    "source_discover rejected product_type_sex_worklist row has no evidence_path_list: "
+                    f"{worklist_item.worklist_key}"
+                )
 
         linked_worklist_key_set: set[str] = set()
-        for source_surface_url in [
-            *inventory.opened_url_list,
-            *inventory.rejected_url_list,
-        ]:
+        active_closing_worklist_key_set: set[str] = set()
+        for source_surface_url in inventory.url_list:
             linked_worklist_key_set.update(source_surface_url.worklist_key_list)
-        for source_surface_table in [
-            *inventory.accepted_table_list,
-            *inventory.non_returned_table_list,
-        ]:
+            active_closing_worklist_key_set.update(source_surface_url.worklist_key_list)
+        for source_surface_table in inventory.table_list:
             linked_worklist_key_set.update(source_surface_table.worklist_key_list)
+            if source_surface_table.state in WORKLIST_CLOSING_TABLE_STATE_SET:
+                active_closing_worklist_key_set.update(source_surface_table.worklist_key_list)
 
         unknown_worklist_key_list = sorted(linked_worklist_key_set - worklist_key_set)
         if unknown_worklist_key_list:
@@ -350,106 +279,8 @@ class SourceDiscoveryValidator(MechanicalValidator):
                 f"{unknown_worklist_key_list}"
             )
 
-        unlinked_worklist_key_list = sorted(worklist_key_set - linked_worklist_key_set)
+        unlinked_worklist_key_list = sorted(active_worklist_key_set - active_closing_worklist_key_set)
         if unlinked_worklist_key_list:
             raise RuntimeError(
                 "source_discover unlinked product_type_sex_worklist keys: " f"{unlinked_worklist_key_list}"
             )
-
-    def _inventory_discovery_list_validate(
-        self,
-        *,
-        discovery_result: SourceDiscoveryResult,
-        inventory: SourceSurfaceInventory,
-    ) -> None:
-        """Validate accepted inventory tables against discovered source candidates.
-
-        Args:
-            discovery_result: Source discovery result to compare with the inventory.
-            inventory: Parsed source-surface inventory.
-
-        Raises:
-            RuntimeError: If discovered source candidates and accepted inventory tables diverge.
-        """
-
-        invalid_accepted_table_state_list = [
-            self._source_surface_table_identity_get(source_surface_table)
-            for source_surface_table in inventory.accepted_table_list
-            if source_surface_table.state != "accepted"
-        ]
-        if invalid_accepted_table_state_list:
-            raise RuntimeError(
-                "source_discover accepted_table_list entries must have state=accepted: "
-                f"{invalid_accepted_table_state_list}"
-            )
-        invalid_non_returned_table_state_list = [
-            self._source_surface_table_identity_get(source_surface_table)
-            for source_surface_table in inventory.non_returned_table_list
-            if source_surface_table.state == "accepted"
-        ]
-        if invalid_non_returned_table_state_list:
-            raise RuntimeError(
-                "source_discover non_returned_table_list entries must not have state=accepted: "
-                f"{invalid_non_returned_table_state_list}"
-            )
-
-        discovery_identity_set = {
-            self._source_discovery_identity_get(source_discovery)
-            for source_discovery in discovery_result.discovered_source_list
-        }
-        accepted_table_by_identity_map = {
-            self._source_surface_table_identity_get(source_surface_table): source_surface_table
-            for source_surface_table in inventory.accepted_table_list
-        }
-        accepted_identity_set = set(accepted_table_by_identity_map)
-        missing_accepted_identity_list = sorted(discovery_identity_set - accepted_identity_set)
-        if missing_accepted_identity_list:
-            raise RuntimeError(
-                "source_discover accepted_table_list missing discovered_source_list items: "
-                f"{missing_accepted_identity_list}"
-            )
-
-        extra_accepted_identity_list = sorted(accepted_identity_set - discovery_identity_set)
-        if extra_accepted_identity_list:
-            raise RuntimeError(
-                "source_discover accepted_table_list contains entries not returned in discovered_source_list: "
-                f"{extra_accepted_identity_list}"
-            )
-
-    def _source_discovery_identity_get(
-        self, source_discovery: SourceDiscovery
-    ) -> tuple[str, str, str, tuple[str, ...]]:
-        """Return source-discovery table identity.
-
-        Args:
-            source_discovery: Source-discovery item.
-
-        Returns:
-            Stable source table identity.
-        """
-
-        return (
-            source_discovery.size_group_key,
-            source_discovery.source_url,
-            source_discovery.source_title,
-            tuple(sorted(source_discovery.country_code_list)),
-        )
-
-    def _source_surface_table_identity_get(
-        self, source_surface_table: SourceSurfaceTable
-    ) -> tuple[str, str, str, tuple[str, ...]]:
-        """Return source-surface inventory table identity.
-
-        Args:
-            source_surface_table: Inventory table entry.
-
-        Returns:
-            Stable source table identity.
-        """
-
-        return (
-            source_surface_table.size_group_key,
-            source_surface_table.source_url,
-            source_surface_table.source_title,
-            tuple(sorted(source_surface_table.country_code_list)),
-        )

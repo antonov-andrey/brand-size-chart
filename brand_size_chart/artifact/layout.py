@@ -53,18 +53,6 @@ class ArtifactLayout:
 
         return self.result_dir / "brand_size_chart_audit" / "brand" / brand_input.parsed_brand_key
 
-    def brand_coverage_decide_dir(self, brand_input: BrandInput) -> Path:
-        """Return final brand coverage-decision audit directory.
-
-        Args:
-            brand_input: Parsed brand input.
-
-        Returns:
-            Final brand coverage-decision stage directory.
-        """
-
-        return self.brand_audit_dir(brand_input) / "coverage_decide"
-
     def brand_manifest_path(self, brand_input: BrandInput) -> Path:
         """Return final brand manifest path.
 
@@ -211,30 +199,6 @@ class ArtifactLayout:
 
         return self.source_type_dir(brand_input, source_type) / "source_type_summary" / "result.json"
 
-    def stage_result_path(self, stage_dir: Path) -> Path:
-        """Return generic stage result artifact path.
-
-        Args:
-            stage_dir: Stage artifact directory.
-
-        Returns:
-            Stage result artifact path.
-        """
-
-        return stage_dir / "result.json"
-
-    def stage_verification_path(self, stage_dir: Path) -> Path:
-        """Return generic stage verification artifact path.
-
-        Args:
-            stage_dir: Stage artifact directory.
-
-        Returns:
-            Stage verification artifact path.
-        """
-
-        return stage_dir / "verification.json"
-
     def table_extract_dir(self, brand_input: BrandInput, source_type: str) -> Path:
         """Return batch table-extract audit directory for one source type.
 
@@ -261,19 +225,6 @@ class ArtifactLayout:
         """
 
         return self.table_extract_dir(brand_input, source_type) / "chart" / f"{size_group_key}.json"
-
-    def table_extract_result_path(self, brand_input: BrandInput, source_type: str) -> Path:
-        """Return batch table-extract result path.
-
-        Args:
-            brand_input: Parsed brand input.
-            source_type: Source type key.
-
-        Returns:
-            Batch table-extract result artifact path.
-        """
-
-        return self.stage_result_path(self.table_extract_dir(brand_input, source_type))
 
     def table_extract_evidence_dir(self, brand_input: BrandInput, source_type: str, size_group_key: str) -> Path:
         """Return batch table-extract evidence directory for one size group.

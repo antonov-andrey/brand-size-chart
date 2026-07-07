@@ -3,8 +3,9 @@
 from pathlib import Path
 
 from dbos import DBOS, SetWorkflowID
+from workflow_container_runtime.artifact import JsonArtifactWriter
 
-from brand_size_chart.artifact import ArtifactLayout, JsonArtifactWriter
+from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.identifier import dbos_identifier
 from brand_size_chart.io import brand_list_parse
 from brand_size_chart.model import BrandListParseWarning, BrandResult, PromptScope, RunResult
