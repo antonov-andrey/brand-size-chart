@@ -16,9 +16,7 @@ from brand_size_chart.model.base import (
 
 SourceSurfaceDiscoveryQueryState = Literal["searched", "failed"]
 SourceSurfaceProductTypeSexState = Literal["active", "rejected"]
-SourceSurfaceTableState = Literal[
-    "accepted", "duplicate", "equivalent", "market_conflict", "market_filtered", "rejected"
-]
+SourceSurfaceTableState = Literal["accepted", "equivalent", "market_conflict", "market_filtered", "rejected"]
 SourceSurfaceUrlState = Literal["opened", "rejected"]
 
 
@@ -66,36 +64,6 @@ class SourceSurfaceProductTypeSex(StrictBaseModel):
     worklist_key: IdentifierComponent
 
 
-class SourceSurfaceTable(StrictBaseModel):
-    """Concrete table entry recorded in the source-surface inventory."""
-
-    country_code_list: list[str]
-    evidence_path_list: list[str]
-    reason: str
-    size_group_key: IdentifierComponent
-    source_title: str
-    source_url: str
-    state: SourceSurfaceTableState
-    worklist_key_list: list[IdentifierComponent] = Field(default_factory=list)
-
-    @field_validator("country_code_list")
-    @classmethod
-    def country_code_list_validate(cls, value: list[str]) -> list[str]:
-        """Validate source-surface table market country codes.
-
-        Args:
-            value: Candidate country-code list.
-
-        Returns:
-            Normalized country-code list.
-
-        Raises:
-            ValueError: If one code is neither alpha-2 nor a supported market-scope marker.
-        """
-
-        return _country_code_list_validate(value)
-
-
 class SourceSurfaceUrl(StrictBaseModel):
     """URL entry recorded in the source-surface inventory."""
 
@@ -104,6 +72,40 @@ class SourceSurfaceUrl(StrictBaseModel):
     state: SourceSurfaceUrlState
     url: str
     worklist_key_list: list[IdentifierComponent] = Field(default_factory=list)
+
+
+class SourceDiscovery(StrictBaseModel):
+    """Discovered source candidate for one brand."""
+
+    country_code_list: list[str]
+    evidence_path_list: list[str] = Field(default_factory=list)
+    size_group_key: IdentifierComponent
+    source_title: str
+    source_url: str
+
+    @field_validator("country_code_list")
+    @classmethod
+    def country_code_list_validate(cls, value: list[str]) -> list[str]:
+        """Validate source-market country codes.
+
+        Args:
+            value: Candidate country code list.
+
+        Returns:
+            Normalized country code list.
+
+        Raises:
+            ValueError: If one code is neither alpha-2 nor a supported market-scope marker.
+        """
+        return _country_code_list_validate(value)
+
+
+class SourceSurfaceTable(StrictBaseModel):
+    """Concrete table inventory row with one stable source discovery object."""
+
+    reason: str
+    source_discovery: SourceDiscovery
+    state: SourceSurfaceTableState
 
 
 class SourceSurfaceInventory(StrictBaseModel):
@@ -148,59 +150,11 @@ class SourceSurfaceInventory(StrictBaseModel):
             if (
                 source_surface_table.state in {"market_filtered", "rejected"}
                 and source_surface_table.reason.strip()
-                and source_surface_table.evidence_path_list
+                and source_surface_table.source_discovery.evidence_path_list
             ):
                 no_table_reason_set.add(source_surface_table.reason.strip())
         no_table_reason_list.extend(sorted(no_table_reason_set))
         return no_table_reason_list
-
-
-class SourceDiscovery(StrictBaseModel):
-    """Discovered source candidate for one brand."""
-
-    country_code_list: list[str]
-    evidence_path_list: list[str] = Field(default_factory=list)
-    size_group_key: IdentifierComponent
-    source_title: str
-    source_url: str
-
-    @field_validator("country_code_list")
-    @classmethod
-    def country_code_list_validate(cls, value: list[str]) -> list[str]:
-        """Validate source-market country codes.
-
-        Args:
-            value: Candidate country code list.
-
-        Returns:
-            Normalized country code list.
-
-        Raises:
-            ValueError: If one code is neither alpha-2 nor a supported market-scope marker.
-        """
-        return _country_code_list_validate(value)
-
-
-class SourceDiscoveryResult(StrictBaseModel):
-    """Python-built discovered source result for one source type."""
-
-    discovered_source_list: list[SourceDiscovery]
-    no_table_reason_list: list[str] = Field(default_factory=list)
-
-
-class SourceDiscoveryDeltaResult(StrictBaseModel):
-    """Codex-owned source-discovery result without accepted table mirrors."""
-
-    browsing_error_list: list[BrowsingError] = Field(default_factory=list)
-
-
-class SourceTypeSummary(StrictBaseModel):
-    """Summary for one source type loop."""
-
-    blocker_list: list[str] = Field(default_factory=list)
-    source_type: str
-    state: Literal["passed", "failed", "skipped"]
-    warning_list: list[str] = Field(default_factory=list)
 
 
 class TableExtractionArtifact(StrictBaseModel):
@@ -231,6 +185,15 @@ class TableExtractionArtifact(StrictBaseModel):
         """
 
         return _country_code_list_validate(value)
+
+
+class SourceTypeResult(StrictBaseModel):
+    """Workflow result for one source type loop."""
+
+    blocker_list: list[str] = Field(default_factory=list)
+    source_type: str
+    table_extraction_list: list[TableExtractionArtifact] = Field(default_factory=list)
+    warning_list: list[str] = Field(default_factory=list)
 
 
 class TableExtractionDelta(StrictBaseModel):

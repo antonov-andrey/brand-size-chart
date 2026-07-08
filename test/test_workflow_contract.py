@@ -28,10 +28,8 @@ from brand_size_chart.model import CoveredProductType
 from brand_size_chart.model import PromptScope
 from brand_size_chart.model import PromptStageInstruction
 from brand_size_chart.model import SourceDiscovery
-from brand_size_chart.model import SourceDiscoveryDeltaResult
 from brand_size_chart.model import SourceDiscoveryPromptContext
-from brand_size_chart.model import SourceDiscoveryResult
-from brand_size_chart.model import SourceTypeSummary
+from brand_size_chart.model import SourceTypeResult
 from brand_size_chart.model import TableExtractionArtifact
 from brand_size_chart.model import TableExtractionDelta
 from brand_size_chart.model import TableExtractionDeltaBatchResult
@@ -44,6 +42,7 @@ from brand_size_chart.stage.canonical_selection import CanonicalSelectionStage
 from brand_size_chart.stage.workflow_run_prompt_apply import WorkflowRunPromptApplyStage
 from workflow_container_contract.testing import workflow_contract_file_validate
 from workflow_container_runtime.prompt import PromptRenderer as RuntimePromptRenderer
+from workflow_container_runtime.stage import BrowserActionResult
 from workflow_container_runtime.stage import (
     StageVerificationResult,
     VerifiedCodexStageConfig,
@@ -194,6 +193,44 @@ def _source_discovery_prompt_context_get(
     )
 
 
+def _source_surface_table_payload_get(
+    *,
+    country_code_list: list[str],
+    evidence_path_list: list[str],
+    reason: str,
+    size_group_key: str,
+    source_title: str,
+    source_url: str,
+    state: str,
+) -> dict[str, object]:
+    """Return one SourceSurfaceTable payload with nested source discovery identity.
+
+    Args:
+        country_code_list: Source table market country code list.
+        evidence_path_list: Evidence artifact references for the source table.
+        reason: Table inventory row reason.
+        size_group_key: Stable source table key.
+        source_title: Browser-visible table title.
+        source_url: Source URL.
+        state: Source surface table state.
+
+    Returns:
+        SourceSurfaceTable JSON payload.
+    """
+
+    return {
+        "reason": reason,
+        "source_discovery": {
+            "country_code_list": country_code_list,
+            "evidence_path_list": evidence_path_list,
+            "size_group_key": size_group_key,
+            "source_title": source_title,
+            "source_url": source_url,
+        },
+        "state": state,
+    }
+
+
 def _table_extraction_prompt_context_get(
     *, source_discovery_list: list[SourceDiscovery], stage_dir: Path, tmp_path: Path
 ) -> TableExtractionPromptContext:
@@ -212,22 +249,14 @@ def _table_extraction_prompt_context_get(
         brand_name="Defacto",
         execplan_item_list=[
             TableExtractionExecplanItem(
-                chart_write_target=ArtifactWriteTarget(
-                    artifact_path=(stage_dir / "chart" / f"{source_discovery.size_group_key}.json")
-                    .relative_to(tmp_path)
-                    .as_posix(),
-                    filesystem_path=(stage_dir / "chart" / f"{source_discovery.size_group_key}.json").as_posix(),
-                ),
+                chart_filesystem_path=(stage_dir / "chart" / f"{source_discovery.size_group_key}.json").as_posix(),
                 evidence_write_target=ArtifactWriteTarget(
                     artifact_path=(stage_dir / "evidence" / source_discovery.size_group_key)
                     .relative_to(tmp_path)
                     .as_posix(),
                     filesystem_path=(stage_dir / "evidence" / source_discovery.size_group_key).as_posix(),
                 ),
-                size_group_key=source_discovery.size_group_key,
-                source_discovery_evidence_path_list=source_discovery.evidence_path_list,
-                source_title=source_discovery.source_title,
-                source_url=source_discovery.source_url,
+                source_discovery=source_discovery,
             )
             for source_discovery in source_discovery_list
         ],
@@ -581,8 +610,8 @@ def test_dbos_workflow_classes_are_class_owned() -> None:
             "BrandSizeChartSourceTypeWorkflow",
         ),
         (
-            workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.summary_write_step,
-            "source_type_summary_write_step",
+            workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.result_write_step,
+            "source_type_result_write_step",
             "BrandSizeChartSourceTypeWorkflow",
         ),
         (
@@ -1007,7 +1036,7 @@ def test_stage_prompt_instruction_fragments_live_under_templates() -> None:
     )
     instruction_fragment_list = [
         "Do not use non-browser loading mechanisms",
-        "use source_title and discovery evidence as the browser-visible selector",
+        "use `source_discovery.source_title` and `source_discovery.evidence_path_list`",
     ]
 
     for instruction_fragment in instruction_fragment_list:
@@ -1538,15 +1567,15 @@ def test_source_discovery_rejects_non_priority_country_when_priority_country_exi
                 "product_type_sex_worklist": [],
                 "url_list": [],
                 "table_list": [
-                    {
-                        "country_code_list": source_discovery.country_code_list,
-                        "evidence_path_list": [artifact_layout.artifact_path(evidence_path)],
-                        "reason": "visible table",
-                        "size_group_key": source_discovery.size_group_key,
-                        "source_title": source_discovery.source_title,
-                        "source_url": source_discovery.source_url,
-                        "state": "accepted",
-                    }
+                    _source_surface_table_payload_get(
+                        country_code_list=source_discovery.country_code_list,
+                        evidence_path_list=[artifact_layout.artifact_path(evidence_path)],
+                        reason="visible table",
+                        size_group_key=source_discovery.size_group_key,
+                        source_title=source_discovery.source_title,
+                        source_url=source_discovery.source_url,
+                        state="accepted",
+                    )
                     for source_discovery in source_discovery_list
                 ],
             },
@@ -1560,7 +1589,7 @@ def test_source_discovery_rejects_non_priority_country_when_priority_country_exi
             prompt_context=_source_discovery_prompt_context_get(priority_country_code="TR"),
             result_dir=tmp_path,
             stage_dir=evidence_path.parents[1],
-        ).validate(SourceDiscoveryDeltaResult())
+        ).validate(BrowserActionResult())
     except RuntimeError as exc:
         message = str(exc)
     else:
@@ -1602,15 +1631,15 @@ def test_source_discovery_rejects_european_country_conflict_as_blocker(tmp_path:
                 ],
                 "product_type_sex_worklist": [],
                 "table_list": [
-                    {
-                        "country_code_list": ["EU"],
-                        "evidence_path_list": [artifact_layout.artifact_path(evidence_path)],
-                        "reason": "European country tables differ for women_upper.",
-                        "size_group_key": "women_upper",
-                        "source_title": "Women upper",
-                        "source_url": "https://brand.example/eu-size-guide",
-                        "state": "market_conflict",
-                    }
+                    _source_surface_table_payload_get(
+                        country_code_list=["EU"],
+                        evidence_path_list=[artifact_layout.artifact_path(evidence_path)],
+                        reason="European country tables differ for women_upper.",
+                        size_group_key="women_upper",
+                        source_title="Women upper",
+                        source_url="https://brand.example/eu-size-guide",
+                        state="market_conflict",
+                    )
                 ],
                 "url_list": [],
             },
@@ -1624,7 +1653,7 @@ def test_source_discovery_rejects_european_country_conflict_as_blocker(tmp_path:
             prompt_context=_source_discovery_prompt_context_get(priority_country_code="TR"),
             result_dir=tmp_path,
             stage_dir=source_discover_dir,
-        ).validate(SourceDiscoveryDeltaResult())
+        ).validate(BrowserActionResult())
 
 
 def test_source_discovery_stage_builds_source_result_from_accepted_inventory(tmp_path: Path) -> None:
@@ -1642,7 +1671,7 @@ def test_source_discovery_stage_builds_source_result_from_accepted_inventory(tmp
         stage_dir: Path,
         stage_name: str,
     ) -> BaseModel:
-        """Return source-discovery delta and write accepted inventory state.
+        """Return browser action result and write accepted inventory state.
 
         Args:
             browser_runtime_mcp_url: Browser runtime URL.
@@ -1653,7 +1682,7 @@ def test_source_discovery_stage_builds_source_result_from_accepted_inventory(tmp
             stage_name: Stage name.
 
         Returns:
-            Source discovery delta or verification result.
+            Browser action result or verification result.
         """
 
         _ = browser_runtime_mcp_url
@@ -1662,7 +1691,7 @@ def test_source_discovery_stage_builds_source_result_from_accepted_inventory(tmp
         _ = stage_name
         if model_class is StageVerificationResult:
             return StageVerificationResult(status="success")
-        assert model_class is SourceDiscoveryDeltaResult
+        assert model_class is BrowserActionResult
         evidence_path = stage_dir / "evidence" / "accepted.json"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("{}\n", encoding="utf-8")
@@ -1674,22 +1703,22 @@ def test_source_discovery_stage_builds_source_result_from_accepted_inventory(tmp
                     "product_type_sex_worklist": [],
                     "url_list": [],
                     "table_list": [
-                        {
-                            "country_code_list": ["TR"],
-                            "evidence_path_list": [artifact_path],
-                            "reason": "visible table",
-                            "size_group_key": "women_upper",
-                            "source_title": "Women upper",
-                            "source_url": "https://brand.example/size-guide",
-                            "state": "accepted",
-                        }
+                        _source_surface_table_payload_get(
+                            country_code_list=["TR"],
+                            evidence_path_list=[artifact_path],
+                            reason="visible table",
+                            size_group_key="women_upper",
+                            source_title="Women upper",
+                            source_url="https://brand.example/size-guide",
+                            state="accepted",
+                        )
                     ],
                 },
                 indent=2,
             ),
             encoding="utf-8",
         )
-        return SourceDiscoveryDeltaResult()
+        return BrowserActionResult()
 
     result = SourceDiscoveryStage(
         brand_input=BrandInput(
@@ -1705,7 +1734,7 @@ def test_source_discovery_stage_builds_source_result_from_accepted_inventory(tmp
         source_type="official_brand_size_guide",
     ).run()
 
-    assert result.discovered_source_list == [
+    assert result == [
         SourceDiscovery(
             country_code_list=["TR"],
             evidence_path_list=[
@@ -1719,11 +1748,11 @@ def test_source_discovery_stage_builds_source_result_from_accepted_inventory(tmp
     ]
 
 
-def test_source_discovery_delta_rejects_no_table_reason_list() -> None:
-    """Keep no-table reasons out of the Codex-owned source-discovery delta result."""
+def test_source_discovery_browser_action_result_rejects_no_table_reason_list() -> None:
+    """Keep no-table reasons out of the generic browser action result."""
 
     with pytest.raises(ValidationError):
-        SourceDiscoveryDeltaResult(no_table_reason_list=["women shoes were not covered"])
+        BrowserActionResult(no_table_reason_list=["women shoes were not covered"])
 
 
 def test_source_discovery_rejects_missing_inventory_evidence_path(tmp_path: Path) -> None:
@@ -1760,22 +1789,22 @@ def test_source_discovery_rejects_missing_inventory_evidence_path(tmp_path: Path
                     }
                 ],
                 "table_list": [
-                    {
-                        "country_code_list": ["GLOBAL"],
-                        "evidence_path_list": [evidence_path.relative_to(tmp_path).as_posix()],
-                        "reason": "visible table",
-                        "size_group_key": "women_hats",
-                        "source_title": "Marketplace product size chart",
-                        "source_url": "https://example.test/product",
-                        "state": "accepted",
-                    }
+                    _source_surface_table_payload_get(
+                        country_code_list=["GLOBAL"],
+                        evidence_path_list=[evidence_path.relative_to(tmp_path).as_posix()],
+                        reason="visible table",
+                        size_group_key="women_hats",
+                        source_title="Marketplace product size chart",
+                        source_url="https://example.test/product",
+                        state="accepted",
+                    )
                 ],
             }
         ),
         encoding="utf-8",
     )
     evidence_path.write_text("{}\n", encoding="utf-8")
-    source_discover_result = SourceDiscoveryDeltaResult(
+    source_discover_result = BrowserActionResult(
         browsing_error_list=[
             {
                 "error": "blocked page",
@@ -1842,21 +1871,21 @@ def test_source_discovery_accepts_result_level_browsing_errors_without_inventory
                     }
                 ],
                 "table_list": [
-                    {
-                        "country_code_list": ["TR"],
-                        "evidence_path_list": [inventory_path.relative_to(tmp_path).as_posix()],
-                        "reason": "visible table",
-                        "size_group_key": "women_upper",
-                        "source_title": "Defacto TR size guide",
-                        "source_url": "https://www.defacto.com.tr/statik/beden-rehberi",
-                        "state": "accepted",
-                    }
+                    _source_surface_table_payload_get(
+                        country_code_list=["TR"],
+                        evidence_path_list=[inventory_path.relative_to(tmp_path).as_posix()],
+                        reason="visible table",
+                        size_group_key="women_upper",
+                        source_title="Defacto TR size guide",
+                        source_url="https://www.defacto.com.tr/statik/beden-rehberi",
+                        state="accepted",
+                    )
                 ],
             }
         ),
         encoding="utf-8",
     )
-    source_discover_result = SourceDiscoveryDeltaResult(
+    source_discover_result = BrowserActionResult(
         browsing_error_list=[
             {
                 "error": "Google displayed reCAPTCHA.",
@@ -1894,7 +1923,7 @@ def test_source_discovery_rejects_inventory_without_contract_sections(tmp_path: 
             prompt_context=_source_discovery_prompt_context_get(priority_country_code="TR"),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
-        ).validate(SourceDiscoveryDeltaResult())
+        ).validate(BrowserActionResult())
 
 
 def test_source_discovery_rejects_unlinked_product_type_worklist(tmp_path: Path) -> None:
@@ -1932,16 +1961,15 @@ def test_source_discovery_rejects_unlinked_product_type_worklist(tmp_path: Path)
                 ],
                 "url_list": [],
                 "table_list": [
-                    {
-                        "country_code_list": ["TR"],
-                        "evidence_path_list": [artifact_layout.artifact_path(evidence_path)],
-                        "reason": "visible table",
-                        "size_group_key": "women_dresses",
-                        "source_title": "Women dresses",
-                        "source_url": "https://market.example/product",
-                        "state": "accepted",
-                        "worklist_key_list": [],
-                    }
+                    _source_surface_table_payload_get(
+                        country_code_list=["TR"],
+                        evidence_path_list=[artifact_layout.artifact_path(evidence_path)],
+                        reason="visible table",
+                        size_group_key="women_dresses",
+                        source_title="Women dresses",
+                        source_url="https://market.example/product",
+                        state="accepted",
+                    )
                 ],
             },
             indent=2,
@@ -1957,11 +1985,11 @@ def test_source_discovery_rejects_unlinked_product_type_worklist(tmp_path: Path)
             ),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
-        ).validate(SourceDiscoveryDeltaResult())
+        ).validate(BrowserActionResult())
 
 
 def test_source_discovery_rejected_table_does_not_close_active_worklist(tmp_path: Path) -> None:
-    """Require active worklist closure through URL or returned-table states, not rejected table rows."""
+    """Require active worklist closure through URL entries, not rejected table rows."""
     from brand_size_chart.artifact.layout import ArtifactLayout
     from brand_size_chart.validator.source_discovery import SourceDiscoveryValidator
 
@@ -1994,16 +2022,15 @@ def test_source_discovery_rejected_table_does_not_close_active_worklist(tmp_path
                     }
                 ],
                 "table_list": [
-                    {
-                        "country_code_list": ["TR"],
-                        "evidence_path_list": [artifact_layout.artifact_path(evidence_path)],
-                        "reason": "not a size chart for the requested product type",
-                        "size_group_key": "women_dresses",
-                        "source_title": "Rejected women dresses",
-                        "source_url": "https://market.example/product",
-                        "state": "rejected",
-                        "worklist_key_list": ["women_dresses"],
-                    }
+                    _source_surface_table_payload_get(
+                        country_code_list=["TR"],
+                        evidence_path_list=[artifact_layout.artifact_path(evidence_path)],
+                        reason="not a size chart for the requested product type",
+                        size_group_key="women_dresses",
+                        source_title="Rejected women dresses",
+                        source_url="https://market.example/product",
+                        state="rejected",
+                    )
                 ],
                 "url_list": [],
             },
@@ -2021,11 +2048,11 @@ def test_source_discovery_rejected_table_does_not_close_active_worklist(tmp_path
             ),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
-        ).validate(SourceDiscoveryDeltaResult())
+        ).validate(BrowserActionResult())
 
 
-def test_source_discovery_duplicate_equivalent_tables_do_not_close_active_worklist(tmp_path: Path) -> None:
-    """Keep duplicate and equivalent table rows as audit rows, not worklist closure evidence."""
+def test_source_discovery_equivalent_tables_do_not_close_active_worklist(tmp_path: Path) -> None:
+    """Keep equivalent table rows as audit rows, not worklist closure evidence."""
     from brand_size_chart.artifact.layout import ArtifactLayout
     from brand_size_chart.validator.source_discovery import SourceDiscoveryValidator
 
@@ -2058,26 +2085,24 @@ def test_source_discovery_duplicate_equivalent_tables_do_not_close_active_workli
                     }
                 ],
                 "table_list": [
-                    {
-                        "country_code_list": ["TR"],
-                        "evidence_path_list": [artifact_layout.artifact_path(evidence_path)],
-                        "reason": "accepted chart without product worklist closure",
-                        "size_group_key": "women_dresses",
-                        "source_title": "Women dresses",
-                        "source_url": "https://market.example/product",
-                        "state": "accepted",
-                        "worklist_key_list": [],
-                    },
-                    {
-                        "country_code_list": ["TR"],
-                        "evidence_path_list": [artifact_layout.artifact_path(evidence_path)],
-                        "reason": "duplicate of accepted women_dresses",
-                        "size_group_key": "women_dresses",
-                        "source_title": "Women dresses duplicate",
-                        "source_url": "https://market.example/product?duplicate=1",
-                        "state": "duplicate",
-                        "worklist_key_list": ["women_dresses"],
-                    },
+                    _source_surface_table_payload_get(
+                        country_code_list=["TR"],
+                        evidence_path_list=[artifact_layout.artifact_path(evidence_path)],
+                        reason="accepted chart without product worklist closure",
+                        size_group_key="women_dresses",
+                        source_title="Women dresses",
+                        source_url="https://market.example/product",
+                        state="accepted",
+                    ),
+                    _source_surface_table_payload_get(
+                        country_code_list=["TR"],
+                        evidence_path_list=[artifact_layout.artifact_path(evidence_path)],
+                        reason="duplicate of accepted women_dresses",
+                        size_group_key="women_dresses",
+                        source_title="Women dresses duplicate",
+                        source_url="https://market.example/product?duplicate=1",
+                        state="equivalent",
+                    ),
                 ],
                 "url_list": [],
             },
@@ -2095,11 +2120,75 @@ def test_source_discovery_duplicate_equivalent_tables_do_not_close_active_workli
             ),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
-        ).validate(SourceDiscoveryDeltaResult())
+        ).validate(BrowserActionResult())
 
 
-def test_source_discovery_rejects_duplicate_equivalent_without_accepted_row(tmp_path: Path) -> None:
-    """Reject duplicate and equivalent rows that do not point to an accepted table key."""
+def test_source_discovery_rejects_table_worklist_links(tmp_path: Path) -> None:
+    """Reject worklist linkage on table rows at the inventory schema boundary."""
+    from brand_size_chart.artifact.layout import ArtifactLayout
+    from brand_size_chart.validator.source_discovery import SourceDiscoveryValidator
+
+    inventory_path = (
+        tmp_path
+        / "brand_size_chart_audit"
+        / "brand"
+        / "defacto"
+        / "source_type"
+        / "official_marketplace_product_page"
+        / "source_discover"
+        / "state.json"
+    )
+    evidence_path = inventory_path.parent / "inventory.json"
+    inventory_path.parent.mkdir(parents=True)
+    evidence_path.write_text("{}\n", encoding="utf-8")
+    artifact_layout = ArtifactLayout(tmp_path)
+    inventory_path.write_text(
+        json.dumps(
+            {
+                "discovery_query_list": [],
+                "product_type_sex_worklist": [
+                    {
+                        "evidence_path_list": [artifact_layout.artifact_path(evidence_path)],
+                        "product_type": "women dresses",
+                        "reason": "requested product type",
+                        "sex": "women",
+                        "state": "active",
+                        "worklist_key": "women_dresses",
+                    }
+                ],
+                "table_list": [
+                    _source_surface_table_payload_get(
+                        country_code_list=["TR"],
+                        evidence_path_list=[artifact_layout.artifact_path(evidence_path)],
+                        reason="visible table",
+                        size_group_key="women_dresses",
+                        source_title="Women dresses",
+                        source_url="https://market.example/product",
+                        state="accepted",
+                    )
+                    | {"worklist_key_list": ["women_dresses"]},
+                ],
+                "url_list": [],
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="worklist_key_list"):
+        SourceDiscoveryValidator(
+            prompt_context=_source_discovery_prompt_context_get(
+                priority_country_code="TR",
+                product_type_request_list=["women dresses"],
+                source_type="official_marketplace_product_page",
+            ),
+            result_dir=tmp_path,
+            stage_dir=inventory_path.parent,
+        ).validate(BrowserActionResult())
+
+
+def test_source_discovery_rejects_equivalent_without_accepted_row(tmp_path: Path) -> None:
+    """Reject equivalent rows that do not point to an accepted table key."""
     from brand_size_chart.artifact.layout import ArtifactLayout
     from brand_size_chart.validator.source_discovery import SourceDiscoveryValidator
 
@@ -2123,16 +2212,15 @@ def test_source_discovery_rejects_duplicate_equivalent_without_accepted_row(tmp_
                 "discovery_query_list": [],
                 "product_type_sex_worklist": [],
                 "table_list": [
-                    {
-                        "country_code_list": ["TR"],
-                        "evidence_path_list": [artifact_layout.artifact_path(evidence_path)],
-                        "reason": "equivalent but no accepted canonical table exists",
-                        "size_group_key": "women_upper",
-                        "source_title": "Women upper equivalent",
-                        "source_url": "https://brand.example/equivalent",
-                        "state": "equivalent",
-                        "worklist_key_list": [],
-                    }
+                    _source_surface_table_payload_get(
+                        country_code_list=["TR"],
+                        evidence_path_list=[artifact_layout.artifact_path(evidence_path)],
+                        reason="equivalent but no accepted canonical table exists",
+                        size_group_key="women_upper",
+                        source_title="Women upper equivalent",
+                        source_url="https://brand.example/equivalent",
+                        state="equivalent",
+                    )
                 ],
                 "url_list": [],
             },
@@ -2141,12 +2229,12 @@ def test_source_discovery_rejects_duplicate_equivalent_without_accepted_row(tmp_
         encoding="utf-8",
     )
 
-    with pytest.raises(RuntimeError, match="duplicate/equivalent table rows must reference"):
+    with pytest.raises(RuntimeError, match="equivalent table rows must reference"):
         SourceDiscoveryValidator(
             prompt_context=_source_discovery_prompt_context_get(priority_country_code="TR"),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
-        ).validate(SourceDiscoveryDeltaResult())
+        ).validate(BrowserActionResult())
 
 
 def test_source_discovery_accepts_rejected_product_type_worklist_without_second_link(tmp_path: Path) -> None:
@@ -2198,7 +2286,7 @@ def test_source_discovery_accepts_rejected_product_type_worklist_without_second_
         ),
         result_dir=tmp_path,
         stage_dir=inventory_path.parent,
-    ).validate(SourceDiscoveryDeltaResult())
+    ).validate(BrowserActionResult())
 
 
 def test_source_discovery_rejects_rejected_product_type_worklist_without_evidence(tmp_path: Path) -> None:
@@ -2247,7 +2335,7 @@ def test_source_discovery_rejects_rejected_product_type_worklist_without_evidenc
             ),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
-        ).validate(SourceDiscoveryDeltaResult())
+        ).validate(BrowserActionResult())
 
 
 def test_table_extraction_builds_country_code_from_source_market(tmp_path: Path) -> None:
@@ -2385,7 +2473,7 @@ def test_canonical_selection_rejects_missing_verified_tables(tmp_path: Path) -> 
     else:
         message = ""
 
-    assert "canonical_select missing eligible size_group_key" in message
+    assert "canonical_select missing candidate size_group_key" in message
     assert "women_upper" in message
 
 
@@ -2664,7 +2752,7 @@ def test_canonical_selection_validator_accepts_omitted_unresolved_same_priority_
 
 
 def test_canonical_selection_validator_rejects_omitted_single_candidate_group(tmp_path: Path) -> None:
-    """Require selection when one eligible group has no same-priority ambiguity."""
+    """Require selection when one candidate group has no same-priority ambiguity."""
     from brand_size_chart.validator.canonical_selection import CanonicalSelectionValidator
 
     table_extraction = _table_extraction_artifact_get(
@@ -2676,7 +2764,7 @@ def test_canonical_selection_validator_rejects_omitted_single_candidate_group(tm
     )
     canonical_selection_result = CanonicalSelectionResult(canonical_selection_list=[])
 
-    with pytest.raises(RuntimeError, match="canonical_select missing eligible size_group_key"):
+    with pytest.raises(RuntimeError, match="canonical_select missing candidate size_group_key"):
         CanonicalSelectionValidator(
             prompt_context=_canonical_selection_prompt_context_get([table_extraction])
         ).validate(canonical_selection_result)
@@ -2710,6 +2798,14 @@ def test_canonical_selection_prompt_receives_verified_table_context(tmp_path: Pa
         tmp_path=tmp_path,
         source_url="https://brand.example/beden-rehberi",
     )
+    blocked_table_extraction = _table_extraction_artifact_get(
+        chart=BrandSizeChart(description="US-only women lower", row_list=[]),
+        country_code_list=["US"],
+        size_group_key="women_lower",
+        source_title="US-only women lower",
+        tmp_path=tmp_path,
+        source_url="https://brand.example/us-size-guide",
+    )
 
     def fake_codex_stage_run(
         *,
@@ -2739,6 +2835,7 @@ def test_canonical_selection_prompt_receives_verified_table_context(tmp_path: Pa
         if model_class is StageVerificationResult:
             return StageVerificationResult(status="success")
         prompt_context = json.loads((stage_dir / "prompt_context.json").read_text(encoding="utf-8"))
+        assert len(prompt_context["canonical_selection_candidate_list"]) == 1
         candidate_context = prompt_context["canonical_selection_candidate_list"][0]
         table_context = candidate_context["table_extraction_artifact"]
         assert "prompt_context.json" in prompt_text
@@ -2769,7 +2866,7 @@ def test_canonical_selection_prompt_receives_verified_table_context(tmp_path: Pa
         prompt_scope=PromptScope(priority_country_code="TR"),
         result_dir=tmp_path,
         stage_dir=tmp_path / "canonical_select",
-        table_extraction_list=[table_extraction],
+        table_extraction_list=[table_extraction, blocked_table_extraction],
     ).run()
 
     assert result.canonical_selection_list[0].selected_chart_path == table_extraction.chart_path
@@ -2872,11 +2969,10 @@ def test_brand_selection_writes_selected_duplicate_table(monkeypatch: object, tm
         brand_input.model_dump(mode="json"),
         PromptScope().model_dump(mode="json"),
         str(tmp_path),
-        [selected_table.model_dump(mode="json"), duplicate_table.model_dump(mode="json")],
         [
-            SourceTypeSummary(
+            SourceTypeResult(
                 source_type="official_brand_size_guide",
-                state="passed",
+                table_extraction_list=[selected_table, duplicate_table],
             ).model_dump(mode="json")
         ],
         CoverageDecisionResult(
@@ -3193,33 +3289,38 @@ def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch:
         enqueued_source_type_list.append(source_type)
         assert source_type_prompt_scope.product_type_request_list == []
         return FakeHandle(
-            {
-                "source_type_summary": {
-                    "blocker_list": [],
-                    "source_type": source_type,
-                    "state": "passed",
-                    "warning_list": [],
-                },
-                "table_extraction_list": [{"size_group_key": "women_clothing", "source_type": source_type}],
-            }
+            SourceTypeResult(
+                source_type=source_type,
+                table_extraction_list=[
+                    TableExtractionArtifact(
+                        chart_path=(
+                            "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/"
+                            "table_extract/chart/women_clothing.json"
+                        ),
+                        country_code_list=["TR"],
+                        size_group_key="women_clothing",
+                        source_title="Women clothing",
+                        source_type=source_type,
+                        source_url="https://brand.example/size-guide",
+                    )
+                ],
+            ).model_dump(mode="json")
         )
 
     def fake_brand_selection_write_step(
         brand_input_payload: dict[str, object],
         prompt_scope_payload: dict[str, object],
         result_dir: str,
-        table_extraction_payload_list: list[dict[str, object]],
-        source_type_summary_payload_list: list[dict[str, object]],
+        source_type_result_payload_list: list[dict[str, object]],
         coverage_result_payload: dict[str, object],
     ) -> dict[str, object]:
-        """Return source-type execution summary.
+        """Return source-type execution result.
 
         Args:
             brand_input_payload: Serialized brand input.
             prompt_scope_payload: Serialized prompt scope.
             result_dir: Result root.
-            table_extraction_payload_list: Extracted table payloads.
-            source_type_summary_payload_list: Source-type summaries.
+            source_type_result_payload_list: Source-type results.
             coverage_result_payload: Cumulative coverage result.
 
         Returns:
@@ -3228,8 +3329,7 @@ def test_brand_workflow_runs_size_guides_before_product_scoped_stop(monkeypatch:
         _ = brand_input_payload
         _ = prompt_scope_payload
         _ = result_dir
-        _ = table_extraction_payload_list
-        _ = source_type_summary_payload_list
+        _ = source_type_result_payload_list
         _ = coverage_result_payload
         return {"enqueued_source_type_list": list(enqueued_source_type_list)}
 
@@ -3366,31 +3466,35 @@ def test_brand_workflow_skips_intermediate_coverage_for_failed_source_type(
         _ = result_dir
         if source_type == "official_seller_size_guide":
             return FakeHandle(
-                {
-                    "source_type_summary": SourceTypeSummary(
-                        blocker_list=["no seller guide"],
-                        source_type=source_type,
-                        state="failed",
-                    ).model_dump(mode="json"),
-                    "table_extraction_list": [],
-                }
+                SourceTypeResult(
+                    blocker_list=["no seller guide"],
+                    source_type=source_type,
+                ).model_dump(mode="json")
             )
         return FakeHandle(
-            {
-                "source_type_summary": SourceTypeSummary(
-                    source_type=source_type,
-                    state="passed",
-                ).model_dump(mode="json"),
-                "table_extraction_list": [{"size_group_key": "women_clothing", "source_type": source_type}],
-            }
+            SourceTypeResult(
+                source_type=source_type,
+                table_extraction_list=[
+                    TableExtractionArtifact(
+                        chart_path=(
+                            "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/"
+                            "table_extract/chart/women_clothing.json"
+                        ),
+                        country_code_list=["TR"],
+                        size_group_key="women_clothing",
+                        source_title="Women clothing",
+                        source_type=source_type,
+                        source_url="https://brand.example/size-guide",
+                    )
+                ],
+            ).model_dump(mode="json")
         )
 
     def fake_brand_selection_write_step(
         brand_input_payload: dict[str, object],
         prompt_scope_payload: dict[str, object],
         result_dir: str,
-        table_extraction_payload_list: list[dict[str, object]],
-        source_type_summary_payload_list: list[dict[str, object]],
+        source_type_result_payload_list: list[dict[str, object]],
         coverage_result_payload: dict[str, object],
     ) -> dict[str, object]:
         """Return the coverage call list.
@@ -3399,8 +3503,7 @@ def test_brand_workflow_skips_intermediate_coverage_for_failed_source_type(
             brand_input_payload: Serialized brand input.
             prompt_scope_payload: Serialized prompt scope.
             result_dir: Result root.
-            table_extraction_payload_list: Extracted table payloads.
-            source_type_summary_payload_list: Source-type summaries.
+            source_type_result_payload_list: Source-type results.
             coverage_result_payload: Cumulative coverage result.
 
         Returns:
@@ -3409,8 +3512,7 @@ def test_brand_workflow_skips_intermediate_coverage_for_failed_source_type(
         _ = brand_input_payload
         _ = prompt_scope_payload
         _ = result_dir
-        _ = table_extraction_payload_list
-        _ = source_type_summary_payload_list
+        _ = source_type_result_payload_list
         CoverageDecisionResult.model_validate(coverage_result_payload)
         return {"coverage_source_type_list": list(coverage_source_type_list)}
 
@@ -3580,9 +3682,9 @@ def test_workflow_run_prompt_apply_context_contains_source_type_catalog(tmp_path
     )
 
 
-def test_source_type_summary_records_failed_source_without_discovery_artifact(tmp_path: Path) -> None:
-    """Write failed source-type summaries without requiring a successful discovery artifact."""
-    summary_payload = workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.summary_write_step.__wrapped__(
+def test_source_type_result_records_failed_source_without_discovery_artifact(tmp_path: Path) -> None:
+    """Write failed source-type results without requiring a successful discovery artifact."""
+    result_payload = workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.result_write_step.__wrapped__(
         workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW,
         {
             "parsed_brand_key": "defacto",
@@ -3594,37 +3696,64 @@ def test_source_type_summary_records_failed_source_without_discovery_artifact(tm
         "official_brand_size_guide",
         [],
         ["RuntimeError: source discovery failed"],
-        [],
     )
 
-    assert summary_payload["blocker_list"] == ["RuntimeError: source discovery failed"]
-    assert summary_payload["source_type"] == "official_brand_size_guide"
-    assert summary_payload["state"] == "failed"
+    assert result_payload["blocker_list"] == ["RuntimeError: source discovery failed"]
+    assert result_payload["source_type"] == "official_brand_size_guide"
+    assert result_payload["table_extraction_list"] == []
+    assert "state" not in result_payload
 
 
-def test_source_type_summary_records_no_table_discovery_as_skipped_warning(tmp_path: Path) -> None:
-    """Record evidence-backed no-table source discovery as skipped instead of failed."""
-    summary_payload = workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.summary_write_step.__wrapped__(
+def test_source_type_result_records_no_table_discovery_warning(tmp_path: Path) -> None:
+    """Record evidence-backed no-table source discovery in warning list."""
+    brand_input_payload = {
+        "parsed_brand_key": "defacto",
+        "parsed_brand_name": "Defacto",
+        "raw_brand_name": "Defacto",
+        "source_line_number": 1,
+    }
+    brand_input = BrandInput.model_validate(brand_input_payload)
+    source_type = "official_marketplace_store"
+    state_path = ArtifactLayout(tmp_path).source_discover_dir(brand_input, source_type) / "state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps(
+            {
+                "discovery_query_list": [],
+                "product_type_sex_worklist": [],
+                "table_list": [],
+                "url_list": [
+                    {
+                        "evidence_path_list": ["brand_size_chart_audit/brand/defacto/source_type/source/evidence.md"],
+                        "reason": "No concrete browser-visible size-chart table was returned.",
+                        "state": "rejected",
+                        "url": "https://market.example/defacto",
+                        "worklist_key_list": [],
+                    }
+                ],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    result_payload = workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.result_write_step.__wrapped__(
         workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW,
-        {
-            "parsed_brand_key": "defacto",
-            "parsed_brand_name": "Defacto",
-            "raw_brand_name": "Defacto",
-            "source_line_number": 1,
-        },
+        brand_input_payload,
         str(tmp_path),
-        "official_marketplace_store",
+        source_type,
         [],
         [],
-        ["No concrete browser-visible size-chart table was returned."],
     )
 
-    assert summary_payload["blocker_list"] == []
-    assert summary_payload["state"] == "skipped"
-    assert summary_payload["warning_list"] == ["No concrete browser-visible size-chart table was returned."]
+    assert result_payload["blocker_list"] == []
+    assert result_payload["table_extraction_list"] == []
+    assert "state" not in result_payload
+    assert result_payload["warning_list"] == ["No concrete browser-visible size-chart table was returned."]
 
 
-def test_source_type_summary_points_to_table_extract_chart_artifacts(tmp_path: Path) -> None:
+def test_source_type_result_points_to_table_extract_chart_artifacts(tmp_path: Path) -> None:
     """Expose batch chart artifact paths as source-type table results."""
     brand_input = BrandInput(
         parsed_brand_key="defacto",
@@ -3657,20 +3786,19 @@ def test_source_type_summary_points_to_table_extract_chart_artifacts(tmp_path: P
         source_url="https://www.defacto.com.tr/statik/beden-rehberi",
     )
 
-    summary_payload = workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.summary_write_step.__wrapped__(
+    result_payload = workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.result_write_step.__wrapped__(
         workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW,
         brand_input.model_dump(mode="json"),
         str(tmp_path),
         source_type,
         [table_extraction.model_dump(mode="json")],
         [],
-        [],
     )
 
-    assert summary_payload == {
+    assert result_payload == {
         "blocker_list": [],
         "source_type": "official_brand_size_guide",
-        "state": "passed",
+        "table_extraction_list": [table_extraction.model_dump(mode="json")],
         "warning_list": [],
     }
 
@@ -3842,7 +3970,7 @@ def test_size_group_key_contract_is_prompt_and_design_owned() -> None:
     assert "size_group_key is the normalized table key derived from source_title and evidence" in (
         source_discover_template
     )
-    assert "use source_title and discovery evidence as the browser-visible selector" in table_extract_template
+    assert "use `source_discovery.source_title` and `source_discovery.evidence_path_list`" in table_extract_template
     assert "do not treat it as a browser-visible selector" in table_extract_template
     assert "verify size_group_key derivation from source_title and evidence" not in table_extract_verify_template
     assert "Do not derive, rename, or validate size_group_key naming" in table_extract_verify_template
@@ -3891,12 +4019,61 @@ def test_table_extraction_keeps_metadata_out_of_chart_artifact() -> None:
     """Keep chart artifact schema separate from extraction metadata."""
     table_extract_template = _prompt_template_text_get("table_extract.md.j2")
 
-    assert "A BrandSizeChart artifact must contain only description and row_list" in table_extract_template
+    assert "read the BrandSizeChart schema from sibling `chart.schema.json`" in table_extract_template
+    assert "A BrandSizeChart artifact must contain only description and row_list" not in table_extract_template
+    assert "Each row_list item must contain only size_label and measurement_list" not in table_extract_template
+    assert "Each measurement_list item must contain only name, unit, min_value, and max_value" not in (
+        table_extract_template
+    )
     assert "belong to the Python-built TableExtractionArtifact, not inside the chart artifact" in table_extract_template
     assert "The structured output must be TableExtractionDeltaBatchResult" in table_extract_template
     assert "Successful handoff requires one delta and one valid chart artifact" in table_extract_template
     assert "Return TableExtractionDeltaBatchResult only after every execplan item" not in table_extract_template
     assert "do not silently omit the item, rename it, or return partial success" in table_extract_template
+
+
+def test_table_extraction_stage_writes_chart_schema_artifact(tmp_path: Path) -> None:
+    """Generate the BrandSizeChart schema beside table-extract prompt context."""
+    from brand_size_chart.stage.table_extraction import TableExtractionStage
+
+    source_discovery = SourceDiscovery(
+        country_code_list=["TR"],
+        size_group_key="women_upper",
+        source_title="Women upper",
+        source_url="https://www.defacto.com.tr/size-guide",
+    )
+
+    stage = TableExtractionStage(
+        brand_input=BrandInput(
+            parsed_brand_key="defacto",
+            parsed_brand_name="Defacto",
+            raw_brand_name="Defacto",
+            source_line_number=1,
+        ),
+        browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
+        codex_stage_run_callable=lambda **kwargs: StageVerificationResult(status="success"),
+        prompt_scope=PromptScope(priority_country_code="TR"),
+        result_dir=tmp_path,
+        source_discovery_list=[source_discovery],
+        source_type="official_brand_size_guide",
+    )
+
+    stage._artifact_directory_prepare()
+
+    schema_path = (
+        tmp_path
+        / "brand_size_chart_audit"
+        / "brand"
+        / "defacto"
+        / "source_type"
+        / "official_brand_size_guide"
+        / "table_extract"
+        / "chart.schema.json"
+    )
+    schema_payload = json.loads(schema_path.read_text(encoding="utf-8"))
+
+    assert schema_payload["title"] == "BrandSizeChart"
+    assert "row_list" in schema_payload["properties"]
 
 
 def test_table_extraction_batch_uses_chart_targets_as_durable_item_state() -> None:
@@ -3906,7 +4083,7 @@ def test_table_extraction_batch_uses_chart_targets_as_durable_item_state() -> No
 
     for expected_text in [
         "## FSM",
-        "chart_write_target.filesystem_path is the durable per-item extraction state",
+        "chart_filesystem_path is the durable per-item extraction state",
         "Do not write a table_extract state.json file",
         "missing-or-invalid-chart -> valid-chart",
         "Successful handoff requires one delta and one valid chart artifact",
@@ -3914,7 +4091,7 @@ def test_table_extraction_batch_uses_chart_targets_as_durable_item_state() -> No
     ]:
         assert expected_text in table_extract_template
     for expected_text in [
-        "chart artifact target declared by each `TableExtractionPromptContext.execplan_item_list[].chart_write_target`",
+        "chart artifact target declared by each `TableExtractionPromptContext.execplan_item_list[].chart_filesystem_path`",
         "not a separate `state.json` file",
         "missing-or-invalid-chart -> valid-chart",
         "Successful handoff requires one delta and one valid chart artifact",
@@ -3927,9 +4104,8 @@ def test_table_extraction_design_separates_codex_artifact_result_from_workflow_r
     design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
 
     assert "Codex action returns one `TableExtractionDeltaBatchResult`" in design_text
-    assert "builds deterministic `chart_path` only from `TableExtractionPromptContext.execplan_item_list[]" in (
-        design_text
-    )
+    assert "builds deterministic `chart_path` from `ArtifactLayout`" in design_text
+    assert "exposes only the chart artifact filesystem path" in design_text
     assert "Later stages receive only `TableExtractionArtifact` handles" in design_text
     assert "returns one `TableExtractionBatchResult` containing one `TableExtraction` per discovered source" not in (
         design_text
@@ -4031,17 +4207,17 @@ def test_table_extraction_validator_uses_prompt_context_chart_target(tmp_path: P
         brand_name="Defacto",
         execplan_item_list=[
             TableExtractionExecplanItem(
-                chart_write_target=ArtifactWriteTarget(
-                    artifact_path=chart_path.relative_to(tmp_path).as_posix(),
-                    filesystem_path=chart_path.as_posix(),
-                ),
+                chart_filesystem_path=chart_path.as_posix(),
                 evidence_write_target=ArtifactWriteTarget(
                     artifact_path=evidence_path.parent.relative_to(tmp_path).as_posix(),
                     filesystem_path=evidence_path.parent.as_posix(),
                 ),
-                size_group_key="women_upper",
-                source_title="Women upper",
-                source_url="https://brand.example/size-guide",
+                source_discovery=SourceDiscovery(
+                    country_code_list=["TR"],
+                    size_group_key="women_upper",
+                    source_title="Women upper",
+                    source_url="https://brand.example/size-guide",
+                ),
             )
         ],
     )
@@ -4086,30 +4262,30 @@ def test_table_extraction_rejects_duplicate_chart_targets(tmp_path: Path) -> Non
         brand_name="Defacto",
         execplan_item_list=[
             TableExtractionExecplanItem(
-                chart_write_target=ArtifactWriteTarget(
-                    artifact_path=chart_path.relative_to(tmp_path).as_posix(),
-                    filesystem_path=chart_path.as_posix(),
-                ),
+                chart_filesystem_path=chart_path.as_posix(),
                 evidence_write_target=ArtifactWriteTarget(
                     artifact_path=evidence_path.parent.relative_to(tmp_path).as_posix(),
                     filesystem_path=evidence_path.parent.as_posix(),
                 ),
-                size_group_key="women_upper",
-                source_title="Women upper",
-                source_url="https://brand.example/size-guide",
+                source_discovery=SourceDiscovery(
+                    country_code_list=["TR"],
+                    size_group_key="women_upper",
+                    source_title="Women upper",
+                    source_url="https://brand.example/size-guide",
+                ),
             ),
             TableExtractionExecplanItem(
-                chart_write_target=ArtifactWriteTarget(
-                    artifact_path=chart_path.relative_to(tmp_path).as_posix(),
-                    filesystem_path=chart_path.as_posix(),
-                ),
+                chart_filesystem_path=chart_path.as_posix(),
                 evidence_write_target=ArtifactWriteTarget(
                     artifact_path=evidence_path.parent.relative_to(tmp_path).as_posix(),
                     filesystem_path=evidence_path.parent.as_posix(),
                 ),
-                size_group_key="women_lower",
-                source_title="Women lower",
-                source_url="https://brand.example/size-guide",
+                source_discovery=SourceDiscovery(
+                    country_code_list=["TR"],
+                    size_group_key="women_lower",
+                    source_title="Women lower",
+                    source_url="https://brand.example/size-guide",
+                ),
             ),
         ],
     )
@@ -4291,7 +4467,7 @@ def test_canonical_selection_prompt_has_deterministic_selection_workflow() -> No
     canonical_select_verify_template = _prompt_template_text_get("canonical_select_verify.md.j2")
 
     for expected_text in [
-        "group verified eligible CanonicalSelectionCandidate items",
+        "group canonical_selection_candidate_list items",
         "choose the maximum source_priority",
         "If one candidate remains, select it",
         "If multiple maximum-priority candidates remain",
@@ -4300,7 +4476,7 @@ def test_canonical_selection_prompt_has_deterministic_selection_workflow() -> No
     ]:
         assert expected_text in canonical_select_template
     assert "verify semantic equivalence only" in canonical_select_verify_template
-    assert "Do not re-check omitted-group eligibility" in canonical_select_verify_template
+    assert "Do not re-check omitted-group candidate membership" in canonical_select_verify_template
     assert "candidate priority" in canonical_select_verify_template
     assert "verify grouping by size_group_key" not in canonical_select_verify_template
     assert "verify the selected candidate is the deterministic representative" not in canonical_select_verify_template
@@ -4383,9 +4559,10 @@ def test_source_discovery_product_scoped_sources_use_product_type_sex_worklist()
     ]:
         assert expected_text in source_discover_template
         assert expected_text in design_text
-    assert "Link URL entries, accepted tables" in source_discover_template
-    assert "one URL, accepted, or market_filtered inventory entry for each active worklist row" in design_text
-    assert "Duplicate and equivalent table rows are audit/completeness rows only" in source_discover_template
+    assert "Link URL entries to the active worklist rows" in source_discover_template
+    assert "one URL inventory entry for each active worklist row" in design_text
+    assert "Table rows never carry worklist_key_list" in source_discover_template
+    assert "Table rows never carry `worklist_key_list`" in design_text
     assert "`market_conflict` rows are fatal blockers and do not close active worklist rows" in design_text
     assert "evidence-backed product or store boundary closure" in source_discover_verify_template
     assert "Do not re-check worklist key parity" in source_discover_verify_template
@@ -4430,10 +4607,10 @@ def test_source_discovery_returns_unique_size_group_key_candidates() -> None:
     source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
     design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
 
-    assert "accept at most one table row for one size_group_key" in source_discover_template
+    assert "accept at most one table row for one `source_discovery.size_group_key`" in source_discover_template
     assert "must not require a second accepted table row" in source_discover_verify_template
     assert "write one accepted table_list row per table" in source_discover_template
-    assert "one `size_group_key` may appear at most once among accepted table rows" in design_text
+    assert "one `source_discovery.size_group_key` may appear at most once among accepted table rows" in design_text
 
 
 def test_source_discovery_applies_market_selection_before_final_table_classification() -> None:
@@ -4501,8 +4678,9 @@ def test_source_discovery_prompt_requires_canonical_inventory_on_retry() -> None
     assert "state.json" in source_discover_template
     assert "Derive the source_discover stage directory from the Stage prompt context path" in source_discover_template
     assert "attempt-only inventory artifacts are allowed only as extra" in source_discover_template
-    assert "must reference an actually saved artifact path" in source_discover_template
-    assert "must not contain leading or trailing whitespace" in source_discover_template
+    assert "Save evidence before referencing it in state.json" in source_discover_template
+    assert "must reference an actually saved artifact path" not in source_discover_template
+    assert "must not contain leading or trailing whitespace" not in source_discover_template
 
 
 def test_source_discovery_inventory_has_explicit_contract_for_verification() -> None:
@@ -4556,7 +4734,7 @@ def test_source_discovery_non_returned_tables_cover_all_inventory_states() -> No
     design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
 
     for artifact_text in [source_discover_template, source_discover_verify_template, design_text]:
-        assert "duplicate, equivalent, market_conflict, market_filtered, or rejected" in artifact_text
+        assert "equivalent, market_conflict, market_filtered, or rejected" in artifact_text
         assert "table_list" in artifact_text
     assert "Validate that every non-accepted concrete table has current evidence" in source_discover_verify_template
     assert "duplicate or equivalent omissions" not in source_discover_verify_template
@@ -4687,8 +4865,10 @@ def test_verification_prompt_rejects_stale_hidden_row_errors() -> None:
     table_extract_verify_template = _prompt_template_text_get("table_extract_verify.md.j2")
 
     assert "open every chart_path" not in table_extract_verify_template
-    assert "read every execplan item's chart_write_target.artifact_path" in table_extract_verify_template
-    assert "Do not use browser tools, file://, localhost, or 127.0.0.1 for chart_write_target" in (
+    assert "read every execplan item's chart_filesystem_path" in table_extract_verify_template
+    assert "chart_write_target" not in table_extract_verify_template
+    assert "TableExtractionArtifact.chart_path is built by Python after validation" in table_extract_verify_template
+    assert "Do not use browser tools, file://, localhost, or 127.0.0.1 for chart_filesystem_path" in (
         table_extract_verify_template
     )
     assert "hidden or non-rendered rows" in table_extract_verify_template

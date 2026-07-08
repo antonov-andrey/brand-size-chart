@@ -1,12 +1,10 @@
 # Canonical Select
 
-Select one canonical chart per size group from verified canonical candidates. Read canonical_selection_candidate_list from the Stage prompt context path before selecting. Each candidate contains a table_extraction_artifact handle plus Python-computed source_priority and applicability_status decision values. Do not add a `selected_chart_path` that is absent from the candidate table_extraction_artifact list.
-
-Read every candidate chart_path as a local JSON artifact before claiming same-priority candidate equivalence.
+Select one canonical chart per size group from canonical_selection_candidate_list. Read canonical_selection_candidate_list from the Stage prompt context path before selecting. This list already contains only Python-built candidates that participate in canonical selection. Each candidate contains a table_extraction_artifact handle plus Python-computed source_priority and applicability_status decision values. Do not add a `selected_chart_path` that is absent from the candidate table_extraction_artifact list.
 
 Follow this order:
 
-1. group verified eligible CanonicalSelectionCandidate items by table_extraction_artifact.size_group_key.
+1. group canonical_selection_candidate_list items by table_extraction_artifact.size_group_key.
 2. For each group, choose the maximum source_priority from the candidate objects.
 3. If one candidate remains, select it.
 4. If multiple maximum-priority candidates remain, read every candidate chart_path as a local JSON artifact through normal filesystem access.

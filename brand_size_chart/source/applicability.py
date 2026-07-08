@@ -2,6 +2,26 @@
 
 from brand_size_chart.model import ApplicabilityStatus, TableExtractionArtifact
 
+_APPLICABILITY_STATUS_CANONICAL_SET = {
+    "priority_country_official",
+    "official_global",
+    "official_eu_consensus",
+    "official_cross_locale_consensus",
+}
+
+
+def is_applicability_status_canonical(applicability_status: ApplicabilityStatus) -> bool:
+    """Return whether one applicability status can participate in canonical selection.
+
+    Args:
+        applicability_status: Python-computed table applicability status.
+
+    Returns:
+        True when the status can participate in canonical selection.
+    """
+
+    return applicability_status in _APPLICABILITY_STATUS_CANONICAL_SET
+
 
 def table_extraction_applicability_status_get(
     table_extraction: TableExtractionArtifact, *, priority_country_code: str

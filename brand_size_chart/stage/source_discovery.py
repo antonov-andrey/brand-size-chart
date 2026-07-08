@@ -4,7 +4,7 @@ from pathlib import Path
 
 from workflow_container_runtime.artifact import JsonArtifactWriter
 from workflow_container_runtime.prompt import PromptRenderer
-from workflow_container_runtime.stage import VerifiedCodexStageConfig, VerifiedCodexStageRunner
+from workflow_container_runtime.stage import BrowserActionResult, VerifiedCodexStageConfig, VerifiedCodexStageRunner
 
 from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import (
@@ -12,9 +12,7 @@ from brand_size_chart.model import (
     BrandInput,
     PromptScope,
     SourceDiscovery,
-    SourceDiscoveryDeltaResult,
     SourceDiscoveryPromptContext,
-    SourceDiscoveryResult,
     SourceSurfaceInventory,
 )
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
@@ -58,11 +56,11 @@ class SourceDiscoveryStage:
         self._source_type = source_type
         self._stage_dir = self._artifact_layout.source_discover_dir(brand_input, source_type)
 
-    def run(self) -> SourceDiscoveryResult:
+    def run(self) -> list[SourceDiscovery]:
         """Run source discovery from rendered evidence.
 
         Returns:
-            Verified source discovery result.
+            Verified source discovery list.
         """
 
         self._artifact_directory_prepare()
@@ -78,14 +76,14 @@ class SourceDiscoveryStage:
                 stage_dir=self._stage_dir,
                 stage_key="source_discover",
             ),
-            model_class=SourceDiscoveryDeltaResult,
+            model_class=BrowserActionResult,
             mechanical_validate=SourceDiscoveryValidator(
                 prompt_context=prompt_context,
                 result_dir=self._result_dir,
                 stage_dir=self._stage_dir,
             ).validate,
         )
-        return self._source_discovery_result_get()
+        return self._source_discovery_list_get()
 
     def _artifact_directory_prepare(self) -> None:
         """Create source-discovery directories required before Codex browser execution."""
@@ -134,28 +132,18 @@ class SourceDiscoveryStage:
 
         return self._stage_dir / "state.schema.json"
 
-    def _source_discovery_result_get(self) -> SourceDiscoveryResult:
-        """Build cross-stage source discovery result from validated inventory.
+    def _source_discovery_list_get(self) -> list[SourceDiscovery]:
+        """Build cross-stage source discovery list from validated inventory.
 
         Returns:
-            Python-built cross-stage source discovery result.
+            Python-built cross-stage source discovery list.
         """
 
         inventory = SourceSurfaceInventory.model_validate_json(
             (self._stage_dir / "state.json").read_text(encoding="utf-8")
         )
-        discovered_source_list = [
-            SourceDiscovery(
-                country_code_list=source_surface_table.country_code_list,
-                evidence_path_list=source_surface_table.evidence_path_list,
-                size_group_key=source_surface_table.size_group_key,
-                source_title=source_surface_table.source_title,
-                source_url=source_surface_table.source_url,
-            )
+        return [
+            source_surface_table.source_discovery
             for source_surface_table in inventory.table_list
             if source_surface_table.state == "accepted"
         ]
-        return SourceDiscoveryResult(
-            discovered_source_list=discovered_source_list,
-            no_table_reason_list=[] if discovered_source_list else inventory.no_table_reason_list_get(),
-        )

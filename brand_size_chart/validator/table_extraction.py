@@ -30,6 +30,7 @@ class TableExtractionValidator:
 
         self._artifact_reference_validator = ArtifactReferenceValidator(result_dir)
         self._prompt_context = prompt_context
+        self._result_dir = result_dir.resolve()
 
     def validate(self, table_extraction_delta_batch_result: TableExtractionDeltaBatchResult) -> None:
         """Validate artifact-backed batch table-extraction structural consistency.
@@ -51,7 +52,7 @@ class TableExtractionValidator:
                 f"execplan_count={execplan_count}; "
                 f"delta_count={delta_count}; "
                 "expected_size_group_key_list="
-                f"{[execplan_item.size_group_key for execplan_item in self._prompt_context.execplan_item_list]}"
+                f"{[item.source_discovery.size_group_key for item in self._prompt_context.execplan_item_list]}"
             )
         for execplan_item, table_extraction_delta in zip(
             self._prompt_context.execplan_item_list,
@@ -76,17 +77,20 @@ class TableExtractionValidator:
             RuntimeError: If the chart artifact is missing or invalid.
         """
 
-        self._artifact_reference_validator.path_list_validate(
-            path_list=[execplan_item.chart_write_target.artifact_path],
-            stage_key="table_extract",
-        )
-        chart_path = Path(execplan_item.chart_write_target.filesystem_path)
+        chart_path = Path(execplan_item.chart_filesystem_path).resolve()
+        size_group_key = execplan_item.source_discovery.size_group_key
+        try:
+            chart_path.relative_to(self._result_dir)
+        except ValueError as exc:
+            raise RuntimeError(
+                f"table_extraction chart target is outside result_dir for {size_group_key}: " f"{chart_path}"
+            ) from exc
+        if not chart_path.is_file():
+            raise RuntimeError(f"Stage table_extract returned missing artifact for {size_group_key}: {chart_path}")
         try:
             return BrandSizeChart.model_validate_json(chart_path.read_text(encoding="utf-8"))
         except Exception as exc:
-            raise RuntimeError(
-                f"table_extraction chart artifact is invalid for {execplan_item.size_group_key}: {exc}"
-            ) from exc
+            raise RuntimeError(f"table_extraction chart artifact is invalid for {size_group_key}: {exc}") from exc
 
     def _chart_validate(self, *, chart: BrandSizeChart, size_group_key: str) -> None:
         """Validate one parsed chart payload.
@@ -143,14 +147,15 @@ class TableExtractionValidator:
         """
 
         execplan_item_by_size_group_key_map = {
-            execplan_item.size_group_key: execplan_item for execplan_item in self._prompt_context.execplan_item_list
+            execplan_item.source_discovery.size_group_key: execplan_item
+            for execplan_item in self._prompt_context.execplan_item_list
         }
         if len(execplan_item_by_size_group_key_map) != len(self._prompt_context.execplan_item_list):
             raise RuntimeError("table_extract execplan_item_list contains duplicate size_group_key values")
-        chart_artifact_path_list = [
-            execplan_item.chart_write_target.artifact_path for execplan_item in self._prompt_context.execplan_item_list
+        chart_filesystem_path_list = [
+            execplan_item.chart_filesystem_path for execplan_item in self._prompt_context.execplan_item_list
         ]
-        if len(set(chart_artifact_path_list)) != len(chart_artifact_path_list):
+        if len(set(chart_filesystem_path_list)) != len(chart_filesystem_path_list):
             raise RuntimeError("table_extract execplan_item_list contains duplicate chart artifact targets")
 
     def _table_extraction_delta_validate(
@@ -168,7 +173,7 @@ class TableExtractionValidator:
 
         self._chart_validate(
             chart=self._chart_get(execplan_item=execplan_item),
-            size_group_key=execplan_item.size_group_key,
+            size_group_key=execplan_item.source_discovery.size_group_key,
         )
         self._artifact_reference_validator.evidence_path_list_validate(
             evidence_path_list=table_extraction_delta.evidence_path_list,

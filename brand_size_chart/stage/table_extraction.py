@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from workflow_container_runtime.artifact import JsonArtifactWriter
 from workflow_container_runtime.prompt import PromptRenderer
 from workflow_container_runtime.stage import VerifiedCodexStageConfig, VerifiedCodexStageRunner
 
@@ -9,6 +10,7 @@ from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import (
     ArtifactWriteTarget,
     BrandInput,
+    BrandSizeChart,
     PromptScope,
     SourceDiscovery,
     TableExtractionArtifact,
@@ -50,6 +52,7 @@ class TableExtractionStage:
         """
 
         self._artifact_layout = ArtifactLayout(result_dir)
+        self._artifact_writer = JsonArtifactWriter()
         self._brand_input = brand_input
         self._browser_runtime_mcp_url = browser_runtime_mcp_url
         self._codex_stage_run = codex_stage_run_callable
@@ -93,12 +96,19 @@ class TableExtractionStage:
     def _artifact_directory_prepare(self) -> None:
         """Create table-extraction directories required before Codex browser execution."""
 
-        (self._artifact_layout.table_extract_dir(self._brand_input, self._source_type) / "chart").mkdir(
-            parents=True,
-            exist_ok=True,
-        )
+        (self._stage_dir / "chart").mkdir(parents=True, exist_ok=True)
+        self._artifact_writer.write(self._chart_schema_path_get(), BrandSizeChart.model_json_schema())
         for source_discovery in self._source_discovery_list:
             self._table_extract_evidence_dir_get(source_discovery).mkdir(parents=True, exist_ok=True)
+
+    def _chart_schema_path_get(self) -> Path:
+        """Return generated table-extraction chart schema path.
+
+        Returns:
+            BrandSizeChart schema artifact path.
+        """
+
+        return self._stage_dir / "chart.schema.json"
 
     def _prompt_context_get(self) -> TableExtractionPromptContext:
         """Return batch table-extraction prompt context.
@@ -117,18 +127,12 @@ class TableExtractionStage:
             )
             execplan_item_list.append(
                 TableExtractionExecplanItem(
-                    chart_write_target=ArtifactWriteTarget(
-                        artifact_path=self._artifact_layout.artifact_path(chart_path),
-                        filesystem_path=self._artifact_layout.filesystem_path_get(chart_path),
-                    ),
+                    chart_filesystem_path=self._artifact_layout.filesystem_path_get(chart_path),
                     evidence_write_target=ArtifactWriteTarget(
                         artifact_path=self._artifact_layout.artifact_path(evidence_dir),
                         filesystem_path=self._artifact_layout.filesystem_path_get(evidence_dir),
                     ),
-                    size_group_key=source_discovery.size_group_key,
-                    source_discovery_evidence_path_list=source_discovery.evidence_path_list,
-                    source_title=source_discovery.source_title,
-                    source_url=source_discovery.source_url,
+                    source_discovery=source_discovery,
                 )
             )
         return TableExtractionPromptContext(
@@ -161,29 +165,34 @@ class TableExtractionStage:
         self,
         *,
         execplan_item: TableExtractionExecplanItem,
-        source_discovery: SourceDiscovery,
         table_extraction_delta: TableExtractionDelta,
     ) -> TableExtractionArtifact:
         """Build one cross-stage artifact handle from execplan identity and extraction delta.
 
         Args:
             execplan_item: Table-extraction execplan item that owns identity and chart target.
-            source_discovery: Verified source discovery that owns immutable table identity.
             table_extraction_delta: Codex-owned extraction delta.
 
         Returns:
             Cross-stage artifact handle.
         """
 
+        source_discovery = execplan_item.source_discovery
         return TableExtractionArtifact(
             applicability_description=table_extraction_delta.applicability_description,
-            chart_path=execplan_item.chart_write_target.artifact_path,
+            chart_path=self._artifact_layout.artifact_path(
+                self._artifact_layout.table_extract_chart_path(
+                    self._brand_input,
+                    self._source_type,
+                    source_discovery.size_group_key,
+                )
+            ),
             country_code_list=source_discovery.country_code_list,
             evidence_path_list=table_extraction_delta.evidence_path_list,
-            size_group_key=execplan_item.size_group_key,
-            source_title=execplan_item.source_title,
+            size_group_key=source_discovery.size_group_key,
+            source_title=source_discovery.source_title,
             source_type=self._source_type,
-            source_url=execplan_item.source_url,
+            source_url=source_discovery.source_url,
         )
 
     def _table_extraction_artifact_list_get(
@@ -202,13 +211,9 @@ class TableExtractionStage:
             Cross-stage artifact handle list.
         """
 
-        source_discovery_by_size_group_key_map = {
-            source_discovery.size_group_key: source_discovery for source_discovery in self._source_discovery_list
-        }
         return [
             self._table_extraction_artifact_get(
                 execplan_item=execplan_item,
-                source_discovery=source_discovery_by_size_group_key_map[execplan_item.size_group_key],
                 table_extraction_delta=table_extraction_delta,
             )
             for execplan_item, table_extraction_delta in zip(

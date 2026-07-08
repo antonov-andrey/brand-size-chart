@@ -16,7 +16,11 @@ from brand_size_chart.model import (
     PromptScope,
     TableExtractionArtifact,
 )
-from brand_size_chart.source import SOURCE_TYPE_REGISTRY, table_extraction_applicability_status_get
+from brand_size_chart.source import (
+    SOURCE_TYPE_REGISTRY,
+    is_applicability_status_canonical,
+    table_extraction_applicability_status_get,
+)
 from brand_size_chart.stage.base import CodexStageRun, stage_instruction_list_get
 from brand_size_chart.validator import CanonicalSelectionValidator
 
@@ -96,19 +100,24 @@ class CanonicalSelectionStage:
             Prompt context object.
         """
 
-        return CanonicalSelectionPromptContext(
-            brand_name=self._brand_name,
-            canonical_selection_candidate_list=[
+        canonical_selection_candidate_list: list[CanonicalSelectionCandidate] = []
+        for table_extraction in self._table_extraction_list:
+            applicability_status = table_extraction_applicability_status_get(
+                table_extraction,
+                priority_country_code=self._prompt_scope.priority_country_code,
+            )
+            if not is_applicability_status_canonical(applicability_status):
+                continue
+            canonical_selection_candidate_list.append(
                 CanonicalSelectionCandidate(
-                    applicability_status=table_extraction_applicability_status_get(
-                        table_extraction,
-                        priority_country_code=self._prompt_scope.priority_country_code,
-                    ),
+                    applicability_status=applicability_status,
                     source_priority=SOURCE_TYPE_REGISTRY.source_type_priority_get(table_extraction.source_type),
                     table_extraction_artifact=table_extraction,
                 )
-                for table_extraction in self._table_extraction_list
-            ],
+            )
+        return CanonicalSelectionPromptContext(
+            brand_name=self._brand_name,
+            canonical_selection_candidate_list=canonical_selection_candidate_list,
             shared_instruction=self._prompt_scope.shared_instruction,
             stage_instruction_list=stage_instruction_list_get(
                 prompt_scope=self._prompt_scope,

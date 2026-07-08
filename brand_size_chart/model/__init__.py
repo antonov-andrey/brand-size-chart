@@ -1,7 +1,6 @@
 """Public model imports for workflow artifacts."""
 
 from brand_size_chart.model.base import (
-    APPLICABILITY_STATUS_CANONICAL_SET,
     COUNTRY_CODE_PATTERN,
     IdentifierComponent,
     SOURCE_COUNTRY_CODE_SPECIAL_SET,
@@ -22,14 +21,12 @@ from brand_size_chart.model.selection import (
 )
 from brand_size_chart.model.source import (
     SourceDiscovery,
-    SourceDiscoveryDeltaResult,
-    SourceDiscoveryResult,
     SourceSurfaceDiscoveryQuery,
     SourceSurfaceInventory,
     SourceSurfaceProductTypeSex,
     SourceSurfaceTable,
     SourceSurfaceUrl,
-    SourceTypeSummary,
+    SourceTypeResult,
     TableExtractionArtifact,
     TableExtractionDelta,
     TableExtractionDeltaBatchResult,
@@ -47,7 +44,6 @@ from brand_size_chart.model.stage_context import (
 )
 
 __all__ = [
-    "APPLICABILITY_STATUS_CANONICAL_SET",
     "ArtifactWriteTarget",
     "COUNTRY_CODE_PATTERN",
     "SOURCE_COUNTRY_CODE_SPECIAL_SET",
@@ -72,8 +68,6 @@ __all__ = [
     "PromptStageInstruction",
     "RunResult",
     "SourceDiscovery",
-    "SourceDiscoveryDeltaResult",
-    "SourceDiscoveryResult",
     "SourceSurfaceDiscoveryQuery",
     "SourceSurfaceInventory",
     "SourceSurfaceProductTypeSex",
@@ -81,7 +75,7 @@ __all__ = [
     "SourceSurfaceUrl",
     "SourceDiscoveryPromptContext",
     "SourceTypeCatalogItem",
-    "SourceTypeSummary",
+    "SourceTypeResult",
     "StageStatus",
     "StrictBaseModel",
     "TableExtractionArtifact",

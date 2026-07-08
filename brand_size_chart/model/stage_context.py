@@ -3,7 +3,7 @@
 from pydantic import Field
 
 from brand_size_chart.model.base import ApplicabilityStatus, IdentifierComponent, StrictBaseModel
-from brand_size_chart.model.source import TableExtractionArtifact
+from brand_size_chart.model.source import SourceDiscovery, TableExtractionArtifact
 
 
 class StagePromptContextBase(StrictBaseModel):
@@ -65,12 +65,9 @@ class SourceTypeCatalogItem(StrictBaseModel):
 class TableExtractionExecplanItem(StrictBaseModel):
     """Prompt context for one table-extraction batch item."""
 
-    chart_write_target: ArtifactWriteTarget
+    chart_filesystem_path: str
     evidence_write_target: ArtifactWriteTarget
-    size_group_key: IdentifierComponent
-    source_discovery_evidence_path_list: list[str] = Field(default_factory=list)
-    source_title: str
-    source_url: str
+    source_discovery: SourceDiscovery
 
 
 class TableExtractionPromptContext(StagePromptContextBase):

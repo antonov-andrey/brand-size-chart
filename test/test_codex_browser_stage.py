@@ -15,8 +15,7 @@ from brand_size_chart.model import (
     BrandSizeChartRow,
     PromptScope,
     SourceDiscovery,
-    SourceDiscoveryDeltaResult,
-    SourceDiscoveryResult,
+    SourceSurfaceInventory,
     TableExtractionArtifact,
     TableExtractionDelta,
     TableExtractionDeltaBatchResult,
@@ -25,7 +24,7 @@ from brand_size_chart.stage.source_discovery import SourceDiscoveryStage
 from brand_size_chart.stage.table_extraction import TableExtractionStage
 from workflow_container_runtime.codex import CodexStageRunner
 from workflow_container_runtime.codex import runner as codex_runner
-from workflow_container_runtime.stage import MAX_STAGE_ATTEMPT_COUNT, StageVerificationResult
+from workflow_container_runtime.stage import BrowserActionResult, MAX_STAGE_ATTEMPT_COUNT, StageVerificationResult
 
 
 def _brand_input_get() -> BrandInput:
@@ -167,12 +166,11 @@ def _source_discover_state_write(
     if source_discovery is not None:
         inventory_payload["table_list"] = [
             {
-                "country_code_list": source_discovery.country_code_list,
-                "evidence_path_list": [evidence_artifact_path],
                 "reason": "visible table",
-                "size_group_key": source_discovery.size_group_key,
-                "source_title": source_discovery.source_title,
-                "source_url": source_discovery.source_url,
+                "source_discovery": source_discovery.model_dump(mode="json")
+                | {
+                    "evidence_path_list": [evidence_artifact_path],
+                },
                 "state": "accepted",
             }
         ]
@@ -260,7 +258,7 @@ def _table_extraction_delta_batch_result_get(
     )
 
 
-def _source_discovery_result_get(
+def _source_discovery_list_get(
     *,
     brand_input: BrandInput,
     browser_runtime_mcp_url: str,
@@ -268,7 +266,7 @@ def _source_discovery_result_get(
     prompt_scope: PromptScope,
     result_dir: Path,
     source_type: str,
-) -> SourceDiscoveryResult:
+) -> list[SourceDiscovery]:
     """Run the real source discovery stage for tests.
 
     Args:
@@ -280,7 +278,7 @@ def _source_discovery_result_get(
         source_type: Source type key.
 
     Returns:
-        Source discovery result.
+        Source discovery list.
     """
 
     return SourceDiscoveryStage(
@@ -291,6 +289,32 @@ def _source_discovery_result_get(
         result_dir=result_dir,
         source_type=source_type,
     ).run()
+
+
+def _source_discovery_no_table_reason_list_get(*, result_dir: Path, source_type: str) -> list[str]:
+    """Return no-table reasons from source-discovery private state.
+
+    Args:
+        result_dir: Result root.
+        source_type: Source type key.
+
+    Returns:
+        No-table reason list.
+    """
+
+    inventory_path = (
+        result_dir
+        / "brand_size_chart_audit"
+        / "brand"
+        / "defacto"
+        / "source_type"
+        / source_type
+        / "source_discover"
+        / "state.json"
+    )
+    return SourceSurfaceInventory.model_validate_json(
+        inventory_path.read_text(encoding="utf-8")
+    ).no_table_reason_list_get()
 
 
 def _table_extract_result_get(
@@ -381,7 +405,7 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
         )
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
-        if model_class is SourceDiscoveryDeltaResult:
+        if model_class is BrowserActionResult:
             source_discovery = SourceDiscovery(
                 country_code_list=["TR"],
                 evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
@@ -395,12 +419,12 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
                 source_discovery=source_discovery,
                 stage_dir=stage_dir,
             )
-            return SourceDiscoveryDeltaResult()
+            return BrowserActionResult()
         return StageVerificationResult(
             status="success",
         )
 
-    result = _source_discovery_result_get(
+    result = _source_discovery_list_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
@@ -487,8 +511,8 @@ def test_source_discovery_retries_page_level_size_group_key(monkeypatch: object,
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("browser-visible evidence\n", encoding="utf-8")
         if (
-            model_class is SourceDiscoveryDeltaResult
-            and len([call for call in call_list if call["model_class"] is SourceDiscoveryDeltaResult]) == 1
+            model_class is BrowserActionResult
+            and len([call for call in call_list if call["model_class"] is BrowserActionResult]) == 1
         ):
             source_discovery = SourceDiscovery(
                 country_code_list=["TR"],
@@ -503,8 +527,8 @@ def test_source_discovery_retries_page_level_size_group_key(monkeypatch: object,
                 source_discovery=source_discovery,
                 stage_dir=stage_dir,
             )
-            return SourceDiscoveryDeltaResult()
-        if model_class is SourceDiscoveryDeltaResult:
+            return BrowserActionResult()
+        if model_class is BrowserActionResult:
             assert "aggregate token" in prompt_text
             source_discovery = SourceDiscovery(
                 country_code_list=["TR"],
@@ -519,8 +543,8 @@ def test_source_discovery_retries_page_level_size_group_key(monkeypatch: object,
                 source_discovery=source_discovery,
                 stage_dir=stage_dir,
             )
-            return SourceDiscoveryDeltaResult()
-        if len([call for call in call_list if call["model_class"] is SourceDiscoveryDeltaResult]) == 1:
+            return BrowserActionResult()
+        if len([call for call in call_list if call["model_class"] is BrowserActionResult]) == 1:
             return StageVerificationResult(
                 feedback_list=["SourceDiscovery.size_group_key contains aggregate token."],
                 status="failed",
@@ -529,7 +553,7 @@ def test_source_discovery_retries_page_level_size_group_key(monkeypatch: object,
             status="success",
         )
 
-    result = _source_discovery_result_get(
+    result = _source_discovery_list_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
@@ -538,8 +562,8 @@ def test_source_discovery_retries_page_level_size_group_key(monkeypatch: object,
         source_type="official_brand_size_guide",
     )
 
-    discovery_call_list = [call for call in call_list if call["model_class"] is SourceDiscoveryDeltaResult]
-    assert result.discovered_source_list[0].size_group_key == "women_upper"
+    discovery_call_list = [call for call in call_list if call["model_class"] is BrowserActionResult]
+    assert result[0].size_group_key == "women_upper"
     assert len(discovery_call_list) == 2
 
 
@@ -578,8 +602,8 @@ def test_source_discovery_retry_prompt_includes_previous_result(monkeypatch: obj
         evidence_path = stage_dir / "evidence" / "fr_ma_size_charts_dom_tables.json"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text('{"table": "Tableau Des Tailles Femmes"}\n', encoding="utf-8")
-        discovery_call_count = len([call for call in call_list if call["model_class"] is SourceDiscoveryDeltaResult])
-        if model_class is SourceDiscoveryDeltaResult and discovery_call_count == 1:
+        discovery_call_count = len([call for call in call_list if call["model_class"] is BrowserActionResult])
+        if model_class is BrowserActionResult and discovery_call_count == 1:
             source_discovery = SourceDiscovery(
                 country_code_list=["TR"],
                 evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
@@ -593,15 +617,16 @@ def test_source_discovery_retry_prompt_includes_previous_result(monkeypatch: obj
                 source_discovery=source_discovery,
                 stage_dir=stage_dir,
             )
-            return SourceDiscoveryDeltaResult()
-        if model_class is SourceDiscoveryDeltaResult:
+            return BrowserActionResult()
+        if model_class is BrowserActionResult:
             assert "Previous stage result path" in prompt_text
             assert "source_discover/result.json" in prompt_text
             previous_result = json.loads((stage_dir / "result.json").read_text(encoding="utf-8"))
             previous_state = json.loads((stage_dir / "state.json").read_text(encoding="utf-8"))
             assert "discovered_source_list" not in previous_result
-            assert previous_state["table_list"][0]["size_group_key"] == "women_upper"
-            assert previous_state["table_list"][0]["source_url"] == "https://www.defacto.com/fr-ma/static/size-charts"
+            previous_source_discovery = previous_state["table_list"][0]["source_discovery"]
+            assert previous_source_discovery["size_group_key"] == "women_upper"
+            assert previous_source_discovery["source_url"] == "https://www.defacto.com/fr-ma/static/size-charts"
             source_discovery = SourceDiscovery(
                 country_code_list=["TR"],
                 evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
@@ -615,7 +640,7 @@ def test_source_discovery_retry_prompt_includes_previous_result(monkeypatch: obj
                 source_discovery=source_discovery,
                 stage_dir=stage_dir,
             )
-            return SourceDiscoveryDeltaResult()
+            return BrowserActionResult()
         if discovery_call_count == 1:
             return StageVerificationResult(
                 feedback_list=["Inventory is incomplete."],
@@ -625,7 +650,7 @@ def test_source_discovery_retry_prompt_includes_previous_result(monkeypatch: obj
             status="success",
         )
 
-    result = _source_discovery_result_get(
+    result = _source_discovery_list_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
@@ -634,8 +659,8 @@ def test_source_discovery_retry_prompt_includes_previous_result(monkeypatch: obj
         source_type="official_brand_size_guide",
     )
 
-    discovery_call_list = [call for call in call_list if call["model_class"] is SourceDiscoveryDeltaResult]
-    assert result.discovered_source_list[0].size_group_key == "women_upper"
+    discovery_call_list = [call for call in call_list if call["model_class"] is BrowserActionResult]
+    assert result[0].size_group_key == "women_upper"
     assert len(discovery_call_list) == 2
 
 
@@ -674,11 +699,11 @@ def test_source_discovery_retries_after_mechanical_guard_failure(monkeypatch: ob
         evidence_path = stage_dir / "evidence" / "defacto_size_guide.json"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
-        discovery_call_count = len([call for call in call_list if call["model_class"] is SourceDiscoveryDeltaResult])
-        if model_class is SourceDiscoveryDeltaResult and discovery_call_count == 1:
+        discovery_call_count = len([call for call in call_list if call["model_class"] is BrowserActionResult])
+        if model_class is BrowserActionResult and discovery_call_count == 1:
             _source_discover_state_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
-            return SourceDiscoveryDeltaResult()
-        if model_class is SourceDiscoveryDeltaResult:
+            return BrowserActionResult()
+        if model_class is BrowserActionResult:
             assert "no accepted table rows and no evidence-backed no-table inventory reasons" in prompt_text
             source_discovery = SourceDiscovery(
                 country_code_list=["TR"],
@@ -693,12 +718,12 @@ def test_source_discovery_retries_after_mechanical_guard_failure(monkeypatch: ob
                 source_discovery=source_discovery,
                 stage_dir=stage_dir,
             )
-            return SourceDiscoveryDeltaResult()
+            return BrowserActionResult()
         return StageVerificationResult(
             status="success",
         )
 
-    result = _source_discovery_result_get(
+    result = _source_discovery_list_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
@@ -707,8 +732,8 @@ def test_source_discovery_retries_after_mechanical_guard_failure(monkeypatch: ob
         source_type="official_brand_size_guide",
     )
 
-    discovery_call_list = [call for call in call_list if call["model_class"] is SourceDiscoveryDeltaResult]
-    assert result.discovered_source_list[0].size_group_key == "women_upper"
+    discovery_call_list = [call for call in call_list if call["model_class"] is BrowserActionResult]
+    assert result[0].size_group_key == "women_upper"
     assert len(discovery_call_list) == 2
 
 
@@ -746,7 +771,7 @@ def test_source_discovery_accepts_no_table_result_with_canonical_inventory(monke
         _ = result_dir
         _ = stage_name
         call_list.append({"model_class": model_class})
-        if model_class is SourceDiscoveryDeltaResult:
+        if model_class is BrowserActionResult:
             evidence_path = stage_dir / "evidence" / "seller_size_guide_absence.json"
             evidence_path.parent.mkdir(parents=True, exist_ok=True)
             evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
@@ -765,12 +790,12 @@ def test_source_discovery_accepts_no_table_result_with_canonical_inventory(monke
                 json.dumps(inventory_payload, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
-            return SourceDiscoveryDeltaResult()
+            return BrowserActionResult()
         return StageVerificationResult(
             status="success",
         )
 
-    result = _source_discovery_result_get(
+    result = _source_discovery_list_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
@@ -779,10 +804,13 @@ def test_source_discovery_accepts_no_table_result_with_canonical_inventory(monke
         source_type="official_seller_size_guide",
     )
 
-    discovery_call_list = [call for call in call_list if call["model_class"] is SourceDiscoveryDeltaResult]
-    assert result.discovered_source_list == []
-    assert result.no_table_reason_list == ["No official seller size-guide table was visible in browser evidence."]
-    assert discovery_call_list == [{"model_class": SourceDiscoveryDeltaResult}]
+    discovery_call_list = [call for call in call_list if call["model_class"] is BrowserActionResult]
+    assert result == []
+    assert _source_discovery_no_table_reason_list_get(
+        result_dir=tmp_path,
+        source_type="official_seller_size_guide",
+    ) == ["No official seller size-guide table was visible in browser evidence."]
+    assert discovery_call_list == [{"model_class": BrowserActionResult}]
 
 
 def test_source_discovery_materializes_browser_inventory_before_guard(monkeypatch: object, tmp_path: Path) -> None:
@@ -818,7 +846,7 @@ def test_source_discovery_materializes_browser_inventory_before_guard(monkeypatc
         _ = prompt_text
         _ = stage_name
         call_list.append({"model_class": model_class})
-        if model_class is SourceDiscoveryDeltaResult:
+        if model_class is BrowserActionResult:
             inventory_path = result_dir / ".playwright-mcp" / "current" / stage_dir.relative_to(result_dir)
             evidence_path = inventory_path / "evidence" / "seller_size_guide_absence.json"
             evidence_path.parent.mkdir(parents=True, exist_ok=True)
@@ -838,12 +866,12 @@ def test_source_discovery_materializes_browser_inventory_before_guard(monkeypatc
                 json.dumps(inventory_payload, indent=2, sort_keys=True) + "\n",
                 encoding="utf-8",
             )
-            return SourceDiscoveryDeltaResult()
+            return BrowserActionResult()
         return StageVerificationResult(
             status="success",
         )
 
-    result = _source_discovery_result_get(
+    result = _source_discovery_list_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
@@ -853,11 +881,14 @@ def test_source_discovery_materializes_browser_inventory_before_guard(monkeypatc
     )
 
     canonical_inventory_path = source_type_dir / "source_discover" / "state.json"
-    discovery_call_list = [call for call in call_list if call["model_class"] is SourceDiscoveryDeltaResult]
+    discovery_call_list = [call for call in call_list if call["model_class"] is BrowserActionResult]
 
     assert len(discovery_call_list) == 1
-    assert result.discovered_source_list == []
-    assert result.no_table_reason_list == ["No official seller size-guide table was visible in browser evidence."]
+    assert result == []
+    assert _source_discovery_no_table_reason_list_get(
+        result_dir=tmp_path,
+        source_type="official_seller_size_guide",
+    ) == ["No official seller size-guide table was visible in browser evidence."]
     assert canonical_inventory_path.is_file()
 
 
@@ -898,7 +929,7 @@ def test_source_discovery_prepares_browser_evidence_directory_before_codex(monke
             / "source_discover/evidence"
         )
         assert evidence_dir.is_dir()
-        if model_class is SourceDiscoveryDeltaResult:
+        if model_class is BrowserActionResult:
             evidence_path = evidence_dir / "seller_size_guide_absence.json"
             evidence_path.write_text('{"source": "browser"}\n', encoding="utf-8")
             inventory_path = stage_dir / "state.json"
@@ -921,12 +952,12 @@ def test_source_discovery_prepares_browser_evidence_directory_before_codex(monke
                 + "\n",
                 encoding="utf-8",
             )
-            return SourceDiscoveryDeltaResult()
+            return BrowserActionResult()
         return StageVerificationResult(
             status="success",
         )
 
-    result = _source_discovery_result_get(
+    result = _source_discovery_list_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
@@ -935,8 +966,10 @@ def test_source_discovery_prepares_browser_evidence_directory_before_codex(monke
         source_type=source_type,
     )
 
-    assert result.discovered_source_list == []
-    assert result.no_table_reason_list == ["No official seller size-guide table was visible in browser evidence."]
+    assert result == []
+    assert _source_discovery_no_table_reason_list_get(result_dir=tmp_path, source_type=source_type) == [
+        "No official seller size-guide table was visible in browser evidence."
+    ]
 
 
 def test_source_discovery_prompt_has_no_hardcoded_size_guide_routes(monkeypatch: object, tmp_path: Path) -> None:
@@ -974,7 +1007,7 @@ def test_source_discovery_prompt_has_no_hardcoded_size_guide_routes(monkeypatch:
         evidence_path = stage_dir / "evidence" / "defacto_size_guide.md"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("browser-visible evidence\n", encoding="utf-8")
-        if model_class is SourceDiscoveryDeltaResult:
+        if model_class is BrowserActionResult:
             source_discovery = SourceDiscovery(
                 country_code_list=["TR"],
                 evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
@@ -988,12 +1021,12 @@ def test_source_discovery_prompt_has_no_hardcoded_size_guide_routes(monkeypatch:
                 source_discovery=source_discovery,
                 stage_dir=stage_dir,
             )
-            return SourceDiscoveryDeltaResult()
+            return BrowserActionResult()
         return StageVerificationResult(
             status="success",
         )
 
-    _source_discovery_result_get(
+    _source_discovery_list_get(
         brand_input=_brand_input_get(),
         browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
         codex_stage_run_callable=fake_codex_stage_run,
@@ -1003,7 +1036,7 @@ def test_source_discovery_prompt_has_no_hardcoded_size_guide_routes(monkeypatch:
     )
 
     discovery_prompt = str(
-        next(call["prompt_text"] for call in call_list if call["model_class"] is SourceDiscoveryDeltaResult)
+        next(call["prompt_text"] for call in call_list if call["model_class"] is BrowserActionResult)
     )
     assert "/statik/beden-rehberi" not in discovery_prompt
     assert "/statik/size-guide" not in discovery_prompt
@@ -1043,7 +1076,7 @@ def test_source_discovery_retries_then_fails_empty_skipped_result(monkeypatch: o
         _ = browser_runtime_mcp_url
         _ = stage_name
         call_list.append({"model_class": model_class, "prompt_text": prompt_text})
-        if model_class is SourceDiscoveryDeltaResult:
+        if model_class is BrowserActionResult:
             evidence_path = stage_dir / "evidence" / "empty_discovery.json"
             evidence_path.parent.mkdir(parents=True, exist_ok=True)
             evidence_path.write_text('{"table_count": 0}\n', encoding="utf-8")
@@ -1053,14 +1086,14 @@ def test_source_discovery_retries_then_fails_empty_skipped_result(monkeypatch: o
                 source_discovery=None,
                 stage_dir=stage_dir,
             )
-            return SourceDiscoveryDeltaResult()
+            return BrowserActionResult()
         return StageVerificationResult(
             feedback_list=["Empty source discovery is forbidden."],
             status="failed",
         )
 
     try:
-        _source_discovery_result_get(
+        _source_discovery_list_get(
             brand_input=_brand_input_get(),
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
             codex_stage_run_callable=fake_codex_stage_run,
@@ -1073,7 +1106,7 @@ def test_source_discovery_retries_then_fails_empty_skipped_result(monkeypatch: o
     else:
         message = ""
 
-    discovery_call_list = [call for call in call_list if call["model_class"] is SourceDiscoveryDeltaResult]
+    discovery_call_list = [call for call in call_list if call["model_class"] is BrowserActionResult]
     assert "did not pass verification" in message
     assert len(discovery_call_list) == MAX_STAGE_ATTEMPT_COUNT
     assert "no accepted table rows and no evidence-backed no-table inventory reasons" in str(
@@ -1183,7 +1216,7 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
     prompt_context = json.loads((source_type_dir / "table_extract" / "prompt_context.json").read_text(encoding="utf-8"))
     assert "Use the configured browser" in prompt_text
     assert "table_extract/prompt_context.json" in prompt_text
-    assert [item["size_group_key"] for item in prompt_context["execplan_item_list"]] == [
+    assert [item["source_discovery"]["size_group_key"] for item in prompt_context["execplan_item_list"]] == [
         "women_upper",
         "women_lower",
     ]
@@ -1199,7 +1232,7 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
     assert all("source_type" not in item for item in prompt_context["execplan_item_list"])
     assert all("country_code_list" not in item for item in prompt_context["execplan_item_list"])
     assert all("product_type_hint_list" not in item for item in prompt_context["execplan_item_list"])
-    assert [item["source_title"] for item in prompt_context["execplan_item_list"]] == [
+    assert [item["source_discovery"]["source_title"] for item in prompt_context["execplan_item_list"]] == [
         "Official marketplace product page upper size answer",
         "Official marketplace product page lower size answer",
     ]
@@ -1316,12 +1349,9 @@ def test_table_extract_batch_loads_chart_artifacts_from_lightweight_codex_result
     prompt_context = json.loads((source_type_dir / "table_extract" / "prompt_context.json").read_text(encoding="utf-8"))
     assert len(table_extract_call_list) == 1
     assert "table_extract/prompt_context.json" in str(table_extract_call_list[0]["prompt_text"])
-    assert [item["chart_write_target"]["artifact_path"] for item in prompt_context["execplan_item_list"]] == [
-        "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/table_extract/chart/women_upper.json",
-        "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/table_extract/chart/women_lower.json",
-    ]
+    assert all("chart_write_target" not in item for item in prompt_context["execplan_item_list"])
     assert all(
-        item["chart_write_target"]["filesystem_path"].endswith(f"{item['size_group_key']}.json")
+        item["chart_filesystem_path"].endswith(f"{item['source_discovery']['size_group_key']}.json")
         for item in prompt_context["execplan_item_list"]
     )
     assert "chart_path" not in result_payload["table_extraction_delta_list"][0]
@@ -1610,14 +1640,14 @@ def test_source_discovery_rejects_skipped_result_even_when_verification_passes(
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("no table evidence\n", encoding="utf-8")
         _source_discover_state_write(evidence_path=evidence_path, result_dir=result_dir, stage_dir=stage_dir)
-        if model_class is SourceDiscoveryDeltaResult:
-            return SourceDiscoveryDeltaResult()
+        if model_class is BrowserActionResult:
+            return BrowserActionResult()
         return StageVerificationResult(
             status="success",
         )
 
     try:
-        _source_discovery_result_get(
+        _source_discovery_list_get(
             brand_input=_brand_input_get(),
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
             codex_stage_run_callable=fake_codex_stage_run,
@@ -1668,7 +1698,7 @@ def test_source_discovery_rejects_duplicate_size_group_key(monkeypatch: object, 
         evidence_path = stage_dir / "evidence" / "guide.md"
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text("browser evidence", encoding="utf-8")
-        if model_class is SourceDiscoveryDeltaResult:
+        if model_class is BrowserActionResult:
             discovery = SourceDiscovery(
                 country_code_list=["TR"],
                 evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
@@ -1685,21 +1715,18 @@ def test_source_discovery_rejects_duplicate_size_group_key(monkeypatch: object, 
                         "url_list": [],
                         "table_list": [
                             {
-                                "country_code_list": discovery.country_code_list,
-                                "evidence_path_list": [evidence_artifact_path],
                                 "reason": "visible table",
-                                "size_group_key": discovery.size_group_key,
-                                "source_title": discovery.source_title,
-                                "source_url": discovery.source_url,
+                                "source_discovery": discovery.model_dump(mode="json"),
                                 "state": "accepted",
                             },
                             {
-                                "country_code_list": discovery.country_code_list,
-                                "evidence_path_list": [evidence_artifact_path],
                                 "reason": "duplicate accepted table",
-                                "size_group_key": discovery.size_group_key,
-                                "source_title": "Women upper duplicate",
-                                "source_url": "https://defacto.example/size-duplicate",
+                                "source_discovery": discovery.model_dump(mode="json")
+                                | {
+                                    "evidence_path_list": [evidence_artifact_path],
+                                    "source_title": "Women upper duplicate",
+                                    "source_url": "https://defacto.example/size-duplicate",
+                                },
                                 "state": "accepted",
                             },
                         ],
@@ -1710,13 +1737,13 @@ def test_source_discovery_rejects_duplicate_size_group_key(monkeypatch: object, 
                 + "\n",
                 encoding="utf-8",
             )
-            return SourceDiscoveryDeltaResult()
+            return BrowserActionResult()
         return StageVerificationResult(
             status="success",
         )
 
     try:
-        _source_discovery_result_get(
+        _source_discovery_list_get(
             brand_input=_brand_input_get(),
             browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
             codex_stage_run_callable=fake_codex_stage_run,

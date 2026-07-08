@@ -14,7 +14,6 @@ class RunResult(StrictBaseModel):
 
     brand_result_list: list[BrandResult]
     error_list: list[str] = Field(default_factory=list)
-    message: str
     prompt_scope: PromptScope
     result_dir: str
     status: StageStatus

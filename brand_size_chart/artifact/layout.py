@@ -186,18 +186,18 @@ class ArtifactLayout:
 
         return self.brand_audit_dir(brand_input) / "source_type" / source_type
 
-    def source_type_summary_result_path(self, brand_input: BrandInput, source_type: str) -> Path:
-        """Return source-type summary result path.
+    def source_type_result_path(self, brand_input: BrandInput, source_type: str) -> Path:
+        """Return source-type workflow result path.
 
         Args:
             brand_input: Parsed brand input.
             source_type: Source type key.
 
         Returns:
-            Source-type summary result artifact path.
+            Source-type workflow result artifact path.
         """
 
-        return self.source_type_dir(brand_input, source_type) / "source_type_summary" / "result.json"
+        return self.source_type_dir(brand_input, source_type) / "source_type_result" / "result.json"
 
     def table_extract_dir(self, brand_input: BrandInput, source_type: str) -> Path:
         """Return batch table-extract audit directory for one source type.

@@ -9,20 +9,11 @@ from pydantic import AfterValidator, BaseModel, ConfigDict
 
 from brand_size_chart.identifier import dbos_identifier_component
 
-APPLICABILITY_STATUS_CANONICAL_SET = {
-    "priority_country_official",
-    "official_global",
-    "official_eu_consensus",
-    "official_cross_locale_consensus",
-}
 ApplicabilityStatus = Literal[
     "priority_country_official",
     "official_global",
     "official_eu_consensus",
     "official_cross_locale_consensus",
-    "duplicate_exact",
-    "duplicate_units_only",
-    "market_conflict",
     "unknown_blocked",
 ]
 StageStatus = Literal["success", "failed", "skipped"]

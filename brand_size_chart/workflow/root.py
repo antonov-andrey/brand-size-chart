@@ -114,9 +114,6 @@ class BrandSizeChartRunWorkflow(BrandSizeChartCodexWorkflow):
         run_result = RunResult(
             brand_result_list=brand_result_list,
             error_list=run_error_list,
-            message=(
-                "Workflow run completed with failed brands." if failed_brand_result_list else "Workflow run completed."
-            ),
             prompt_scope=PromptScope.model_validate(prompt_scope_payload),
             result_dir=result_dir,
             status="failed" if failed_brand_result_list else "success",
@@ -149,7 +146,6 @@ def run_failure_result_write(
     run_result = RunResult(
         brand_result_list=[],
         error_list=[error_text],
-        message="Workflow run failed before DBOS root workflow completed.",
         prompt_scope=PromptScope(),
         result_dir=str(result_dir),
         status="failed",

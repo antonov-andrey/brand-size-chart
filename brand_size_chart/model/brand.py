@@ -8,7 +8,7 @@ from pydantic import Field
 
 from brand_size_chart.model.base import StageStatus, StrictBaseModel
 from brand_size_chart.model.selection import CanonicalSelection
-from brand_size_chart.model.source import SourceTypeSummary
+from brand_size_chart.model.source import SourceTypeResult
 
 
 class BrandInput(StrictBaseModel):
@@ -44,9 +44,8 @@ class BrandResult(StrictBaseModel):
     audit_artifact_path_list: list[str]
     canonical_selection_list: list[CanonicalSelection]
     error_list: list[str] = Field(default_factory=list)
-    message: str
     parsed_brand_key: str
     parsed_brand_name: str
     size_chart_path_list: list[str]
-    source_type_summary_list: list[SourceTypeSummary]
+    source_type_result_list: list[SourceTypeResult]
     status: StageStatus
