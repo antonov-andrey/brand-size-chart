@@ -11,6 +11,7 @@
 - Python code uses Python 3.14.
 - Python code must be formatted with Black using target version `py314` and line length `120`.
 - Tests must use `pytest`.
+- Tests must not verify instruction artifacts by checking that specific prose, headings, phrases, examples, files, or placement rules exist or do not exist. Instruction artifacts are verified by semantic reread or semantic audit, not by pytest assertions over text or instruction artifact paths.
 
 ## DBOS Runtime
 - Configure DBOS only inside `brand_size_chart.app.entrypoint.main`.
