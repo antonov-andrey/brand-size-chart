@@ -19,9 +19,10 @@ from brand_size_chart.model import (
     TableExtractionArtifact,
     TableExtractionDelta,
     TableExtractionDeltaBatchResult,
+    TableExtractionResult,
 )
-from brand_size_chart.stage.source_discovery import SourceDiscoveryStage
-from brand_size_chart.stage.table_extraction import TableExtractionStage
+from brand_size_chart.stage.source_discovery import SourceDiscoveryStep
+from brand_size_chart.stage.table_extraction import TableExtractionStep
 from workflow_container_runtime.codex import CodexStageRunner
 from workflow_container_runtime.codex import runner as codex_runner
 from workflow_container_runtime.stage import BrowserActionResult, MAX_STAGE_ATTEMPT_COUNT, StageVerificationResult
@@ -281,14 +282,18 @@ def _source_discovery_list_get(
         Source discovery list.
     """
 
-    return SourceDiscoveryStage(
-        brand_input=brand_input,
-        browser_runtime_mcp_url=browser_runtime_mcp_url,
-        codex_stage_run_callable=codex_stage_run_callable,
-        prompt_scope=prompt_scope,
-        result_dir=result_dir,
-        source_type=source_type,
-    ).run()
+    return (
+        SourceDiscoveryStep(
+            brand_input=brand_input,
+            browser_runtime_mcp_url=browser_runtime_mcp_url,
+            codex_stage_run_callable=codex_stage_run_callable,
+            prompt_scope=prompt_scope,
+            result_dir=result_dir,
+            source_type=source_type,
+        )
+        .run()
+        .source_discovery_list
+    )
 
 
 def _source_discovery_no_table_reason_list_get(*, result_dir: Path, source_type: str) -> list[str]:
@@ -342,15 +347,19 @@ def _table_extract_result_get(
         Verified table extraction artifact handle list.
     """
 
-    return TableExtractionStage(
-        brand_input=brand_input,
-        browser_runtime_mcp_url=browser_runtime_mcp_url,
-        codex_stage_run_callable=codex_stage_run_callable,
-        prompt_scope=prompt_scope,
-        result_dir=result_dir,
-        source_discovery_list=source_discovery_list,
-        source_type=source_type,
-    ).run()
+    return (
+        TableExtractionStep(
+            brand_input=brand_input,
+            browser_runtime_mcp_url=browser_runtime_mcp_url,
+            codex_stage_run_callable=codex_stage_run_callable,
+            prompt_scope=prompt_scope,
+            result_dir=result_dir,
+            source_discovery_list=source_discovery_list,
+            source_type=source_type,
+        )
+        .run()
+        .table_extraction_list
+    )
 
 
 def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkeypatch: object, tmp_path: Path) -> None:
@@ -437,23 +446,23 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
         source_type="official_marketplace_product_page",
     )
 
-    prompt_context = json.loads((source_type_dir / "source_discover" / "input.json").read_text(encoding="utf-8"))
-    assert prompt_context["source_type"] == "official_marketplace_product_page"
+    stage_input = json.loads((source_type_dir / "source_discover" / "input.json").read_text(encoding="utf-8"))
+    assert stage_input["source_type"] == "official_marketplace_product_page"
     assert call_list[0]["browser_runtime_mcp_url"] == "http://127.0.0.1:12000/mcp"
     prompt_text = str(call_list[0]["prompt_text"])
-    prompt_context = json.loads((source_type_dir / "source_discover" / "input.json").read_text(encoding="utf-8"))
+    stage_input = json.loads((source_type_dir / "source_discover" / "input.json").read_text(encoding="utf-8"))
     assert "source_discover/input.json" in prompt_text
-    assert prompt_context["evidence_write_target"]["filesystem_path"] == str(
+    assert stage_input["evidence_write_target"]["filesystem_path"] == str(
         tmp_path / ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
         "official_marketplace_product_page/source_discover/evidence"
     )
     assert (
-        prompt_context["evidence_write_target"]["artifact_path"]
+        stage_input["evidence_write_target"]["artifact_path"]
         == ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
         "official_marketplace_product_page/source_discover/evidence"
     )
-    assert prompt_context["requested_product_type_list"] == ["women shoes"]
-    assert prompt_context["shared_instruction"] == (
+    assert stage_input["requested_product_type_list"] == ["women shoes"]
+    assert stage_input["shared_instruction"] == (
         "Only search official marketplace product page evidence for requested product types."
     )
 
@@ -1129,25 +1138,25 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
     assert table_extract_call_list[0]["browser_runtime_mcp_url"] == "http://127.0.0.1:12000/mcp"
     assert table_extract_call_list[0]["stage_name"] == "table_extract"
     prompt_text = str(table_extract_call_list[0]["prompt_text"])
-    prompt_context = json.loads((source_type_dir / "table_extract" / "input.json").read_text(encoding="utf-8"))
+    stage_input = json.loads((source_type_dir / "table_extract" / "input.json").read_text(encoding="utf-8"))
     assert "table_extract/input.json" in prompt_text
-    assert [item["source_discovery"]["size_group_key"] for item in prompt_context["execplan_item_list"]] == [
+    assert [item["source_discovery"]["size_group_key"] for item in stage_input["execplan_item_list"]] == [
         "women_upper",
         "women_lower",
     ]
-    assert prompt_context["execplan_item_list"][0]["evidence_write_target"]["filesystem_path"] == str(
+    assert stage_input["execplan_item_list"][0]["evidence_write_target"]["filesystem_path"] == str(
         tmp_path / ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
         "official_marketplace_product_page/table_extract/evidence/women_upper"
     )
     assert (
-        prompt_context["execplan_item_list"][1]["evidence_write_target"]["artifact_path"]
+        stage_input["execplan_item_list"][1]["evidence_write_target"]["artifact_path"]
         == ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
         "official_marketplace_product_page/table_extract/evidence/women_lower"
     )
-    assert all("source_type" not in item for item in prompt_context["execplan_item_list"])
-    assert all("country_code_list" not in item for item in prompt_context["execplan_item_list"])
-    assert all("product_type_hint_list" not in item for item in prompt_context["execplan_item_list"])
-    assert [item["source_discovery"]["source_title"] for item in prompt_context["execplan_item_list"]] == [
+    assert all("source_type" not in item for item in stage_input["execplan_item_list"])
+    assert all("country_code_list" not in item for item in stage_input["execplan_item_list"])
+    assert all("product_type_hint_list" not in item for item in stage_input["execplan_item_list"])
+    assert [item["source_discovery"]["source_title"] for item in stage_input["execplan_item_list"]] == [
         "Official marketplace product page upper size answer",
         "Official marketplace product page lower size answer",
     ]
@@ -1169,9 +1178,10 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
             / "brand_size_chart_audit/brand/defacto/source_type/official_marketplace_product_page/table_extract/chart/women_lower.json"
         ).read_text(encoding="utf-8")
     )
-    assert "size_group_key" not in batch_result_payload["table_extraction_delta_list"][0]
-    assert "chart_path" not in batch_result_payload["table_extraction_delta_list"][0]
-    assert "chart" not in batch_result_payload["table_extraction_delta_list"][0]
+    assert TableExtractionResult.model_validate(batch_result_payload).table_extraction_list == result
+    assert batch_result_payload["table_extraction_list"][0]["size_group_key"] == "women_upper"
+    assert batch_result_payload["table_extraction_list"][0]["chart_path"].endswith("women_upper.json")
+    assert "chart" not in batch_result_payload["table_extraction_list"][0]
     assert result[0].chart_path.endswith("women_upper.json")
     assert women_upper_chart_payload["description"] == "Official marketplace product page upper size answer"
     assert women_lower_chart_payload["description"] == "Official marketplace product page lower size answer"
@@ -1260,16 +1270,17 @@ def test_table_extract_batch_loads_chart_artifacts_from_lightweight_codex_result
 
     table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionDeltaBatchResult]
     result_payload = json.loads((source_type_dir / "table_extract" / "result.json").read_text(encoding="utf-8"))
-    prompt_context = json.loads((source_type_dir / "table_extract" / "input.json").read_text(encoding="utf-8"))
+    stage_input = json.loads((source_type_dir / "table_extract" / "input.json").read_text(encoding="utf-8"))
     assert len(table_extract_call_list) == 1
     assert "table_extract/input.json" in str(table_extract_call_list[0]["prompt_text"])
-    assert all("chart_write_target" not in item for item in prompt_context["execplan_item_list"])
+    assert all("chart_write_target" not in item for item in stage_input["execplan_item_list"])
     assert all(
         item["chart_filesystem_path"].endswith(f"{item['source_discovery']['size_group_key']}.json")
-        for item in prompt_context["execplan_item_list"]
+        for item in stage_input["execplan_item_list"]
     )
-    assert "chart_path" not in result_payload["table_extraction_delta_list"][0]
-    assert "chart" not in result_payload["table_extraction_delta_list"][0]
+    assert TableExtractionResult.model_validate(result_payload).table_extraction_list == result
+    assert result_payload["table_extraction_list"][0]["chart_path"].endswith("women_upper.json")
+    assert "chart" not in result_payload["table_extraction_list"][0]
     assert [table_extraction.size_group_key for table_extraction in result] == [
         "women_upper",
         "women_lower",

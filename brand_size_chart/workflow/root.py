@@ -9,7 +9,7 @@ from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.identifier import dbos_identifier
 from brand_size_chart.io import brand_list_parse
 from brand_size_chart.model import BrandListParseWarning, BrandResult, PromptScope, RunResult
-from brand_size_chart.stage import WorkflowRunPromptApplyStage
+from brand_size_chart.stage import WorkflowRunPromptApplyStep
 from brand_size_chart.workflow.brand import BRAND_SIZE_CHART_BRAND_WORKFLOW
 from brand_size_chart.workflow.codex import BrandSizeChartCodexWorkflow
 
@@ -74,7 +74,7 @@ class BrandSizeChartRunWorkflow(BrandSizeChartCodexWorkflow):
         Returns:
             Serialized prompt scope.
         """
-        prompt_scope = WorkflowRunPromptApplyStage(
+        prompt_scope = WorkflowRunPromptApplyStep(
             codex_stage_run_callable=self._codex_stage_runner.run,
             result_dir=Path(result_dir),
             workflow_run_prompt=workflow_run_prompt,

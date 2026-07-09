@@ -10,11 +10,12 @@ from brand_size_chart.model import (
     BrandInput,
     PromptScope,
     SourceDiscovery,
-    SourceSurfaceInventory,
+    SourceDiscoveryResult,
     SourceTypeResult,
     TableExtractionArtifact,
+    TableExtractionResult,
 )
-from brand_size_chart.stage import SourceDiscoveryStage, TableExtractionStage
+from brand_size_chart.stage import SourceDiscoveryStep, TableExtractionStep
 from brand_size_chart.workflow.codex import BrandSizeChartCodexWorkflow
 
 
@@ -49,31 +50,34 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
         prompt_scope = PromptScope.model_validate(prompt_scope_payload)
         verified_table_extraction_payload_list: list[dict[str, object]] = []
         blocker_list: list[str] = []
+        source_discovery_warning_list: list[str] = []
         try:
-            source_discovery_payload_list = self.source_discover_write_step(
+            source_discovery_payload = self.source_discover_write_step(
                 brand_input.model_dump(mode="json"),
                 browser_runtime_mcp_url,
                 prompt_scope.model_dump(mode="json"),
                 result_dir,
                 source_type,
             )
-            discovered_source_list = [
-                SourceDiscovery.model_validate(source_discovery_payload)
-                for source_discovery_payload in source_discovery_payload_list
-            ]
-            if discovered_source_list:
-                table_extraction_payload_list = self.table_extract_write_step(
+            source_discovery_result = SourceDiscoveryResult.model_validate(source_discovery_payload)
+            source_discovery_warning_list = list(source_discovery_result.warning_list)
+            if source_discovery_result.source_discovery_list:
+                table_extraction_payload = self.table_extract_write_step(
                     brand_input.model_dump(mode="json"),
                     browser_runtime_mcp_url,
                     prompt_scope.model_dump(mode="json"),
                     result_dir,
                     source_type,
-                    [source_discovery.model_dump(mode="json") for source_discovery in discovered_source_list],
+                    [
+                        source_discovery.model_dump(mode="json")
+                        for source_discovery in source_discovery_result.source_discovery_list
+                    ],
                 )
+                table_extraction_result = TableExtractionResult.model_validate(table_extraction_payload)
                 verified_table_extraction_payload_list.extend(
                     [
-                        TableExtractionArtifact.model_validate(table_extraction_payload).model_dump(mode="json")
-                        for table_extraction_payload in table_extraction_payload_list
+                        table_extraction.model_dump(mode="json")
+                        for table_extraction in table_extraction_result.table_extraction_list
                     ]
                 )
         except RuntimeError as exc:
@@ -84,6 +88,7 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
             source_type,
             verified_table_extraction_payload_list,
             blocker_list,
+            source_discovery_warning_list,
         )
         return source_type_result_payload
 
@@ -95,7 +100,7 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
         prompt_scope_payload: dict[str, object],
         result_dir: str,
         source_type: str,
-    ) -> list[dict[str, object]]:
+    ) -> dict[str, object]:
         """Write source discovery result and verification.
 
         Args:
@@ -106,12 +111,12 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
             source_type: Source type key.
 
         Returns:
-            Serialized verified source discovery list.
+            Serialized source-discovery result.
         """
         brand_input = BrandInput.model_validate(brand_input_payload)
         prompt_scope = PromptScope.model_validate(prompt_scope_payload)
         result_dir_path = Path(result_dir)
-        source_discovery_list = SourceDiscoveryStage(
+        source_discovery_result = SourceDiscoveryStep(
             brand_input=brand_input,
             browser_runtime_mcp_url=browser_runtime_mcp_url,
             codex_stage_run_callable=self._codex_stage_runner.run,
@@ -119,7 +124,7 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
             result_dir=result_dir_path,
             source_type=source_type,
         ).run()
-        return [source_discovery.model_dump(mode="json") for source_discovery in source_discovery_list]
+        return source_discovery_result.model_dump(mode="json")
 
     @DBOS.step(name="table_extract_write_step")
     def table_extract_write_step(
@@ -130,7 +135,7 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
         result_dir: str,
         source_type: str,
         source_discovery_payload_list: list[dict[str, object]],
-    ) -> list[dict[str, object]]:
+    ) -> dict[str, object]:
         """Write batch table extraction and chart artifacts.
 
         Args:
@@ -142,13 +147,13 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
             source_discovery_payload_list: Serialized source discoveries.
 
         Returns:
-            Serialized verified table extraction list.
+            Serialized table-extraction result.
         """
 
         brand_input = BrandInput.model_validate(brand_input_payload)
         prompt_scope = PromptScope.model_validate(prompt_scope_payload)
         result_dir_path = Path(result_dir)
-        table_extraction_list = TableExtractionStage(
+        table_extraction_result = TableExtractionStep(
             brand_input=brand_input,
             browser_runtime_mcp_url=browser_runtime_mcp_url,
             codex_stage_run_callable=self._codex_stage_runner.run,
@@ -160,7 +165,7 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
             ],
             source_type=source_type,
         ).run()
-        return [table_extraction.model_dump(mode="json") for table_extraction in table_extraction_list]
+        return table_extraction_result.model_dump(mode="json")
 
     @DBOS.step(name="source_type_result_write_step")
     def result_write_step(
@@ -170,6 +175,7 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
         source_type: str,
         table_extraction_payload_list: list[dict[str, object]],
         blocker_list: list[str],
+        source_discovery_warning_list: list[str],
     ) -> dict[str, object]:
         """Write source-type workflow result.
 
@@ -179,6 +185,7 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
             source_type: Source type key.
             table_extraction_payload_list: Serialized verified table extractions.
             blocker_list: Source-type blocker messages collected during discovery or extraction.
+            source_discovery_warning_list: Source-discovery no-table warning list.
 
         Returns:
             Serialized source-type result.
@@ -190,50 +197,17 @@ class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
             TableExtractionArtifact.model_validate(table_extraction_payload)
             for table_extraction_payload in table_extraction_payload_list
         ]
-        result_warning_list: list[str] = []
-        if not blocker_list and not table_extraction_list:
-            result_warning_list.extend(
-                self._source_discover_no_table_warning_list_get(
-                    artifact_layout=artifact_layout,
-                    brand_input=brand_input,
-                    source_type=source_type,
-                )
-            )
         source_type_result = SourceTypeResult(
             blocker_list=blocker_list,
             source_type=source_type,
             table_extraction_list=table_extraction_list,
-            warning_list=result_warning_list,
+            warning_list=[] if blocker_list or table_extraction_list else source_discovery_warning_list,
         )
         JsonArtifactWriter().write(
             artifact_layout.source_type_result_path(brand_input, source_type),
             source_type_result,
         )
         return source_type_result.model_dump(mode="json")
-
-    def _source_discover_no_table_warning_list_get(
-        self, *, artifact_layout: ArtifactLayout, brand_input: BrandInput, source_type: str
-    ) -> list[str]:
-        """Return no-table warnings from the source-discovery private state.
-
-        Args:
-            artifact_layout: Artifact layout for the current result root.
-            brand_input: Parsed brand input.
-            source_type: Source type key.
-
-        Returns:
-            Source-discovery no-table warning list.
-
-        Raises:
-            RuntimeError: If source-discovery private state is unavailable.
-        """
-
-        source_discovery_state_path = artifact_layout.source_discover_dir(brand_input, source_type) / "state.json"
-        if not source_discovery_state_path.is_file():
-            raise RuntimeError(f"source_discover state.json is missing for skipped source_type={source_type}")
-        return SourceSurfaceInventory.model_validate_json(
-            source_discovery_state_path.read_text(encoding="utf-8")
-        ).no_table_reason_list_get()
 
 
 BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW = BrandSizeChartSourceTypeWorkflow()

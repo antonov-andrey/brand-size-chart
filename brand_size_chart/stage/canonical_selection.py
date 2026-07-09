@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from workflow_container_runtime.prompt import PromptRenderer
+from workflow_container_runtime.stage import WorkflowStepBase
 
 from brand_size_chart.model import (
     CanonicalSelectionCandidate,
@@ -16,20 +16,16 @@ from brand_size_chart.source import (
     is_applicability_status_canonical,
     table_extraction_applicability_status_get,
 )
-from brand_size_chart.stage.base import (
-    CodexStageRun,
-    VerifiedCodexStageConfig,
-    VerifiedCodexStageRunner,
-    stage_instruction_list_get,
-    verified_stage_artifact_write,
-)
+from brand_size_chart.stage.base import BrandSizeChartCodexStepBase, CodexStageRun, stage_instruction_list_get
 from brand_size_chart.validator import CanonicalSelectionValidator
 
-PROJECT_TEMPLATE_DIR = Path(__file__).parents[1] / "prompt" / "template"
 
-
-class CanonicalSelectionStage:
+class CanonicalSelectionStep(
+    BrandSizeChartCodexStepBase[CanonicalSelectionInput, CanonicalSelectionResult, CanonicalSelectionResult]
+):
     """Select canonical tables from verified table extractions."""
+
+    stage_key = "canonical_select"
 
     def __init__(
         self,
@@ -41,7 +37,7 @@ class CanonicalSelectionStage:
         stage_dir: Path,
         table_extraction_list: list[TableExtractionArtifact],
     ) -> None:
-        """Store canonical-selection stage dependencies.
+        """Store canonical-selection step dependencies.
 
         Args:
             brand_name: Parsed brand display name.
@@ -53,11 +49,22 @@ class CanonicalSelectionStage:
         """
 
         self._brand_name = brand_name
-        self._codex_stage_run = codex_stage_run_callable
         self._prompt_scope = prompt_scope
-        self._result_dir = result_dir
-        self._stage_dir = stage_dir
         self._table_extraction_list = table_extraction_list
+        super().__init__(
+            codex_stage_run_callable=codex_stage_run_callable,
+            result_dir=result_dir,
+            stage_dir=stage_dir,
+        )
+
+    def action_output_model_get(self) -> type[CanonicalSelectionResult]:
+        """Return the canonical-selection action output model.
+
+        Returns:
+            Canonical selection result model.
+        """
+
+        return CanonicalSelectionResult
 
     def run(self) -> CanonicalSelectionResult:
         """Return semantically verified canonical selection.
@@ -68,31 +75,46 @@ class CanonicalSelectionStage:
 
         stage_input = self._stage_input_get()
         if not stage_input.canonical_selection_candidate_list:
-            canonical_selection_result = CanonicalSelectionResult(canonical_selection_list=[])
-            verified_stage_artifact_write(
-                config=VerifiedCodexStageConfig(
-                    prompt_context=stage_input,
-                    result_dir=self._result_dir,
-                    stage_dir=self._stage_dir,
-                    stage_key="canonical_select",
-                ),
-                result=canonical_selection_result,
-            )
-            return canonical_selection_result
-        canonical_selection_result = VerifiedCodexStageRunner(
-            codex_stage_run_callable=self._codex_stage_run,
-            prompt_renderer=PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
-        ).run(
-            config=VerifiedCodexStageConfig(
-                prompt_context=stage_input,
+            return _CanonicalSelectionEmptyStep(
                 result_dir=self._result_dir,
                 stage_dir=self._stage_dir,
-                stage_key="canonical_select",
-            ),
-            model_class=CanonicalSelectionResult,
-            mechanical_validate=CanonicalSelectionValidator(stage_input=stage_input).validate,
-        )
-        return canonical_selection_result
+                stage_input=stage_input,
+            ).run()
+        return super().run()
+
+    def input_build(self) -> CanonicalSelectionInput:
+        """Return canonical-selection input with verified candidate tables.
+
+        Returns:
+            Stage input object.
+        """
+
+        return self._stage_input_get()
+
+    def result_build(
+        self, stage_input: CanonicalSelectionInput, action_output: CanonicalSelectionResult
+    ) -> CanonicalSelectionResult:
+        """Return public canonical selection result from the action output.
+
+        Args:
+            stage_input: Canonical-selection input.
+            action_output: Codex-owned canonical selection result.
+
+        Returns:
+            Public canonical selection result.
+        """
+
+        _ = stage_input
+        return action_output
+
+    def result_validate(self, result: CanonicalSelectionResult) -> None:
+        """Validate public canonical selection result.
+
+        Args:
+            result: Public canonical selection result.
+        """
+
+        CanonicalSelectionValidator(stage_input=self.input_build()).validate(result)
 
     def _stage_input_get(self) -> CanonicalSelectionInput:
         """Return canonical-selection input with verified candidate tables.
@@ -122,6 +144,53 @@ class CanonicalSelectionStage:
             shared_instruction=self._prompt_scope.shared_instruction,
             stage_instruction_list=stage_instruction_list_get(
                 prompt_scope=self._prompt_scope,
-                stage_key="canonical_select",
+                stage_key=self.stage_key,
             ),
         )
+
+
+class _CanonicalSelectionEmptyStep(WorkflowStepBase[CanonicalSelectionInput, CanonicalSelectionResult]):
+    """Deterministic canonical-selection step for an empty candidate set."""
+
+    def __init__(self, *, result_dir: Path, stage_dir: Path, stage_input: CanonicalSelectionInput) -> None:
+        """Store deterministic empty-selection input.
+
+        Args:
+            result_dir: Root result directory.
+            stage_dir: Stage artifact directory.
+            stage_input: Canonical-selection input with no candidates.
+        """
+
+        super().__init__(result_dir=result_dir, stage_dir=stage_dir)
+        self._stage_input = stage_input
+
+    def input_build(self) -> CanonicalSelectionInput:
+        """Return deterministic empty-selection input.
+
+        Returns:
+            Canonical-selection input.
+        """
+
+        return self._stage_input
+
+    def result_build(self, stage_input: CanonicalSelectionInput) -> CanonicalSelectionResult:
+        """Return deterministic empty canonical-selection result.
+
+        Args:
+            stage_input: Canonical-selection input with no candidates.
+
+        Returns:
+            Empty canonical-selection result.
+        """
+
+        _ = stage_input
+        return CanonicalSelectionResult(canonical_selection_list=[])
+
+    def result_validate(self, result: CanonicalSelectionResult) -> None:
+        """Validate deterministic empty canonical-selection result.
+
+        Args:
+            result: Empty canonical-selection result.
+        """
+
+        CanonicalSelectionValidator(stage_input=self._stage_input).validate(result)

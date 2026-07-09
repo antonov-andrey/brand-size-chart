@@ -2,8 +2,6 @@
 
 from pathlib import Path
 
-from workflow_container_runtime.prompt import PromptRenderer
-
 from brand_size_chart.model import (
     BrandInput,
     CoverageDecisionInput,
@@ -11,19 +9,16 @@ from brand_size_chart.model import (
     PromptScope,
     TableExtractionArtifact,
 )
-from brand_size_chart.stage.base import (
-    CodexStageRun,
-    VerifiedCodexStageConfig,
-    VerifiedCodexStageRunner,
-    stage_instruction_list_get,
-)
+from brand_size_chart.stage.base import BrandSizeChartCodexStepBase, CodexStageRun, stage_instruction_list_get
 from brand_size_chart.validator import CoverageDecisionValidator
 
-PROJECT_TEMPLATE_DIR = Path(__file__).parents[1] / "prompt" / "template"
 
-
-class CoverageDecisionStage:
+class CoverageDecisionStep(
+    BrandSizeChartCodexStepBase[CoverageDecisionInput, CoverageDecisionResult, CoverageDecisionResult]
+):
     """Decide requested product-type coverage from verified table extractions."""
+
+    stage_key = "coverage_decide"
 
     def __init__(
         self,
@@ -35,7 +30,7 @@ class CoverageDecisionStage:
         stage_dir: Path,
         table_extraction_list: list[TableExtractionArtifact],
     ) -> None:
-        """Store coverage-decision stage dependencies.
+        """Store coverage-decision step dependencies.
 
         Args:
             brand_input: Parsed brand input.
@@ -47,36 +42,24 @@ class CoverageDecisionStage:
         """
 
         self._brand_input = brand_input
-        self._codex_stage_run = codex_stage_run_callable
         self._prompt_scope = prompt_scope
-        self._result_dir = result_dir
-        self._stage_dir = stage_dir
         self._table_extraction_list = table_extraction_list
+        super().__init__(
+            codex_stage_run_callable=codex_stage_run_callable,
+            result_dir=result_dir,
+            stage_dir=stage_dir,
+        )
 
-    def run(self) -> CoverageDecisionResult:
-        """Return semantically verified coverage for requested product types.
+    def action_output_model_get(self) -> type[CoverageDecisionResult]:
+        """Return the coverage-decision action output model.
 
         Returns:
-            Verified coverage decision result.
+            Coverage decision result model.
         """
 
-        stage_input = self._stage_input_get()
-        coverage_decision_result = VerifiedCodexStageRunner(
-            codex_stage_run_callable=self._codex_stage_run,
-            prompt_renderer=PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
-        ).run(
-            config=VerifiedCodexStageConfig(
-                prompt_context=stage_input,
-                result_dir=self._result_dir,
-                stage_dir=self._stage_dir,
-                stage_key="coverage_decide",
-            ),
-            model_class=CoverageDecisionResult,
-            mechanical_validate=CoverageDecisionValidator(stage_input=stage_input).validate,
-        )
-        return coverage_decision_result
+        return CoverageDecisionResult
 
-    def _stage_input_get(self) -> CoverageDecisionInput:
+    def input_build(self) -> CoverageDecisionInput:
         """Return coverage-decision input.
 
         Returns:
@@ -89,7 +72,32 @@ class CoverageDecisionStage:
             shared_instruction=self._prompt_scope.shared_instruction,
             stage_instruction_list=stage_instruction_list_get(
                 prompt_scope=self._prompt_scope,
-                stage_key="coverage_decide",
+                stage_key=self.stage_key,
             ),
             verified_table_artifact_list=self._table_extraction_list,
         )
+
+    def result_build(
+        self, stage_input: CoverageDecisionInput, action_output: CoverageDecisionResult
+    ) -> CoverageDecisionResult:
+        """Return public coverage result from the action output.
+
+        Args:
+            stage_input: Coverage-decision input.
+            action_output: Codex-owned coverage result.
+
+        Returns:
+            Public coverage decision result.
+        """
+
+        _ = stage_input
+        return action_output
+
+    def result_validate(self, result: CoverageDecisionResult) -> None:
+        """Validate public coverage decision result.
+
+        Args:
+            result: Public coverage decision result.
+        """
+
+        CoverageDecisionValidator(stage_input=self.input_build()).validate(result)

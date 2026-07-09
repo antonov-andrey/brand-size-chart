@@ -4,10 +4,10 @@ import json
 from pathlib import Path
 
 from pydantic import ValidationError
-from workflow_container_runtime.stage import BrowserActionResult
 
 from brand_size_chart.artifact import ArtifactReferenceValidator
 from brand_size_chart.model import (
+    SourceDiscoveryResult,
     SourceDiscoveryInput,
     SourceSurfaceInventory,
     SourceSurfaceTable,
@@ -97,17 +97,16 @@ class SourceDiscoveryValidator:
                 f"size_group_key_list={sorted(non_europe_size_group_key_list)}"
             )
 
-    def validate(self, browser_action_result: BrowserActionResult) -> None:
+    def validate(self, source_discovery_result: SourceDiscoveryResult) -> None:
         """Validate source-discovery structural consistency before semantic verification.
 
         Args:
-            browser_action_result: Generic browser-backed action result.
+            source_discovery_result: Public source-discovery result.
 
         Raises:
             RuntimeError: If discovery is structurally inconsistent.
         """
 
-        _ = browser_action_result
         inventory = self._inventory_validate()
         market_conflict_table_list = [
             source_surface_table
@@ -129,16 +128,25 @@ class SourceDiscoveryValidator:
             accepted_size_group_key_set={table.source_discovery.size_group_key for table in accepted_table_list},
             inventory=inventory,
         )
+        expected_source_discovery_list = [
+            source_surface_table.source_discovery for source_surface_table in accepted_table_list
+        ]
+        if source_discovery_result.source_discovery_list != expected_source_discovery_list:
+            raise RuntimeError("source_discover result does not match accepted rows in state.json")
         if not accepted_table_list:
-            if not inventory.no_table_reason_list_get():
+            expected_warning_list = inventory.no_table_reason_list_get()
+            if not expected_warning_list:
                 raise RuntimeError(
                     "source_discover returned no accepted table rows and no evidence-backed no-table inventory reasons"
                 )
+            if source_discovery_result.warning_list != expected_warning_list:
+                raise RuntimeError("source_discover warning_list does not match evidence-backed no-table reasons")
             return
+        if source_discovery_result.warning_list:
+            raise RuntimeError("source_discover warning_list must be empty when accepted table rows exist")
         self._country_selection_validate(accepted_table_list=accepted_table_list)
         size_group_key_set: set[str] = set()
-        for source_surface_table in accepted_table_list:
-            source_discovery = source_surface_table.source_discovery
+        for source_discovery in source_discovery_result.source_discovery_list:
             if source_discovery.size_group_key in size_group_key_set:
                 raise RuntimeError(f"source_discover duplicate size_group_key: {source_discovery.size_group_key}")
             size_group_key_set.add(source_discovery.size_group_key)

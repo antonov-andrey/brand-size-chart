@@ -5,10 +5,10 @@ from pathlib import Path
 from brand_size_chart.artifact import ArtifactReferenceValidator
 from brand_size_chart.model import (
     BrandSizeChart,
-    TableExtractionDelta,
-    TableExtractionDeltaBatchResult,
+    TableExtractionArtifact,
     TableExtractionExecplanItem,
     TableExtractionInput,
+    TableExtractionResult,
 )
 
 
@@ -32,36 +32,38 @@ class TableExtractionValidator:
         self._stage_input = stage_input
         self._result_dir = result_dir.resolve()
 
-    def validate(self, table_extraction_delta_batch_result: TableExtractionDeltaBatchResult) -> None:
+    def validate(self, table_extraction_result: TableExtractionResult) -> None:
         """Validate artifact-backed batch table-extraction structural consistency.
 
         Args:
-            table_extraction_delta_batch_result: Codex-owned extraction deltas to validate.
+            table_extraction_result: Public table-extraction result to validate.
 
         Raises:
             RuntimeError: If table extraction is structurally inconsistent.
         """
 
         self._execplan_validate()
-        delta_count = len(table_extraction_delta_batch_result.table_extraction_delta_list)
+        table_extraction_count = len(table_extraction_result.table_extraction_list)
         execplan_count = len(self._stage_input.execplan_item_list)
-        if delta_count != execplan_count:
-            mismatch_kind = "missing delta" if delta_count < execplan_count else "extra delta"
+        if table_extraction_count != execplan_count:
+            mismatch_kind = (
+                "missing table extraction" if table_extraction_count < execplan_count else "extra table extraction"
+            )
             raise RuntimeError(
                 f"table_extract result length mismatch ({mismatch_kind}); "
                 f"execplan_count={execplan_count}; "
-                f"delta_count={delta_count}; "
+                f"table_extraction_count={table_extraction_count}; "
                 "expected_size_group_key_list="
                 f"{[item.source_discovery.size_group_key for item in self._stage_input.execplan_item_list]}"
             )
-        for execplan_item, table_extraction_delta in zip(
+        for execplan_item, table_extraction in zip(
             self._stage_input.execplan_item_list,
-            table_extraction_delta_batch_result.table_extraction_delta_list,
+            table_extraction_result.table_extraction_list,
             strict=True,
         ):
-            self._table_extraction_delta_validate(
+            self._table_extraction_validate(
                 execplan_item=execplan_item,
-                table_extraction_delta=table_extraction_delta,
+                table_extraction=table_extraction,
             )
 
     def _chart_get(self, *, execplan_item: TableExtractionExecplanItem) -> BrandSizeChart:
@@ -158,24 +160,41 @@ class TableExtractionValidator:
         if len(set(chart_filesystem_path_list)) != len(chart_filesystem_path_list):
             raise RuntimeError("table_extract execplan_item_list contains duplicate chart artifact targets")
 
-    def _table_extraction_delta_validate(
-        self, *, execplan_item: TableExtractionExecplanItem, table_extraction_delta: TableExtractionDelta
+    def _table_extraction_validate(
+        self, *, execplan_item: TableExtractionExecplanItem, table_extraction: TableExtractionArtifact
     ) -> None:
-        """Validate one table extraction delta against its source discovery.
+        """Validate one public table extraction against its source discovery.
 
         Args:
             execplan_item: Execplan item that owns the table identity and paths.
-            table_extraction_delta: Codex-owned extraction delta.
+            table_extraction: Public table extraction.
 
         Raises:
             RuntimeError: If table extraction is structurally inconsistent.
         """
 
+        source_discovery = execplan_item.source_discovery
+        expected_chart_path = (
+            Path(execplan_item.chart_filesystem_path).resolve().relative_to(self._result_dir).as_posix()
+        )
+        expected_payload = {
+            **table_extraction.model_dump(mode="python"),
+            "chart_path": expected_chart_path,
+            "country_code_list": source_discovery.country_code_list,
+            "size_group_key": source_discovery.size_group_key,
+            "source_title": source_discovery.source_title,
+            "source_url": source_discovery.source_url,
+        }
+        if table_extraction.model_dump(mode="python") != expected_payload:
+            raise RuntimeError(
+                "table_extract public result does not preserve execplan source identity for "
+                f"{source_discovery.size_group_key}"
+            )
         self._chart_validate(
             chart=self._chart_get(execplan_item=execplan_item),
             size_group_key=execplan_item.source_discovery.size_group_key,
         )
         self._artifact_reference_validator.evidence_path_list_validate(
-            evidence_path_list=table_extraction_delta.evidence_path_list,
+            evidence_path_list=table_extraction.evidence_path_list,
             stage_key="table_extract",
         )

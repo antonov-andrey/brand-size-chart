@@ -28,20 +28,22 @@ from brand_size_chart.model import PromptScope
 from brand_size_chart.model import PromptStageInstruction
 from brand_size_chart.model import SourceDiscovery
 from brand_size_chart.model import SourceDiscoveryInput
+from brand_size_chart.model import SourceDiscoveryResult
+from brand_size_chart.model import SourceSurfaceInventory
 from brand_size_chart.model import SourceTypeResult
 from brand_size_chart.model import TableExtractionArtifact
 from brand_size_chart.model import TableExtractionDelta
 from brand_size_chart.model import TableExtractionDeltaBatchResult
 from brand_size_chart.model import TableExtractionExecplanItem
 from brand_size_chart.model import TableExtractionInput
+from brand_size_chart.model import TableExtractionResult
 from brand_size_chart.model import WorkflowRunPromptApplyInput
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
-from brand_size_chart.stage.base import VerifiedCodexStageConfig, VerifiedCodexStageRunner
 from brand_size_chart.source import table_extraction_applicability_status_get
-from brand_size_chart.stage.canonical_selection import CanonicalSelectionStage
-from brand_size_chart.stage.workflow_run_prompt_apply import WorkflowRunPromptApplyStage
+from brand_size_chart.stage.canonical_selection import CanonicalSelectionStep
+from brand_size_chart.stage.table_extraction import TableExtractionStep
+from brand_size_chart.stage.workflow_run_prompt_apply import WorkflowRunPromptApplyStep
 from workflow_container_contract.testing import workflow_contract_file_validate
-from workflow_container_runtime.prompt import PromptRenderer as RuntimePromptRenderer
 from workflow_container_runtime.stage import BrowserActionResult
 from workflow_container_runtime.stage import (
     StageVerificationResult,
@@ -98,6 +100,21 @@ def _table_extraction_delta_batch_result_get(
     )
 
 
+def _table_extraction_result_get(
+    table_extraction_artifact_list: list[TableExtractionArtifact],
+) -> TableExtractionResult:
+    """Return public table extraction result.
+
+    Args:
+        table_extraction_artifact_list: Final table extraction artifacts.
+
+    Returns:
+        Public table extraction result.
+    """
+
+    return TableExtractionResult(table_extraction_list=table_extraction_artifact_list)
+
+
 def _table_extract_stage_dir_prepare(
     tmp_path: Path, table_extraction_artifact_list: list[TableExtractionArtifact], *, source_type: str
 ) -> Path:
@@ -120,7 +137,7 @@ def _table_extract_stage_dir_prepare(
     return stage_dir
 
 
-def _source_discovery_prompt_context_get(
+def _source_discovery_stage_input_get(
     *,
     priority_country_code: str = "TR",
     product_type_request_list: list[str] | None = None,
@@ -188,7 +205,29 @@ def _source_surface_table_payload_get(
     }
 
 
-def _table_extraction_prompt_context_get(
+def _source_discovery_result_get(stage_dir: Path) -> SourceDiscoveryResult:
+    """Return public source-discovery result from test inventory state.
+
+    Args:
+        stage_dir: Source-discovery stage directory.
+
+    Returns:
+        Public source-discovery result.
+    """
+
+    inventory = SourceSurfaceInventory.model_validate_json((stage_dir / "state.json").read_text(encoding="utf-8"))
+    source_discovery_list = [
+        source_surface_table.source_discovery
+        for source_surface_table in inventory.table_list
+        if source_surface_table.state == "accepted"
+    ]
+    return SourceDiscoveryResult(
+        source_discovery_list=source_discovery_list,
+        warning_list=[] if source_discovery_list else inventory.no_table_reason_list_get(),
+    )
+
+
+def _table_extraction_stage_input_get(
     *, source_discovery_list: list[SourceDiscovery], stage_dir: Path, tmp_path: Path
 ) -> TableExtractionInput:
     """Return table-extraction prompt context for validator tests.
@@ -220,7 +259,7 @@ def _table_extraction_prompt_context_get(
     )
 
 
-def _canonical_selection_prompt_context_get(
+def _canonical_selection_stage_input_get(
     table_extraction_list: list[TableExtractionArtifact],
     *,
     source_priority_by_key_map: dict[str, int] | None = None,
@@ -743,7 +782,7 @@ def test_stage_validators_live_under_validator_package() -> None:
 
 def test_table_extraction_stage_builds_source_identity_from_discovery(tmp_path: Path) -> None:
     """Build immutable table identity from verified source discovery, not Codex output."""
-    from brand_size_chart.stage.table_extraction import TableExtractionStage
+    from brand_size_chart.stage.table_extraction import TableExtractionStep
 
     evidence_path = (
         tmp_path / ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
@@ -802,7 +841,7 @@ def test_table_extraction_stage_builds_source_identity_from_discovery(tmp_path: 
             return StageVerificationResult(status="success")
         return _table_extraction_delta_batch_result_get([table_extraction])
 
-    built_table_extraction = TableExtractionStage(
+    table_extraction_result = TableExtractionStep(
         brand_input=BrandInput(
             parsed_brand_key="defacto",
             parsed_brand_name="Defacto",
@@ -815,9 +854,12 @@ def test_table_extraction_stage_builds_source_identity_from_discovery(tmp_path: 
         result_dir=tmp_path,
         source_discovery_list=[source_discovery],
         source_type="official_brand_size_guide",
-    ).run()[0]
+    ).run()
+    result_payload = json.loads(stage_result_path_get(stage_dir).read_text(encoding="utf-8"))
+    built_table_extraction = table_extraction_result.table_extraction_list[0]
 
     assert stage_dir.is_dir()
+    assert TableExtractionResult.model_validate(result_payload) == table_extraction_result
     assert built_table_extraction.source_title == "Kadın Üst Beden Tablosu"
     assert built_table_extraction.country_code_list == ["TR"]
     assert built_table_extraction.source_type == "official_brand_size_guide"
@@ -901,16 +943,22 @@ def test_table_extraction_validator_rejects_missing_deterministic_chart_artifact
         [first_extraction, second_extraction],
         source_type="official_brand_size_guide",
     )
+    second_expected_extraction = TableExtractionArtifact.model_validate(
+        {
+            **second_extraction.model_dump(mode="python"),
+            "chart_path": (stage_dir / "chart" / "women_lower.json").relative_to(tmp_path).as_posix(),
+        }
+    )
 
     try:
         TableExtractionValidator(
-            stage_input=_table_extraction_prompt_context_get(
+            stage_input=_table_extraction_stage_input_get(
                 source_discovery_list=[first_discovery, second_discovery],
                 stage_dir=stage_dir,
                 tmp_path=tmp_path,
             ),
             result_dir=tmp_path,
-        ).validate(_table_extraction_delta_batch_result_get([first_extraction, second_extraction]))
+        ).validate(_table_extraction_result_get([first_extraction, second_expected_extraction]))
     except RuntimeError as exc:
         message = str(exc)
     else:
@@ -922,24 +970,24 @@ def test_table_extraction_validator_rejects_missing_deterministic_chart_artifact
 
 def test_semantic_stages_live_under_stage_package() -> None:
     """Keep semantic stage lifecycle outside DBOS workflow orchestration."""
-    from brand_size_chart.stage.canonical_selection import CanonicalSelectionStage
-    from brand_size_chart.stage.coverage_decision import CoverageDecisionStage
-    from brand_size_chart.stage.source_discovery import SourceDiscoveryStage
-    from brand_size_chart.stage.table_extraction import TableExtractionStage
-    from brand_size_chart.stage.workflow_run_prompt_apply import WorkflowRunPromptApplyStage
+    from brand_size_chart.stage.canonical_selection import CanonicalSelectionStep
+    from brand_size_chart.stage.coverage_decision import CoverageDecisionStep
+    from brand_size_chart.stage.source_discovery import SourceDiscoveryStep
+    from brand_size_chart.stage.table_extraction import TableExtractionStep
+    from brand_size_chart.stage.workflow_run_prompt_apply import WorkflowRunPromptApplyStep
 
-    assert WorkflowRunPromptApplyStage.__name__ == "WorkflowRunPromptApplyStage"
-    assert SourceDiscoveryStage.__name__ == "SourceDiscoveryStage"
-    assert TableExtractionStage.__name__ == "TableExtractionStage"
-    assert CoverageDecisionStage.__name__ == "CoverageDecisionStage"
-    assert CanonicalSelectionStage.__name__ == "CanonicalSelectionStage"
+    assert WorkflowRunPromptApplyStep.__name__ == "WorkflowRunPromptApplyStep"
+    assert SourceDiscoveryStep.__name__ == "SourceDiscoveryStep"
+    assert TableExtractionStep.__name__ == "TableExtractionStep"
+    assert CoverageDecisionStep.__name__ == "CoverageDecisionStep"
+    assert CanonicalSelectionStep.__name__ == "CanonicalSelectionStep"
 
 
 def test_coverage_decision_validation_retries_inside_semantic_stage(tmp_path: Path) -> None:
     """Feed coverage-decision mechanical errors back into the semantic retry loop."""
     from pydantic import BaseModel
 
-    from brand_size_chart.stage.coverage_decision import CoverageDecisionStage
+    from brand_size_chart.stage.coverage_decision import CoverageDecisionStep
 
     call_list: list[dict[str, object]] = []
 
@@ -1006,7 +1054,7 @@ def test_coverage_decision_validation_retries_inside_semantic_stage(tmp_path: Pa
             ],
         )
 
-    result = CoverageDecisionStage(
+    result = CoverageDecisionStep(
         brand_input=BrandInput(
             parsed_brand_key="defacto",
             parsed_brand_name="Defacto",
@@ -1033,11 +1081,11 @@ def test_coverage_decision_validation_retries_inside_semantic_stage(tmp_path: Pa
     assert [gap.product_type for gap in result.uncovered_product_type_gap_list] == ["women shoes"]
 
 
-def test_coverage_decision_prompt_context_contains_table_evidence_references(tmp_path: Path) -> None:
+def test_coverage_decision_stage_input_contains_table_evidence_references(tmp_path: Path) -> None:
     """Give coverage decision the evidence-backed table context required for product-type coverage."""
     from pydantic import BaseModel
 
-    from brand_size_chart.stage.coverage_decision import CoverageDecisionStage
+    from brand_size_chart.stage.coverage_decision import CoverageDecisionStep
 
     call_list: list[dict[str, object]] = []
 
@@ -1069,8 +1117,8 @@ def test_coverage_decision_prompt_context_contains_table_evidence_references(tmp
         call_list.append({"model_class": model_class, "prompt_text": prompt_text})
         if model_class is StageVerificationResult:
             return StageVerificationResult(status="success")
-        prompt_context = json.loads((stage_dir / "input.json").read_text(encoding="utf-8"))
-        table_artifact = prompt_context["verified_table_artifact_list"][0]
+        stage_input = json.loads((stage_dir / "input.json").read_text(encoding="utf-8"))
+        table_artifact = stage_input["verified_table_artifact_list"][0]
         assert "input.json" in prompt_text
         assert table_artifact["source_url"] == "https://www.defacto.com.tr/beden-rehberi"
         assert (
@@ -1091,7 +1139,7 @@ def test_coverage_decision_prompt_context_contains_table_evidence_references(tmp
             ],
         )
 
-    result = CoverageDecisionStage(
+    result = CoverageDecisionStep(
         brand_input=BrandInput(
             parsed_brand_key="defacto",
             parsed_brand_name="Defacto",
@@ -1127,9 +1175,9 @@ def test_coverage_decision_prompt_context_contains_table_evidence_references(tmp
 
 def test_coverage_decision_stage_has_no_deterministic_draft() -> None:
     """Keep coverage decisions inside the verified Codex stage lifecycle."""
-    from brand_size_chart.stage.coverage_decision import CoverageDecisionStage
+    from brand_size_chart.stage.coverage_decision import CoverageDecisionStep
 
-    assert not hasattr(CoverageDecisionStage, "draft_result_get")
+    assert not hasattr(CoverageDecisionStep, "draft_result_get")
 
 
 def test_coverage_decision_validator_requires_structured_covered_product_types() -> None:
@@ -1477,10 +1525,10 @@ def test_source_discovery_rejects_non_priority_country_when_priority_country_exi
 
     try:
         SourceDiscoveryValidator(
-            stage_input=_source_discovery_prompt_context_get(priority_country_code="TR"),
+            stage_input=_source_discovery_stage_input_get(priority_country_code="TR"),
             result_dir=tmp_path,
             stage_dir=evidence_path.parents[1],
-        ).validate(BrowserActionResult())
+        ).validate(_source_discovery_result_get(evidence_path.parents[1]))
     except RuntimeError as exc:
         message = str(exc)
     else:
@@ -1541,17 +1589,17 @@ def test_source_discovery_rejects_european_country_conflict_as_blocker(tmp_path:
 
     with pytest.raises(RuntimeError, match="conflicting European country tables"):
         SourceDiscoveryValidator(
-            stage_input=_source_discovery_prompt_context_get(priority_country_code="TR"),
+            stage_input=_source_discovery_stage_input_get(priority_country_code="TR"),
             result_dir=tmp_path,
             stage_dir=source_discover_dir,
-        ).validate(BrowserActionResult())
+        ).validate(_source_discovery_result_get(source_discover_dir))
 
 
 def test_source_discovery_stage_builds_source_result_from_accepted_inventory(tmp_path: Path) -> None:
     """Build cross-stage source candidates from accepted inventory instead of Codex result mirrors."""
     from pydantic import BaseModel
 
-    from brand_size_chart.stage.source_discovery import SourceDiscoveryStage
+    from brand_size_chart.stage.source_discovery import SourceDiscoveryStep
 
     def fake_codex_stage_run(
         *,
@@ -1611,7 +1659,7 @@ def test_source_discovery_stage_builds_source_result_from_accepted_inventory(tmp
         )
         return BrowserActionResult()
 
-    result = SourceDiscoveryStage(
+    result = SourceDiscoveryStep(
         brand_input=BrandInput(
             parsed_brand_key="defacto",
             parsed_brand_name="Defacto",
@@ -1624,19 +1672,33 @@ def test_source_discovery_stage_builds_source_result_from_accepted_inventory(tmp
         result_dir=tmp_path,
         source_type="official_brand_size_guide",
     ).run()
+    result_payload = json.loads(
+        stage_result_path_get(
+            tmp_path
+            / "brand_size_chart_audit"
+            / "brand"
+            / "defacto"
+            / "source_type"
+            / "official_brand_size_guide"
+            / "source_discover"
+        ).read_text(encoding="utf-8")
+    )
 
-    assert result == [
-        SourceDiscovery(
-            country_code_list=["TR"],
-            evidence_path_list=[
-                "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/"
-                "source_discover/evidence/accepted.json"
-            ],
-            size_group_key="women_upper",
-            source_title="Women upper",
-            source_url="https://brand.example/size-guide",
-        )
-    ]
+    assert result == SourceDiscoveryResult(
+        source_discovery_list=[
+            SourceDiscovery(
+                country_code_list=["TR"],
+                evidence_path_list=[
+                    "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/"
+                    "source_discover/evidence/accepted.json"
+                ],
+                size_group_key="women_upper",
+                source_title="Women upper",
+                source_url="https://brand.example/size-guide",
+            )
+        ],
+    )
+    assert SourceDiscoveryResult.model_validate(result_payload) == result
 
 
 def test_source_discovery_browser_action_result_rejects_no_table_reason_list() -> None:
@@ -1695,24 +1757,17 @@ def test_source_discovery_rejects_missing_inventory_evidence_path(tmp_path: Path
         encoding="utf-8",
     )
     evidence_path.write_text("{}\n", encoding="utf-8")
-    source_discover_result = BrowserActionResult(
-        browsing_error_list=[
-            {
-                "error": "blocked page",
-                "url": "https://example.test/blocked",
-            }
-        ],
-    )
+    source_discovery_result = _source_discovery_result_get(inventory_path.parent)
 
     try:
         SourceDiscoveryValidator(
-            stage_input=_source_discovery_prompt_context_get(
+            stage_input=_source_discovery_stage_input_get(
                 priority_country_code="TR",
                 source_type="official_marketplace_product_page",
             ),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
-        ).validate(source_discover_result)
+        ).validate(source_discovery_result)
     except RuntimeError as exc:
         message = str(exc)
     else:
@@ -1732,8 +1787,8 @@ def test_source_discovery_validator_uses_explicit_inventory_evidence_fields() ->
     assert 'endswith("evidence_path_list")' not in validator_text
 
 
-def test_source_discovery_accepts_result_level_browsing_errors_without_inventory_duplication(tmp_path: Path) -> None:
-    """Keep URL-level browsing failures in source discovery result JSON only."""
+def test_source_discovery_accepts_url_inventory_errors_without_inventory_duplication(tmp_path: Path) -> None:
+    """Accept URL-level browsing failures from explicit inventory fields."""
     from brand_size_chart.artifact.layout import ArtifactLayout
     from brand_size_chart.validator.source_discovery import SourceDiscoveryValidator
 
@@ -1776,20 +1831,13 @@ def test_source_discovery_accepts_result_level_browsing_errors_without_inventory
         ),
         encoding="utf-8",
     )
-    source_discover_result = BrowserActionResult(
-        browsing_error_list=[
-            {
-                "error": "Google displayed reCAPTCHA.",
-                "url": "https://www.google.com/search?q=Defacto",
-            }
-        ],
-    )
+    source_discovery_result = _source_discovery_result_get(inventory_path.parent)
 
     SourceDiscoveryValidator(
-        stage_input=_source_discovery_prompt_context_get(priority_country_code="TR"),
+        stage_input=_source_discovery_stage_input_get(priority_country_code="TR"),
         result_dir=tmp_path,
         stage_dir=inventory_path.parent,
-    ).validate(source_discover_result)
+    ).validate(source_discovery_result)
 
 
 def test_source_discovery_rejects_inventory_without_contract_sections(tmp_path: Path) -> None:
@@ -1811,10 +1859,10 @@ def test_source_discovery_rejects_inventory_without_contract_sections(tmp_path: 
     inventory_path.write_text('{"opened_urls": []}', encoding="utf-8")
     with pytest.raises(RuntimeError, match="table_list"):
         SourceDiscoveryValidator(
-            stage_input=_source_discovery_prompt_context_get(priority_country_code="TR"),
+            stage_input=_source_discovery_stage_input_get(priority_country_code="TR"),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
-        ).validate(BrowserActionResult())
+        ).validate(SourceDiscoveryResult())
 
 
 def test_source_discovery_rejects_unlinked_product_type_worklist(tmp_path: Path) -> None:
@@ -1869,14 +1917,14 @@ def test_source_discovery_rejects_unlinked_product_type_worklist(tmp_path: Path)
     )
     with pytest.raises(RuntimeError, match="unlinked product_type_sex_worklist"):
         SourceDiscoveryValidator(
-            stage_input=_source_discovery_prompt_context_get(
+            stage_input=_source_discovery_stage_input_get(
                 priority_country_code="TR",
                 product_type_request_list=["women dresses"],
                 source_type="official_marketplace_product_page",
             ),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
-        ).validate(BrowserActionResult())
+        ).validate(SourceDiscoveryResult())
 
 
 def test_source_discovery_rejected_table_does_not_close_active_worklist(tmp_path: Path) -> None:
@@ -1932,14 +1980,14 @@ def test_source_discovery_rejected_table_does_not_close_active_worklist(tmp_path
 
     with pytest.raises(RuntimeError, match="unlinked product_type_sex_worklist"):
         SourceDiscoveryValidator(
-            stage_input=_source_discovery_prompt_context_get(
+            stage_input=_source_discovery_stage_input_get(
                 priority_country_code="TR",
                 product_type_request_list=["women dresses"],
                 source_type="official_marketplace_product_page",
             ),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
-        ).validate(BrowserActionResult())
+        ).validate(SourceDiscoveryResult())
 
 
 def test_source_discovery_equivalent_tables_do_not_close_active_worklist(tmp_path: Path) -> None:
@@ -2004,14 +2052,14 @@ def test_source_discovery_equivalent_tables_do_not_close_active_worklist(tmp_pat
 
     with pytest.raises(RuntimeError, match="unlinked product_type_sex_worklist"):
         SourceDiscoveryValidator(
-            stage_input=_source_discovery_prompt_context_get(
+            stage_input=_source_discovery_stage_input_get(
                 priority_country_code="TR",
                 product_type_request_list=["women dresses"],
                 source_type="official_marketplace_product_page",
             ),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
-        ).validate(BrowserActionResult())
+        ).validate(_source_discovery_result_get(inventory_path.parent))
 
 
 def test_source_discovery_rejects_table_worklist_links(tmp_path: Path) -> None:
@@ -2068,14 +2116,14 @@ def test_source_discovery_rejects_table_worklist_links(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="worklist_key_list"):
         SourceDiscoveryValidator(
-            stage_input=_source_discovery_prompt_context_get(
+            stage_input=_source_discovery_stage_input_get(
                 priority_country_code="TR",
                 product_type_request_list=["women dresses"],
                 source_type="official_marketplace_product_page",
             ),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
-        ).validate(BrowserActionResult())
+        ).validate(SourceDiscoveryResult())
 
 
 def test_source_discovery_rejects_equivalent_without_accepted_row(tmp_path: Path) -> None:
@@ -2122,10 +2170,10 @@ def test_source_discovery_rejects_equivalent_without_accepted_row(tmp_path: Path
 
     with pytest.raises(RuntimeError, match="equivalent table rows must reference"):
         SourceDiscoveryValidator(
-            stage_input=_source_discovery_prompt_context_get(priority_country_code="TR"),
+            stage_input=_source_discovery_stage_input_get(priority_country_code="TR"),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
-        ).validate(BrowserActionResult())
+        ).validate(_source_discovery_result_get(inventory_path.parent))
 
 
 def test_source_discovery_accepts_rejected_product_type_worklist_without_second_link(tmp_path: Path) -> None:
@@ -2170,14 +2218,14 @@ def test_source_discovery_accepts_rejected_product_type_worklist_without_second_
     )
 
     SourceDiscoveryValidator(
-        stage_input=_source_discovery_prompt_context_get(
+        stage_input=_source_discovery_stage_input_get(
             priority_country_code="TR",
             product_type_request_list=["men dresses"],
             source_type="official_marketplace_product_page",
         ),
         result_dir=tmp_path,
         stage_dir=inventory_path.parent,
-    ).validate(BrowserActionResult())
+    ).validate(_source_discovery_result_get(inventory_path.parent))
 
 
 def test_source_discovery_rejects_rejected_product_type_worklist_without_evidence(tmp_path: Path) -> None:
@@ -2219,14 +2267,14 @@ def test_source_discovery_rejects_rejected_product_type_worklist_without_evidenc
 
     with pytest.raises(RuntimeError, match="rejected product_type_sex_worklist row has no evidence_path_list"):
         SourceDiscoveryValidator(
-            stage_input=_source_discovery_prompt_context_get(
+            stage_input=_source_discovery_stage_input_get(
                 priority_country_code="TR",
                 product_type_request_list=["men dresses"],
                 source_type="official_marketplace_product_page",
             ),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
-        ).validate(BrowserActionResult())
+        ).validate(_source_discovery_result_get(inventory_path.parent))
 
 
 def test_table_extraction_builds_country_code_from_source_market(tmp_path: Path) -> None:
@@ -2243,7 +2291,7 @@ def test_table_extraction_builds_country_code_from_source_market(tmp_path: Path)
         source_url="https://www.defacto.com.tr/statik/beden-rehberi",
     )
     table_extraction = _table_extraction_artifact_get(
-        country_code_list=["GLOBAL"],
+        country_code_list=["TR"],
         chart=BrandSizeChart(
             description="Boys 3-8 chart.",
             row_list=[
@@ -2274,7 +2322,7 @@ def test_table_extraction_builds_country_code_from_source_market(tmp_path: Path)
     )
 
     validator = TableExtractionValidator(
-        stage_input=_table_extraction_prompt_context_get(
+        stage_input=_table_extraction_stage_input_get(
             source_discovery_list=[source_discovery],
             stage_dir=stage_dir,
             tmp_path=tmp_path,
@@ -2282,7 +2330,7 @@ def test_table_extraction_builds_country_code_from_source_market(tmp_path: Path)
         result_dir=tmp_path,
     )
 
-    validator.validate(_table_extraction_delta_batch_result_get([table_extraction]))
+    validator.validate(_table_extraction_result_get([table_extraction]))
 
 
 def test_table_extraction_rejects_missing_size_label_measurement(tmp_path: Path) -> None:
@@ -2324,13 +2372,13 @@ def test_table_extraction_rejects_missing_size_label_measurement(tmp_path: Path)
 
     try:
         TableExtractionValidator(
-            stage_input=_table_extraction_prompt_context_get(
+            stage_input=_table_extraction_stage_input_get(
                 source_discovery_list=[source_discovery],
                 stage_dir=stage_dir,
                 tmp_path=tmp_path,
             ),
             result_dir=tmp_path,
-        ).validate(_table_extraction_delta_batch_result_get([table_extraction]))
+        ).validate(_table_extraction_result_get([table_extraction]))
     except RuntimeError as exc:
         message = str(exc)
     else:
@@ -2356,7 +2404,7 @@ def test_canonical_selection_rejects_missing_verified_tables(tmp_path: Path) -> 
     )
 
     try:
-        CanonicalSelectionValidator(stage_input=_canonical_selection_prompt_context_get([table_extraction])).validate(
+        CanonicalSelectionValidator(stage_input=_canonical_selection_stage_input_get([table_extraction])).validate(
             canonical_selection_result
         )
     except RuntimeError as exc:
@@ -2385,7 +2433,7 @@ def test_canonical_selection_stage_writes_empty_result_without_codex(tmp_path: P
         raise AssertionError("canonical_select Codex runner must not run without verified candidates")
 
     stage_dir = tmp_path / "canonical_select"
-    result = CanonicalSelectionStage(
+    result = CanonicalSelectionStep(
         brand_name="Defacto",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(),
@@ -2401,7 +2449,7 @@ def test_canonical_selection_stage_writes_empty_result_without_codex(tmp_path: P
     assert verification_payload == {"feedback_list": [], "status": "success"}
 
 
-def test_canonical_selection_validator_uses_prompt_context_candidate_priority(tmp_path: Path) -> None:
+def test_canonical_selection_validator_uses_stage_input_candidate_priority(tmp_path: Path) -> None:
     """Treat prompt-context candidates as the only canonical-selection decision context."""
     from brand_size_chart.validator.canonical_selection import CanonicalSelectionValidator
 
@@ -2421,7 +2469,7 @@ def test_canonical_selection_validator_uses_prompt_context_candidate_priority(tm
         source_url="https://brand.example/size-guide",
         tmp_path=tmp_path,
     )
-    prompt_context = CanonicalSelectionInput(
+    stage_input = CanonicalSelectionInput(
         brand_name="Defacto",
         canonical_selection_candidate_list=[
             CanonicalSelectionCandidate(
@@ -2437,7 +2485,7 @@ def test_canonical_selection_validator_uses_prompt_context_candidate_priority(tm
         ],
     )
 
-    CanonicalSelectionValidator(stage_input=prompt_context).validate(
+    CanonicalSelectionValidator(stage_input=stage_input).validate(
         CanonicalSelectionResult(
             canonical_selection_list=[
                 CanonicalSelection(
@@ -2469,7 +2517,7 @@ def test_canonical_selection_rejects_non_extracted_selection(tmp_path: Path) -> 
     )
 
     try:
-        CanonicalSelectionValidator(stage_input=_canonical_selection_prompt_context_get([table_extraction])).validate(
+        CanonicalSelectionValidator(stage_input=_canonical_selection_stage_input_get([table_extraction])).validate(
             canonical_selection_result
         )
     except RuntimeError as exc:
@@ -2510,7 +2558,7 @@ def test_canonical_selection_rejects_lower_priority_duplicate_source(tmp_path: P
 
     try:
         CanonicalSelectionValidator(
-            stage_input=_canonical_selection_prompt_context_get([lower_priority_table, higher_priority_table])
+            stage_input=_canonical_selection_stage_input_get([lower_priority_table, higher_priority_table])
         ).validate(canonical_selection_result)
     except RuntimeError as exc:
         message = str(exc)
@@ -2555,14 +2603,14 @@ def test_canonical_selection_rejects_non_deterministic_same_priority_selection(t
 
     with pytest.raises(RuntimeError, match="canonical_select selected non-deterministic representative"):
         CanonicalSelectionValidator(
-            stage_input=_canonical_selection_prompt_context_get(
+            stage_input=_canonical_selection_stage_input_get(
                 [second_table, first_table],
                 source_priority_by_key_map=source_priority_by_key_map,
             )
         ).validate(canonical_selection_result)
 
     CanonicalSelectionValidator(
-        stage_input=_canonical_selection_prompt_context_get(
+        stage_input=_canonical_selection_stage_input_get(
             [second_table, first_table],
             source_priority_by_key_map=source_priority_by_key_map,
         )
@@ -2605,7 +2653,7 @@ def test_canonical_selection_validator_accepts_selected_duplicate_source_type(tm
     )
 
     CanonicalSelectionValidator(
-        stage_input=_canonical_selection_prompt_context_get([higher_priority_table, lower_priority_table])
+        stage_input=_canonical_selection_stage_input_get([higher_priority_table, lower_priority_table])
     ).validate(canonical_selection_result)
 
 
@@ -2635,7 +2683,7 @@ def test_canonical_selection_validator_accepts_omitted_unresolved_same_priority_
     canonical_selection_result = CanonicalSelectionResult(canonical_selection_list=[])
 
     CanonicalSelectionValidator(
-        stage_input=_canonical_selection_prompt_context_get(
+        stage_input=_canonical_selection_stage_input_get(
             [first_table, second_table],
             source_priority_by_key_map=source_priority_by_key_map,
         )
@@ -2656,16 +2704,16 @@ def test_canonical_selection_validator_rejects_omitted_single_candidate_group(tm
     canonical_selection_result = CanonicalSelectionResult(canonical_selection_list=[])
 
     with pytest.raises(RuntimeError, match="canonical_select missing candidate size_group_key"):
-        CanonicalSelectionValidator(stage_input=_canonical_selection_prompt_context_get([table_extraction])).validate(
+        CanonicalSelectionValidator(stage_input=_canonical_selection_stage_input_get([table_extraction])).validate(
             canonical_selection_result
         )
 
 
 def test_canonical_selection_stage_has_no_deterministic_draft() -> None:
     """Keep canonical selection inside the verified Codex stage lifecycle."""
-    from brand_size_chart.stage.canonical_selection import CanonicalSelectionStage
+    from brand_size_chart.stage.canonical_selection import CanonicalSelectionStep
 
-    assert not hasattr(CanonicalSelectionStage, "draft_result_get")
+    assert not hasattr(CanonicalSelectionStep, "draft_result_get")
 
 
 def test_canonical_selection_result_forbids_conflict_payloads() -> None:
@@ -2692,7 +2740,7 @@ def test_canonical_selection_prompt_receives_verified_table_context(tmp_path: Pa
     """Give canonical selection the verified table data required by its prompt contract."""
     from pydantic import BaseModel
 
-    from brand_size_chart.stage.canonical_selection import CanonicalSelectionStage
+    from brand_size_chart.stage.canonical_selection import CanonicalSelectionStep
 
     call_list: list[dict[str, object]] = []
     table_extraction = _table_extraction_artifact_get(
@@ -2745,9 +2793,9 @@ def test_canonical_selection_prompt_receives_verified_table_context(tmp_path: Pa
         call_list.append({"model_class": model_class, "prompt_text": prompt_text, "stage_name": stage_name})
         if model_class is StageVerificationResult:
             return StageVerificationResult(status="success")
-        prompt_context = json.loads((stage_dir / "input.json").read_text(encoding="utf-8"))
-        assert len(prompt_context["canonical_selection_candidate_list"]) == 1
-        candidate_context = prompt_context["canonical_selection_candidate_list"][0]
+        stage_input = json.loads((stage_dir / "input.json").read_text(encoding="utf-8"))
+        assert len(stage_input["canonical_selection_candidate_list"]) == 1
+        candidate_context = stage_input["canonical_selection_candidate_list"][0]
         table_context = candidate_context["table_extraction_artifact"]
         assert "input.json" in prompt_text
         assert table_context["size_group_key"] == "women_upper"
@@ -2771,7 +2819,7 @@ def test_canonical_selection_prompt_receives_verified_table_context(tmp_path: Pa
             ],
         )
 
-    result = CanonicalSelectionStage(
+    result = CanonicalSelectionStep(
         brand_name="Defacto",
         codex_stage_run_callable=fake_codex_stage_run,
         prompt_scope=PromptScope(priority_country_code="TR"),
@@ -2832,7 +2880,7 @@ def test_brand_selection_writes_selected_duplicate_table(monkeypatch: object, tm
         source_url="https://seller.example/size-guide",
     )
 
-    class FakeCoverageDecisionStage:
+    class FakeCoverageDecisionStep:
         """Fail if final brand-level coverage stage is invoked."""
 
         def __init__(self, **kwargs: object) -> None:
@@ -2845,7 +2893,7 @@ def test_brand_selection_writes_selected_duplicate_table(monkeypatch: object, tm
             _ = kwargs
             raise AssertionError("selection_write_step must use provided cumulative coverage result")
 
-    class FakeCanonicalSelectionStage:
+    class FakeCanonicalSelectionStep:
         """Return a canonical selection for the higher-priority duplicate table."""
 
         def __init__(self, **kwargs: object) -> None:
@@ -2872,8 +2920,8 @@ def test_brand_selection_writes_selected_duplicate_table(monkeypatch: object, tm
                 ],
             )
 
-    monkeypatch.setattr(brand_workflow, "CoverageDecisionStage", FakeCoverageDecisionStage)
-    monkeypatch.setattr(brand_workflow, "CanonicalSelectionStage", FakeCanonicalSelectionStage)
+    monkeypatch.setattr(brand_workflow, "CoverageDecisionStep", FakeCoverageDecisionStep)
+    monkeypatch.setattr(brand_workflow, "CanonicalSelectionStep", FakeCanonicalSelectionStep)
 
     result = brand_workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW.selection_write_step.__wrapped__(
         brand_workflow.BRAND_SIZE_CHART_BRAND_WORKFLOW,
@@ -2938,7 +2986,7 @@ def test_table_extract_verification_receives_runtime_stage_artifact_paths(tmp_pa
     """Give table_extract verifier runtime-owned result and prompt-context paths."""
     from pydantic import BaseModel
 
-    from brand_size_chart.stage.table_extraction import TableExtractionStage
+    from brand_size_chart.stage.table_extraction import TableExtractionStep
 
     source_discovery = SourceDiscovery(
         country_code_list=["TR"],
@@ -2979,9 +3027,9 @@ def test_table_extract_verification_receives_runtime_stage_artifact_paths(tmp_pa
         if model_class is StageVerificationResult:
             assert expected_input_path in prompt_text
             assert expected_result_path in prompt_text
-            prompt_context = json.loads((stage_dir / "input.json").read_text(encoding="utf-8"))
-            assert "stage_state_artifact_path" not in prompt_context
-            assert "stage_state_filesystem_path" not in prompt_context
+            stage_input = json.loads((stage_dir / "input.json").read_text(encoding="utf-8"))
+            assert "stage_state_artifact_path" not in stage_input
+            assert "stage_state_filesystem_path" not in stage_input
             return StageVerificationResult(status="success")
 
         chart_path = stage_dir / "chart" / "women_upper.json"
@@ -3023,7 +3071,7 @@ def test_table_extract_verification_receives_runtime_stage_artifact_paths(tmp_pa
             ],
         )
 
-    result = TableExtractionStage(
+    result = TableExtractionStep(
         brand_input=BrandInput(
             parsed_brand_key="defacto",
             parsed_brand_name="Defacto",
@@ -3038,7 +3086,7 @@ def test_table_extract_verification_receives_runtime_stage_artifact_paths(tmp_pa
         source_type="official_brand_size_guide",
     ).run()
 
-    assert result[0].size_group_key == "women_upper"
+    assert result.table_extraction_list[0].size_group_key == "women_upper"
 
 
 def test_project_has_no_local_semantic_stage_wrapper() -> None:
@@ -3047,8 +3095,8 @@ def test_project_has_no_local_semantic_stage_wrapper() -> None:
     assert not Path("brand_size_chart/stage/semantic.py").exists()
 
 
-def test_verified_stage_runner_writes_prompt_context_without_draft_result(tmp_path: Path) -> None:
-    """Give Codex stages typed persisted prompt context instead of draft payloads."""
+def test_workflow_run_prompt_apply_step_writes_input_without_draft_result(tmp_path: Path) -> None:
+    """Give Codex steps typed persisted input instead of draft payloads."""
     captured_prompt_list: list[str] = []
 
     def fake_codex_stage_run(
@@ -3081,26 +3129,19 @@ def test_verified_stage_runner_writes_prompt_context_without_draft_result(tmp_pa
             return StageVerificationResult(status="success")
         return PromptScope(priority_country_code="TR")
 
-    result = VerifiedCodexStageRunner(
+    result = WorkflowRunPromptApplyStep(
         codex_stage_run_callable=fake_codex_stage_run,
-        prompt_renderer=RuntimePromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
-    ).run(
-        config=VerifiedCodexStageConfig(
-            prompt_context=WorkflowRunPromptApplyInput(
-                source_type_catalog_list=[],
-                workflow_run_prompt="Brand: Defacto",
-            ),
-            result_dir=tmp_path,
-            stage_dir=tmp_path / "stage",
-            stage_key="workflow_run_prompt_apply",
-        ),
-        mechanical_validate=lambda value: None,
-        model_class=PromptScope,
-    )
+        result_dir=tmp_path,
+        workflow_run_prompt="Brand: Defacto",
+    ).run()
 
-    prompt_context_payload = json.loads((tmp_path / "stage" / "input.json").read_text(encoding="utf-8"))
+    stage_input_payload = json.loads(
+        (tmp_path / "brand_size_chart_audit" / "run" / "workflow_run_prompt_apply" / "input.json").read_text(
+            encoding="utf-8"
+        )
+    )
     assert result.priority_country_code == "TR"
-    assert prompt_context_payload["workflow_run_prompt"] == "Brand: Defacto"
+    assert stage_input_payload["workflow_run_prompt"] == "Brand: Defacto"
     assert "input.json" in captured_prompt_list[0]
     assert "Draft stage result JSON:" not in captured_prompt_list[0]
 
@@ -3519,15 +3560,15 @@ def test_prompt_scope_accepts_table_extract_and_rejects_table_extraction_stage_k
 
 def test_workflow_run_prompt_apply_context_contains_source_type_catalog(tmp_path: Path) -> None:
     """Give prompt parsing enough source-type metadata to map natural-language restrictions."""
-    stage = WorkflowRunPromptApplyStage(
+    stage = WorkflowRunPromptApplyStep(
         codex_stage_run_callable=lambda **kwargs: PromptScope(),
         result_dir=tmp_path,
         workflow_run_prompt="Use official manufacturer pages only.",
     )
-    prompt_context = stage._stage_input_get()  # noqa: SLF001
+    stage_input = stage._stage_input_get()  # noqa: SLF001
     source_type_catalog_by_key_map = {
         source_type_catalog.source_type: source_type_catalog
-        for source_type_catalog in prompt_context.source_type_catalog_list
+        for source_type_catalog in stage_input.source_type_catalog_list
     }
     assert "official_brand_size_guide" in source_type_catalog_by_key_map
     assert "source_priority" not in type(source_type_catalog_by_key_map["official_brand_size_guide"]).model_fields
@@ -3554,6 +3595,7 @@ def test_source_type_result_records_failed_source_without_discovery_artifact(tmp
         "official_brand_size_guide",
         [],
         ["RuntimeError: source discovery failed"],
+        [],
     )
 
     assert result_payload["blocker_list"] == ["RuntimeError: source discovery failed"]
@@ -3570,32 +3612,7 @@ def test_source_type_result_records_no_table_discovery_warning(tmp_path: Path) -
         "raw_brand_name": "Defacto",
         "source_line_number": 1,
     }
-    brand_input = BrandInput.model_validate(brand_input_payload)
     source_type = "official_marketplace_store"
-    state_path = ArtifactLayout(tmp_path).source_discover_dir(brand_input, source_type) / "state.json"
-    state_path.parent.mkdir(parents=True)
-    state_path.write_text(
-        json.dumps(
-            {
-                "discovery_query_list": [],
-                "product_type_sex_worklist": [],
-                "table_list": [],
-                "url_list": [
-                    {
-                        "evidence_path_list": ["brand_size_chart_audit/brand/defacto/source_type/source/evidence.md"],
-                        "reason": "No concrete browser-visible size-chart table was returned.",
-                        "state": "rejected",
-                        "url": "https://market.example/defacto",
-                        "worklist_key_list": [],
-                    }
-                ],
-            },
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n",
-        encoding="utf-8",
-    )
     result_payload = workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW.result_write_step.__wrapped__(
         workflow.BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW,
         brand_input_payload,
@@ -3603,6 +3620,7 @@ def test_source_type_result_records_no_table_discovery_warning(tmp_path: Path) -
         source_type,
         [],
         [],
+        ["No concrete browser-visible size-chart table was returned."],
     )
 
     assert result_payload["blocker_list"] == []
@@ -3650,6 +3668,7 @@ def test_source_type_result_points_to_table_extract_chart_artifacts(tmp_path: Pa
         str(tmp_path),
         source_type,
         [table_extraction.model_dump(mode="json")],
+        [],
         [],
     )
 
@@ -3747,7 +3766,7 @@ def test_prompt_scope_stage_retries_unknown_source_type_allow_phrase(monkeypatch
             source_type_allow_list=[],
         )
 
-    prompt_scope = WorkflowRunPromptApplyStage(
+    prompt_scope = WorkflowRunPromptApplyStep(
         codex_stage_run_callable=fake_codex_stage_run,
         result_dir=tmp_path,
         workflow_run_prompt="Priority country TR. Search all supported source types. Product types: socks.",
@@ -3761,7 +3780,7 @@ def test_prompt_scope_stage_retries_unknown_source_type_allow_phrase(monkeypatch
 
 def test_table_extraction_stage_writes_chart_schema_artifact(tmp_path: Path) -> None:
     """Generate the BrandSizeChart schema beside table-extract prompt context."""
-    from brand_size_chart.stage.table_extraction import TableExtractionStage
+    from brand_size_chart.stage.table_extraction import TableExtractionStep
 
     source_discovery = SourceDiscovery(
         country_code_list=["TR"],
@@ -3770,7 +3789,7 @@ def test_table_extraction_stage_writes_chart_schema_artifact(tmp_path: Path) -> 
         source_url="https://www.defacto.com.tr/size-guide",
     )
 
-    stage = TableExtractionStage(
+    stage = TableExtractionStep(
         brand_input=BrandInput(
             parsed_brand_key="defacto",
             parsed_brand_name="Defacto",
@@ -3785,7 +3804,7 @@ def test_table_extraction_stage_writes_chart_schema_artifact(tmp_path: Path) -> 
         source_type="official_brand_size_guide",
     )
 
-    stage._artifact_directory_prepare()
+    stage.artifact_prepare(stage.input_build())
 
     schema_path = (
         tmp_path
@@ -3827,26 +3846,32 @@ def test_table_extraction_rejects_missing_execplan_artifact(tmp_path: Path) -> N
         source_title="Women upper",
         source_url="https://brand.example/size-guide",
     )
-    table_extraction_delta_batch_result = TableExtractionDeltaBatchResult(
-        table_extraction_delta_list=[
-            TableExtractionDelta(
+    table_extraction_result = TableExtractionResult(
+        table_extraction_list=[
+            TableExtractionArtifact(
+                chart_path=chart_path.relative_to(tmp_path).as_posix(),
+                country_code_list=source_discovery.country_code_list,
                 evidence_path_list=[evidence_path.relative_to(tmp_path).as_posix()],
+                size_group_key=source_discovery.size_group_key,
+                source_title=source_discovery.source_title,
+                source_type="official_brand_size_guide",
+                source_url=source_discovery.source_url,
             )
         ],
     )
 
     with pytest.raises(RuntimeError, match="Stage table_extract returned missing artifact"):
         TableExtractionValidator(
-            stage_input=_table_extraction_prompt_context_get(
+            stage_input=_table_extraction_stage_input_get(
                 source_discovery_list=[source_discovery],
                 stage_dir=stage_dir,
                 tmp_path=tmp_path,
             ),
             result_dir=tmp_path,
-        ).validate(table_extraction_delta_batch_result)
+        ).validate(table_extraction_result)
 
 
-def test_table_extraction_validator_uses_prompt_context_chart_target(tmp_path: Path) -> None:
+def test_table_extraction_validator_uses_stage_input_chart_target(tmp_path: Path) -> None:
     """Use prompt-context chart targets instead of deriving chart paths from stage_dir."""
     from brand_size_chart.validator.table_extraction import TableExtractionValidator
 
@@ -3870,7 +3895,7 @@ def test_table_extraction_validator_uses_prompt_context_chart_target(tmp_path: P
         ).model_dump_json(indent=2),
         encoding="utf-8",
     )
-    prompt_context = TableExtractionInput(
+    stage_input = TableExtractionInput(
         brand_name="Defacto",
         execplan_item_list=[
             TableExtractionExecplanItem(
@@ -3890,12 +3915,20 @@ def test_table_extraction_validator_uses_prompt_context_chart_target(tmp_path: P
     )
 
     TableExtractionValidator(
-        stage_input=prompt_context,
+        stage_input=stage_input,
         result_dir=tmp_path,
     ).validate(
-        TableExtractionDeltaBatchResult(
-            table_extraction_delta_list=[
-                TableExtractionDelta(evidence_path_list=[evidence_path.relative_to(tmp_path).as_posix()])
+        TableExtractionResult(
+            table_extraction_list=[
+                TableExtractionArtifact(
+                    chart_path=chart_path.relative_to(tmp_path).as_posix(),
+                    country_code_list=["TR"],
+                    evidence_path_list=[evidence_path.relative_to(tmp_path).as_posix()],
+                    size_group_key="women_upper",
+                    source_title="Women upper",
+                    source_type="official_brand_size_guide",
+                    source_url="https://brand.example/size-guide",
+                )
             ],
         )
     )
@@ -3925,7 +3958,7 @@ def test_table_extraction_rejects_duplicate_chart_targets(tmp_path: Path) -> Non
         ).model_dump_json(indent=2),
         encoding="utf-8",
     )
-    prompt_context = TableExtractionInput(
+    stage_input = TableExtractionInput(
         brand_name="Defacto",
         execplan_item_list=[
             TableExtractionExecplanItem(
@@ -3956,19 +3989,8 @@ def test_table_extraction_rejects_duplicate_chart_targets(tmp_path: Path) -> Non
             ),
         ],
     )
-    table_extraction_delta_batch_result = TableExtractionDeltaBatchResult(
-        table_extraction_delta_list=[
-            TableExtractionDelta(
-                evidence_path_list=[evidence_path.relative_to(tmp_path).as_posix()],
-            ),
-            TableExtractionDelta(
-                evidence_path_list=[evidence_path.relative_to(tmp_path).as_posix()],
-            ),
-        ],
-    )
-
     with pytest.raises(RuntimeError, match="duplicate chart artifact targets"):
         TableExtractionValidator(
-            stage_input=prompt_context,
+            stage_input=stage_input,
             result_dir=tmp_path,
-        ).validate(table_extraction_delta_batch_result)
+        ).validate(TableExtractionResult(table_extraction_list=[]))

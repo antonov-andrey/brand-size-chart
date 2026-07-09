@@ -17,7 +17,7 @@ from brand_size_chart.model import (
     TableExtractionArtifact,
 )
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
-from brand_size_chart.stage import CanonicalSelectionStage, CoverageDecisionStage
+from brand_size_chart.stage import CanonicalSelectionStep, CoverageDecisionStep
 from brand_size_chart.workflow.codex import BrandSizeChartCodexWorkflow
 from brand_size_chart.workflow.source_type import BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW
 from brand_size_chart.validator import PromptScopeValidator
@@ -241,7 +241,7 @@ class BrandSizeChartBrandWorkflow(BrandSizeChartCodexWorkflow):
             TableExtractionArtifact.model_validate(table_extraction_payload)
             for table_extraction_payload in table_extraction_payload_list
         ]
-        coverage_result = CoverageDecisionStage(
+        coverage_result = CoverageDecisionStep(
             brand_input=brand_input,
             codex_stage_run_callable=self._codex_stage_runner.run,
             prompt_scope=prompt_scope,
@@ -293,7 +293,7 @@ class BrandSizeChartBrandWorkflow(BrandSizeChartCodexWorkflow):
             for blocker in source_type_result.blocker_list
         ]
         coverage_result = CoverageDecisionResult.model_validate(coverage_result_payload)
-        canonical_selection_result = CanonicalSelectionStage(
+        canonical_selection_result = CanonicalSelectionStep(
             brand_name=brand_input.parsed_brand_name,
             codex_stage_run_callable=self._codex_stage_runner.run,
             prompt_scope=prompt_scope,
