@@ -3,15 +3,10 @@
 from pathlib import Path
 
 from workflow_container_runtime.prompt import PromptRenderer
-from workflow_container_runtime.stage import (
-    VerifiedCodexStageConfig,
-    VerifiedCodexStageRunner,
-    verified_stage_artifact_write,
-)
 
 from brand_size_chart.model import (
     CanonicalSelectionCandidate,
-    CanonicalSelectionPromptContext,
+    CanonicalSelectionInput,
     CanonicalSelectionResult,
     PromptScope,
     TableExtractionArtifact,
@@ -21,7 +16,13 @@ from brand_size_chart.source import (
     is_applicability_status_canonical,
     table_extraction_applicability_status_get,
 )
-from brand_size_chart.stage.base import CodexStageRun, stage_instruction_list_get
+from brand_size_chart.stage.base import (
+    CodexStageRun,
+    VerifiedCodexStageConfig,
+    VerifiedCodexStageRunner,
+    stage_instruction_list_get,
+    verified_stage_artifact_write,
+)
 from brand_size_chart.validator import CanonicalSelectionValidator
 
 PROJECT_TEMPLATE_DIR = Path(__file__).parents[1] / "prompt" / "template"
@@ -65,12 +66,12 @@ class CanonicalSelectionStage:
             Verified canonical selection result.
         """
 
-        prompt_context = self._prompt_context_get()
-        if not prompt_context.canonical_selection_candidate_list:
+        stage_input = self._stage_input_get()
+        if not stage_input.canonical_selection_candidate_list:
             canonical_selection_result = CanonicalSelectionResult(canonical_selection_list=[])
             verified_stage_artifact_write(
                 config=VerifiedCodexStageConfig(
-                    prompt_context=prompt_context,
+                    prompt_context=stage_input,
                     result_dir=self._result_dir,
                     stage_dir=self._stage_dir,
                     stage_key="canonical_select",
@@ -83,21 +84,21 @@ class CanonicalSelectionStage:
             prompt_renderer=PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
         ).run(
             config=VerifiedCodexStageConfig(
-                prompt_context=prompt_context,
+                prompt_context=stage_input,
                 result_dir=self._result_dir,
                 stage_dir=self._stage_dir,
                 stage_key="canonical_select",
             ),
             model_class=CanonicalSelectionResult,
-            mechanical_validate=CanonicalSelectionValidator(prompt_context=prompt_context).validate,
+            mechanical_validate=CanonicalSelectionValidator(stage_input=stage_input).validate,
         )
         return canonical_selection_result
 
-    def _prompt_context_get(self) -> CanonicalSelectionPromptContext:
-        """Return canonical-selection prompt context with verified candidate tables.
+    def _stage_input_get(self) -> CanonicalSelectionInput:
+        """Return canonical-selection input with verified candidate tables.
 
         Returns:
-            Prompt context object.
+            Stage input object.
         """
 
         canonical_selection_candidate_list: list[CanonicalSelectionCandidate] = []
@@ -115,7 +116,7 @@ class CanonicalSelectionStage:
                     table_extraction_artifact=table_extraction,
                 )
             )
-        return CanonicalSelectionPromptContext(
+        return CanonicalSelectionInput(
             brand_name=self._brand_name,
             canonical_selection_candidate_list=canonical_selection_candidate_list,
             shared_instruction=self._prompt_scope.shared_instruction,

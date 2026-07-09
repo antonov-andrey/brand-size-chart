@@ -100,6 +100,13 @@ class SourceDiscovery(StrictBaseModel):
         return _country_code_list_validate(value)
 
 
+class SourceDiscoveryResult(StrictBaseModel):
+    """Public source-discovery result and DBOS handoff."""
+
+    source_discovery_list: list[SourceDiscovery] = Field(default_factory=list)
+    warning_list: list[str] = Field(default_factory=list)
+
+
 class SourceSurfaceTable(StrictBaseModel):
     """Concrete table inventory row with one stable source discovery object."""
 
@@ -185,6 +192,12 @@ class TableExtractionArtifact(StrictBaseModel):
         """
 
         return _country_code_list_validate(value)
+
+
+class TableExtractionResult(StrictBaseModel):
+    """Public table-extraction result and DBOS handoff."""
+
+    table_extraction_list: list[TableExtractionArtifact] = Field(default_factory=list)
 
 
 class SourceTypeResult(StrictBaseModel):

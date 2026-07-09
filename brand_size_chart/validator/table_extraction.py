@@ -8,7 +8,7 @@ from brand_size_chart.model import (
     TableExtractionDelta,
     TableExtractionDeltaBatchResult,
     TableExtractionExecplanItem,
-    TableExtractionPromptContext,
+    TableExtractionInput,
 )
 
 
@@ -18,18 +18,18 @@ class TableExtractionValidator:
     def __init__(
         self,
         *,
-        prompt_context: TableExtractionPromptContext,
+        stage_input: TableExtractionInput,
         result_dir: Path,
     ) -> None:
-        """Store table-extraction validation context.
+        """Store table-extraction validation input.
 
         Args:
-            prompt_context: Table-extraction prompt context used by the action.
+            stage_input: Table-extraction input used by the action.
             result_dir: Root result directory.
         """
 
         self._artifact_reference_validator = ArtifactReferenceValidator(result_dir)
-        self._prompt_context = prompt_context
+        self._stage_input = stage_input
         self._result_dir = result_dir.resolve()
 
     def validate(self, table_extraction_delta_batch_result: TableExtractionDeltaBatchResult) -> None:
@@ -44,7 +44,7 @@ class TableExtractionValidator:
 
         self._execplan_validate()
         delta_count = len(table_extraction_delta_batch_result.table_extraction_delta_list)
-        execplan_count = len(self._prompt_context.execplan_item_list)
+        execplan_count = len(self._stage_input.execplan_item_list)
         if delta_count != execplan_count:
             mismatch_kind = "missing delta" if delta_count < execplan_count else "extra delta"
             raise RuntimeError(
@@ -52,10 +52,10 @@ class TableExtractionValidator:
                 f"execplan_count={execplan_count}; "
                 f"delta_count={delta_count}; "
                 "expected_size_group_key_list="
-                f"{[item.source_discovery.size_group_key for item in self._prompt_context.execplan_item_list]}"
+                f"{[item.source_discovery.size_group_key for item in self._stage_input.execplan_item_list]}"
             )
         for execplan_item, table_extraction_delta in zip(
-            self._prompt_context.execplan_item_list,
+            self._stage_input.execplan_item_list,
             table_extraction_delta_batch_result.table_extraction_delta_list,
             strict=True,
         ):
@@ -148,12 +148,12 @@ class TableExtractionValidator:
 
         execplan_item_by_size_group_key_map = {
             execplan_item.source_discovery.size_group_key: execplan_item
-            for execplan_item in self._prompt_context.execplan_item_list
+            for execplan_item in self._stage_input.execplan_item_list
         }
-        if len(execplan_item_by_size_group_key_map) != len(self._prompt_context.execplan_item_list):
+        if len(execplan_item_by_size_group_key_map) != len(self._stage_input.execplan_item_list):
             raise RuntimeError("table_extract execplan_item_list contains duplicate size_group_key values")
         chart_filesystem_path_list = [
-            execplan_item.chart_filesystem_path for execplan_item in self._prompt_context.execplan_item_list
+            execplan_item.chart_filesystem_path for execplan_item in self._stage_input.execplan_item_list
         ]
         if len(set(chart_filesystem_path_list)) != len(chart_filesystem_path_list):
             raise RuntimeError("table_extract execplan_item_list contains duplicate chart artifact targets")

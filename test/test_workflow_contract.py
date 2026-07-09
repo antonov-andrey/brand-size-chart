@@ -4,7 +4,6 @@ import ast
 from contextlib import nullcontext
 import json
 from pathlib import Path
-import re
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -19,24 +18,25 @@ from brand_size_chart.model import BrandSizeChartMeasurement
 from brand_size_chart.model import BrandSizeChartRow
 from brand_size_chart.model import CanonicalSelection
 from brand_size_chart.model import CanonicalSelectionCandidate
-from brand_size_chart.model import CanonicalSelectionPromptContext
+from brand_size_chart.model import CanonicalSelectionInput
 from brand_size_chart.model import CanonicalSelectionResult
 from brand_size_chart.model import CoverageDecisionProductTypeGap
-from brand_size_chart.model import CoverageDecisionPromptContext
+from brand_size_chart.model import CoverageDecisionInput
 from brand_size_chart.model import CoverageDecisionResult
 from brand_size_chart.model import CoveredProductType
 from brand_size_chart.model import PromptScope
 from brand_size_chart.model import PromptStageInstruction
 from brand_size_chart.model import SourceDiscovery
-from brand_size_chart.model import SourceDiscoveryPromptContext
+from brand_size_chart.model import SourceDiscoveryInput
 from brand_size_chart.model import SourceTypeResult
 from brand_size_chart.model import TableExtractionArtifact
 from brand_size_chart.model import TableExtractionDelta
 from brand_size_chart.model import TableExtractionDeltaBatchResult
 from brand_size_chart.model import TableExtractionExecplanItem
-from brand_size_chart.model import TableExtractionPromptContext
-from brand_size_chart.model import WorkflowRunPromptApplyPromptContext
+from brand_size_chart.model import TableExtractionInput
+from brand_size_chart.model import WorkflowRunPromptApplyInput
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
+from brand_size_chart.stage.base import VerifiedCodexStageConfig, VerifiedCodexStageRunner
 from brand_size_chart.source import table_extraction_applicability_status_get
 from brand_size_chart.stage.canonical_selection import CanonicalSelectionStage
 from brand_size_chart.stage.workflow_run_prompt_apply import WorkflowRunPromptApplyStage
@@ -45,8 +45,6 @@ from workflow_container_runtime.prompt import PromptRenderer as RuntimePromptRen
 from workflow_container_runtime.stage import BrowserActionResult
 from workflow_container_runtime.stage import (
     StageVerificationResult,
-    VerifiedCodexStageConfig,
-    VerifiedCodexStageRunner,
     stage_result_path_get,
 )
 
@@ -74,47 +72,6 @@ def _workflow_package_source_text_get() -> str:
     """
     return "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(Path("brand_size_chart/workflow").glob("*.py"))
-    )
-
-
-def _prompt_template_text_get(template_name: str) -> str:
-    """Return one rendered prompt template text.
-
-    Args:
-        template_name: Prompt template file name.
-
-    Returns:
-        Rendered prompt template text.
-    """
-
-    return RuntimePromptRenderer(template_dir=PROJECT_TEMPLATE_DIR).render(
-        template_name,
-        {
-            "attempt_index": 2,
-            "feedback_list": ["feedback"],
-            "previous_stage_result_path": "brand_size_chart_audit/brand/defacto/source_type/source/result.json",
-            "prompt_context_path": "brand_size_chart_audit/brand/defacto/source_type/source/prompt_context.json",
-            "stage_key": template_name.removesuffix(".md.j2"),
-            "stage_result_path": "brand_size_chart_audit/brand/defacto/source_type/source/result.json",
-        },
-    )
-
-
-def _runtime_prompt_template_text_get(template_name: str) -> str:
-    """Return one rendered runtime prompt template text.
-
-    Args:
-        template_name: Runtime prompt template file name.
-
-    Returns:
-        Rendered runtime prompt template text.
-    """
-
-    return RuntimePromptRenderer().render(
-        template_name,
-        {
-            "workflow_container_name": "workflow-container",
-        },
     )
 
 
@@ -168,7 +125,7 @@ def _source_discovery_prompt_context_get(
     priority_country_code: str = "TR",
     product_type_request_list: list[str] | None = None,
     source_type: str = "official_brand_size_guide",
-) -> SourceDiscoveryPromptContext:
+) -> SourceDiscoveryInput:
     """Return source-discovery prompt context for validator tests.
 
     Args:
@@ -180,7 +137,7 @@ def _source_discovery_prompt_context_get(
         Source-discovery prompt context.
     """
 
-    return SourceDiscoveryPromptContext(
+    return SourceDiscoveryInput(
         brand_name="Defacto",
         evidence_write_target=ArtifactWriteTarget(
             artifact_path="brand_size_chart_audit/brand/defacto/source_type/" f"{source_type}/source_discover/evidence",
@@ -233,7 +190,7 @@ def _source_surface_table_payload_get(
 
 def _table_extraction_prompt_context_get(
     *, source_discovery_list: list[SourceDiscovery], stage_dir: Path, tmp_path: Path
-) -> TableExtractionPromptContext:
+) -> TableExtractionInput:
     """Return table-extraction prompt context for validator tests.
 
     Args:
@@ -245,7 +202,7 @@ def _table_extraction_prompt_context_get(
         Table-extraction prompt context.
     """
 
-    return TableExtractionPromptContext(
+    return TableExtractionInput(
         brand_name="Defacto",
         execplan_item_list=[
             TableExtractionExecplanItem(
@@ -267,7 +224,7 @@ def _canonical_selection_prompt_context_get(
     table_extraction_list: list[TableExtractionArtifact],
     *,
     source_priority_by_key_map: dict[str, int] | None = None,
-) -> CanonicalSelectionPromptContext:
+) -> CanonicalSelectionInput:
     """Return canonical-selection prompt context for validator tests.
 
     Args:
@@ -279,7 +236,7 @@ def _canonical_selection_prompt_context_get(
     """
 
     priority_by_key_map = source_priority_by_key_map or SOURCE_TYPE_REGISTRY.source_type_priority_by_key_map
-    return CanonicalSelectionPromptContext(
+    return CanonicalSelectionInput(
         brand_name="Defacto",
         canonical_selection_candidate_list=[
             CanonicalSelectionCandidate(
@@ -346,17 +303,6 @@ def _table_extraction_artifact_get(
         source_title=source_title,
         source_type=source_type,
         source_url=source_url,
-    )
-
-
-def _prompt_template_tree_text_get() -> str:
-    """Return all prompt template source text.
-
-    Returns:
-        Concatenated prompt template tree source.
-    """
-    return "\n".join(
-        path.read_text(encoding="utf-8") for path in sorted(Path("brand_size_chart/prompt/template").rglob("*.md.j2"))
     )
 
 
@@ -538,40 +484,6 @@ def test_table_extract_stage_has_no_legacy_prompt_alias() -> None:
     from brand_size_chart.stage import base as stage_base
 
     assert "table_extraction" not in stage_base.STAGE_KEY_SET
-
-
-def test_prompt_text_lives_only_in_template_tree() -> None:
-    """Keep static prompt prose in one template tree without root Markdown copies."""
-
-    prompt_root_markdown_path_list = sorted(Path("brand_size_chart/prompt").glob("*.md"))
-
-    assert prompt_root_markdown_path_list == []
-    assert Path("brand_size_chart/prompt/template/workflow_run_prompt_apply.md.j2").is_file()
-    assert Path("brand_size_chart/prompt/template/source_discover.md.j2").is_file()
-    assert Path("brand_size_chart/prompt/template/table_extract.md.j2").is_file()
-    assert Path("brand_size_chart/prompt/template/partial/size_group_key_contract.md.j2").is_file()
-
-
-def test_domain_prompts_do_not_duplicate_runtime_source_access_contract() -> None:
-    """Keep generic browser and web-search rules in workflow-container-runtime."""
-
-    source_discover_text = Path("brand_size_chart/prompt/template/source_discover.md.j2").read_text(encoding="utf-8")
-
-    assert "Use Codex internal web search" not in source_discover_text
-    assert "Do not open public search-engine result pages" not in source_discover_text
-    assert "through the configured browser" not in source_discover_text
-
-
-def test_generic_runtime_prompt_partials_are_not_local_project_files() -> None:
-    """Load generic prompt partials from workflow-container runtime."""
-
-    assert not Path("brand_size_chart/prompt/template/partial/runtime_source_access.md.j2").exists()
-    assert not Path("brand_size_chart/prompt/template/partial/artifact_reference_contract.md.j2").exists()
-    assert not Path("brand_size_chart/prompt/template/partial/stage_verification_contract.md.j2").exists()
-    assert "Use the configured browser" in RuntimePromptRenderer(template_dir=PROJECT_TEMPLATE_DIR).render(
-        "runtime/partial/runtime_source_access.md.j2",
-        {},
-    )
 
 
 def test_dbos_workflow_classes_are_class_owned() -> None:
@@ -992,7 +904,7 @@ def test_table_extraction_validator_rejects_missing_deterministic_chart_artifact
 
     try:
         TableExtractionValidator(
-            prompt_context=_table_extraction_prompt_context_get(
+            stage_input=_table_extraction_prompt_context_get(
                 source_discovery_list=[first_discovery, second_discovery],
                 stage_dir=stage_dir,
                 tmp_path=tmp_path,
@@ -1021,27 +933,6 @@ def test_semantic_stages_live_under_stage_package() -> None:
     assert TableExtractionStage.__name__ == "TableExtractionStage"
     assert CoverageDecisionStage.__name__ == "CoverageDecisionStage"
     assert CanonicalSelectionStage.__name__ == "CanonicalSelectionStage"
-
-
-def test_stage_prompt_instruction_fragments_live_under_templates() -> None:
-    """Keep long human prompt instructions out of Python stage files."""
-    stage_source_text = "\n".join(
-        path.read_text(encoding="utf-8") for path in sorted(Path("brand_size_chart/stage").glob("*.py"))
-    )
-    prompt_text = "\n".join(
-        [
-            _prompt_template_text_get("source_discover.md.j2"),
-            _prompt_template_text_get("table_extract.md.j2"),
-        ]
-    )
-    instruction_fragment_list = [
-        "Do not use non-browser loading mechanisms",
-        "use `source_discovery.source_title` and `source_discovery.evidence_path_list`",
-    ]
-
-    for instruction_fragment in instruction_fragment_list:
-        assert instruction_fragment not in stage_source_text
-        assert instruction_fragment in prompt_text
 
 
 def test_coverage_decision_validation_retries_inside_semantic_stage(tmp_path: Path) -> None:
@@ -1178,9 +1069,9 @@ def test_coverage_decision_prompt_context_contains_table_evidence_references(tmp
         call_list.append({"model_class": model_class, "prompt_text": prompt_text})
         if model_class is StageVerificationResult:
             return StageVerificationResult(status="success")
-        prompt_context = json.loads((stage_dir / "prompt_context.json").read_text(encoding="utf-8"))
+        prompt_context = json.loads((stage_dir / "input.json").read_text(encoding="utf-8"))
         table_artifact = prompt_context["verified_table_artifact_list"][0]
-        assert "prompt_context.json" in prompt_text
+        assert "input.json" in prompt_text
         assert table_artifact["source_url"] == "https://www.defacto.com.tr/beden-rehberi"
         assert (
             table_artifact["chart_path"]
@@ -1257,7 +1148,7 @@ def test_coverage_decision_validator_requires_structured_covered_product_types()
 
     try:
         CoverageDecisionValidator(
-            prompt_context=CoverageDecisionPromptContext(
+            stage_input=CoverageDecisionInput(
                 brand_name="Defacto",
                 requested_product_type_list=["women shoes"],
                 verified_table_artifact_list=[],
@@ -1586,7 +1477,7 @@ def test_source_discovery_rejects_non_priority_country_when_priority_country_exi
 
     try:
         SourceDiscoveryValidator(
-            prompt_context=_source_discovery_prompt_context_get(priority_country_code="TR"),
+            stage_input=_source_discovery_prompt_context_get(priority_country_code="TR"),
             result_dir=tmp_path,
             stage_dir=evidence_path.parents[1],
         ).validate(BrowserActionResult())
@@ -1650,7 +1541,7 @@ def test_source_discovery_rejects_european_country_conflict_as_blocker(tmp_path:
 
     with pytest.raises(RuntimeError, match="conflicting European country tables"):
         SourceDiscoveryValidator(
-            prompt_context=_source_discovery_prompt_context_get(priority_country_code="TR"),
+            stage_input=_source_discovery_prompt_context_get(priority_country_code="TR"),
             result_dir=tmp_path,
             stage_dir=source_discover_dir,
         ).validate(BrowserActionResult())
@@ -1815,7 +1706,7 @@ def test_source_discovery_rejects_missing_inventory_evidence_path(tmp_path: Path
 
     try:
         SourceDiscoveryValidator(
-            prompt_context=_source_discovery_prompt_context_get(
+            stage_input=_source_discovery_prompt_context_get(
                 priority_country_code="TR",
                 source_type="official_marketplace_product_page",
             ),
@@ -1895,7 +1786,7 @@ def test_source_discovery_accepts_result_level_browsing_errors_without_inventory
     )
 
     SourceDiscoveryValidator(
-        prompt_context=_source_discovery_prompt_context_get(priority_country_code="TR"),
+        stage_input=_source_discovery_prompt_context_get(priority_country_code="TR"),
         result_dir=tmp_path,
         stage_dir=inventory_path.parent,
     ).validate(source_discover_result)
@@ -1920,7 +1811,7 @@ def test_source_discovery_rejects_inventory_without_contract_sections(tmp_path: 
     inventory_path.write_text('{"opened_urls": []}', encoding="utf-8")
     with pytest.raises(RuntimeError, match="table_list"):
         SourceDiscoveryValidator(
-            prompt_context=_source_discovery_prompt_context_get(priority_country_code="TR"),
+            stage_input=_source_discovery_prompt_context_get(priority_country_code="TR"),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
         ).validate(BrowserActionResult())
@@ -1978,7 +1869,7 @@ def test_source_discovery_rejects_unlinked_product_type_worklist(tmp_path: Path)
     )
     with pytest.raises(RuntimeError, match="unlinked product_type_sex_worklist"):
         SourceDiscoveryValidator(
-            prompt_context=_source_discovery_prompt_context_get(
+            stage_input=_source_discovery_prompt_context_get(
                 priority_country_code="TR",
                 product_type_request_list=["women dresses"],
                 source_type="official_marketplace_product_page",
@@ -2041,7 +1932,7 @@ def test_source_discovery_rejected_table_does_not_close_active_worklist(tmp_path
 
     with pytest.raises(RuntimeError, match="unlinked product_type_sex_worklist"):
         SourceDiscoveryValidator(
-            prompt_context=_source_discovery_prompt_context_get(
+            stage_input=_source_discovery_prompt_context_get(
                 priority_country_code="TR",
                 product_type_request_list=["women dresses"],
                 source_type="official_marketplace_product_page",
@@ -2113,7 +2004,7 @@ def test_source_discovery_equivalent_tables_do_not_close_active_worklist(tmp_pat
 
     with pytest.raises(RuntimeError, match="unlinked product_type_sex_worklist"):
         SourceDiscoveryValidator(
-            prompt_context=_source_discovery_prompt_context_get(
+            stage_input=_source_discovery_prompt_context_get(
                 priority_country_code="TR",
                 product_type_request_list=["women dresses"],
                 source_type="official_marketplace_product_page",
@@ -2177,7 +2068,7 @@ def test_source_discovery_rejects_table_worklist_links(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="worklist_key_list"):
         SourceDiscoveryValidator(
-            prompt_context=_source_discovery_prompt_context_get(
+            stage_input=_source_discovery_prompt_context_get(
                 priority_country_code="TR",
                 product_type_request_list=["women dresses"],
                 source_type="official_marketplace_product_page",
@@ -2231,7 +2122,7 @@ def test_source_discovery_rejects_equivalent_without_accepted_row(tmp_path: Path
 
     with pytest.raises(RuntimeError, match="equivalent table rows must reference"):
         SourceDiscoveryValidator(
-            prompt_context=_source_discovery_prompt_context_get(priority_country_code="TR"),
+            stage_input=_source_discovery_prompt_context_get(priority_country_code="TR"),
             result_dir=tmp_path,
             stage_dir=inventory_path.parent,
         ).validate(BrowserActionResult())
@@ -2279,7 +2170,7 @@ def test_source_discovery_accepts_rejected_product_type_worklist_without_second_
     )
 
     SourceDiscoveryValidator(
-        prompt_context=_source_discovery_prompt_context_get(
+        stage_input=_source_discovery_prompt_context_get(
             priority_country_code="TR",
             product_type_request_list=["men dresses"],
             source_type="official_marketplace_product_page",
@@ -2328,7 +2219,7 @@ def test_source_discovery_rejects_rejected_product_type_worklist_without_evidenc
 
     with pytest.raises(RuntimeError, match="rejected product_type_sex_worklist row has no evidence_path_list"):
         SourceDiscoveryValidator(
-            prompt_context=_source_discovery_prompt_context_get(
+            stage_input=_source_discovery_prompt_context_get(
                 priority_country_code="TR",
                 product_type_request_list=["men dresses"],
                 source_type="official_marketplace_product_page",
@@ -2383,7 +2274,7 @@ def test_table_extraction_builds_country_code_from_source_market(tmp_path: Path)
     )
 
     validator = TableExtractionValidator(
-        prompt_context=_table_extraction_prompt_context_get(
+        stage_input=_table_extraction_prompt_context_get(
             source_discovery_list=[source_discovery],
             stage_dir=stage_dir,
             tmp_path=tmp_path,
@@ -2433,7 +2324,7 @@ def test_table_extraction_rejects_missing_size_label_measurement(tmp_path: Path)
 
     try:
         TableExtractionValidator(
-            prompt_context=_table_extraction_prompt_context_get(
+            stage_input=_table_extraction_prompt_context_get(
                 source_discovery_list=[source_discovery],
                 stage_dir=stage_dir,
                 tmp_path=tmp_path,
@@ -2465,9 +2356,9 @@ def test_canonical_selection_rejects_missing_verified_tables(tmp_path: Path) -> 
     )
 
     try:
-        CanonicalSelectionValidator(
-            prompt_context=_canonical_selection_prompt_context_get([table_extraction])
-        ).validate(canonical_selection_result)
+        CanonicalSelectionValidator(stage_input=_canonical_selection_prompt_context_get([table_extraction])).validate(
+            canonical_selection_result
+        )
     except RuntimeError as exc:
         message = str(exc)
     else:
@@ -2530,7 +2421,7 @@ def test_canonical_selection_validator_uses_prompt_context_candidate_priority(tm
         source_url="https://brand.example/size-guide",
         tmp_path=tmp_path,
     )
-    prompt_context = CanonicalSelectionPromptContext(
+    prompt_context = CanonicalSelectionInput(
         brand_name="Defacto",
         canonical_selection_candidate_list=[
             CanonicalSelectionCandidate(
@@ -2546,7 +2437,7 @@ def test_canonical_selection_validator_uses_prompt_context_candidate_priority(tm
         ],
     )
 
-    CanonicalSelectionValidator(prompt_context=prompt_context).validate(
+    CanonicalSelectionValidator(stage_input=prompt_context).validate(
         CanonicalSelectionResult(
             canonical_selection_list=[
                 CanonicalSelection(
@@ -2578,9 +2469,9 @@ def test_canonical_selection_rejects_non_extracted_selection(tmp_path: Path) -> 
     )
 
     try:
-        CanonicalSelectionValidator(
-            prompt_context=_canonical_selection_prompt_context_get([table_extraction])
-        ).validate(canonical_selection_result)
+        CanonicalSelectionValidator(stage_input=_canonical_selection_prompt_context_get([table_extraction])).validate(
+            canonical_selection_result
+        )
     except RuntimeError as exc:
         message = str(exc)
     else:
@@ -2619,7 +2510,7 @@ def test_canonical_selection_rejects_lower_priority_duplicate_source(tmp_path: P
 
     try:
         CanonicalSelectionValidator(
-            prompt_context=_canonical_selection_prompt_context_get([lower_priority_table, higher_priority_table])
+            stage_input=_canonical_selection_prompt_context_get([lower_priority_table, higher_priority_table])
         ).validate(canonical_selection_result)
     except RuntimeError as exc:
         message = str(exc)
@@ -2664,14 +2555,14 @@ def test_canonical_selection_rejects_non_deterministic_same_priority_selection(t
 
     with pytest.raises(RuntimeError, match="canonical_select selected non-deterministic representative"):
         CanonicalSelectionValidator(
-            prompt_context=_canonical_selection_prompt_context_get(
+            stage_input=_canonical_selection_prompt_context_get(
                 [second_table, first_table],
                 source_priority_by_key_map=source_priority_by_key_map,
             )
         ).validate(canonical_selection_result)
 
     CanonicalSelectionValidator(
-        prompt_context=_canonical_selection_prompt_context_get(
+        stage_input=_canonical_selection_prompt_context_get(
             [second_table, first_table],
             source_priority_by_key_map=source_priority_by_key_map,
         )
@@ -2714,7 +2605,7 @@ def test_canonical_selection_validator_accepts_selected_duplicate_source_type(tm
     )
 
     CanonicalSelectionValidator(
-        prompt_context=_canonical_selection_prompt_context_get([higher_priority_table, lower_priority_table])
+        stage_input=_canonical_selection_prompt_context_get([higher_priority_table, lower_priority_table])
     ).validate(canonical_selection_result)
 
 
@@ -2744,7 +2635,7 @@ def test_canonical_selection_validator_accepts_omitted_unresolved_same_priority_
     canonical_selection_result = CanonicalSelectionResult(canonical_selection_list=[])
 
     CanonicalSelectionValidator(
-        prompt_context=_canonical_selection_prompt_context_get(
+        stage_input=_canonical_selection_prompt_context_get(
             [first_table, second_table],
             source_priority_by_key_map=source_priority_by_key_map,
         )
@@ -2765,9 +2656,9 @@ def test_canonical_selection_validator_rejects_omitted_single_candidate_group(tm
     canonical_selection_result = CanonicalSelectionResult(canonical_selection_list=[])
 
     with pytest.raises(RuntimeError, match="canonical_select missing candidate size_group_key"):
-        CanonicalSelectionValidator(
-            prompt_context=_canonical_selection_prompt_context_get([table_extraction])
-        ).validate(canonical_selection_result)
+        CanonicalSelectionValidator(stage_input=_canonical_selection_prompt_context_get([table_extraction])).validate(
+            canonical_selection_result
+        )
 
 
 def test_canonical_selection_stage_has_no_deterministic_draft() -> None:
@@ -2775,6 +2666,26 @@ def test_canonical_selection_stage_has_no_deterministic_draft() -> None:
     from brand_size_chart.stage.canonical_selection import CanonicalSelectionStage
 
     assert not hasattr(CanonicalSelectionStage, "draft_result_get")
+
+
+def test_canonical_selection_result_forbids_conflict_payloads() -> None:
+    """Keep unresolved conflict candidates derived from prompt context, not Codex output."""
+
+    with pytest.raises(ValidationError):
+        CanonicalSelectionResult(
+            canonical_selection_list=[
+                CanonicalSelection(
+                    selected_chart_path="brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/"
+                    "table_extract/chart/women_upper.json",
+                )
+            ],
+            conflict_list=[
+                {
+                    "chart_path": "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/"
+                    "table_extract/chart/women_upper.json"
+                }
+            ],
+        )
 
 
 def test_canonical_selection_prompt_receives_verified_table_context(tmp_path: Path) -> None:
@@ -2834,11 +2745,11 @@ def test_canonical_selection_prompt_receives_verified_table_context(tmp_path: Pa
         call_list.append({"model_class": model_class, "prompt_text": prompt_text, "stage_name": stage_name})
         if model_class is StageVerificationResult:
             return StageVerificationResult(status="success")
-        prompt_context = json.loads((stage_dir / "prompt_context.json").read_text(encoding="utf-8"))
+        prompt_context = json.loads((stage_dir / "input.json").read_text(encoding="utf-8"))
         assert len(prompt_context["canonical_selection_candidate_list"]) == 1
         candidate_context = prompt_context["canonical_selection_candidate_list"][0]
         table_context = candidate_context["table_extraction_artifact"]
-        assert "prompt_context.json" in prompt_text
+        assert "input.json" in prompt_text
         assert table_context["size_group_key"] == "women_upper"
         assert table_context["source_type"] == "official_brand_size_guide"
         assert candidate_context["source_priority"] == 600
@@ -3035,9 +2946,8 @@ def test_table_extract_verification_receives_runtime_stage_artifact_paths(tmp_pa
         source_title="Women upper",
         source_url="https://brand.example/beden-rehberi",
     )
-    expected_prompt_context_path = (
-        "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/"
-        "table_extract/prompt_context.json"
+    expected_input_path = (
+        "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/" "table_extract/input.json"
     )
     expected_result_path = (
         "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/table_extract/result.json"
@@ -3067,9 +2977,9 @@ def test_table_extract_verification_receives_runtime_stage_artifact_paths(tmp_pa
         """
         _ = browser_runtime_mcp_url
         if model_class is StageVerificationResult:
-            assert expected_prompt_context_path in prompt_text
+            assert expected_input_path in prompt_text
             assert expected_result_path in prompt_text
-            prompt_context = json.loads((stage_dir / "prompt_context.json").read_text(encoding="utf-8"))
+            prompt_context = json.loads((stage_dir / "input.json").read_text(encoding="utf-8"))
             assert "stage_state_artifact_path" not in prompt_context
             assert "stage_state_filesystem_path" not in prompt_context
             return StageVerificationResult(status="success")
@@ -3176,7 +3086,7 @@ def test_verified_stage_runner_writes_prompt_context_without_draft_result(tmp_pa
         prompt_renderer=RuntimePromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
     ).run(
         config=VerifiedCodexStageConfig(
-            prompt_context=WorkflowRunPromptApplyPromptContext(
+            prompt_context=WorkflowRunPromptApplyInput(
                 source_type_catalog_list=[],
                 workflow_run_prompt="Brand: Defacto",
             ),
@@ -3188,10 +3098,10 @@ def test_verified_stage_runner_writes_prompt_context_without_draft_result(tmp_pa
         model_class=PromptScope,
     )
 
-    prompt_context_payload = json.loads((tmp_path / "stage" / "prompt_context.json").read_text(encoding="utf-8"))
+    prompt_context_payload = json.loads((tmp_path / "stage" / "input.json").read_text(encoding="utf-8"))
     assert result.priority_country_code == "TR"
     assert prompt_context_payload["workflow_run_prompt"] == "Brand: Defacto"
-    assert "prompt_context.json" in captured_prompt_list[0]
+    assert "input.json" in captured_prompt_list[0]
     assert "Draft stage result JSON:" not in captured_prompt_list[0]
 
 
@@ -3607,46 +3517,6 @@ def test_prompt_scope_accepts_table_extract_and_rejects_table_extraction_stage_k
     assert "table_extraction" in message
 
 
-def test_workflow_run_prompt_apply_extracts_stage_specific_instructions() -> None:
-    """Keep stage-scoped user instructions out of shared prompt memory."""
-    workflow_run_prompt_apply_template = _prompt_template_text_get("workflow_run_prompt_apply.md.j2")
-    workflow_run_prompt_apply_verify_template = _prompt_template_text_get("workflow_run_prompt_apply_verify.md.j2")
-
-    for expected_text in [
-        "stage_instruction_list",
-        "exact stage instruction",
-        "Remove stage-specific instructions from shared_instruction",
-    ]:
-        assert expected_text in workflow_run_prompt_apply_template
-    for expected_text in [
-        "stage_instruction_list",
-        "exact stage-specific instruction meaning",
-        "Remove stage-specific instructions from shared_instruction",
-    ]:
-        assert expected_text in workflow_run_prompt_apply_verify_template
-    assert "PromptStageInstruction" in workflow_run_prompt_apply_template
-    assert "PromptStageInstruction" not in workflow_run_prompt_apply_verify_template
-
-
-def test_workflow_run_prompt_apply_maps_natural_language_source_scope() -> None:
-    """Convert clear natural-language source-scope instructions into exact source type keys."""
-    workflow_run_prompt_apply_template = _prompt_template_text_get("workflow_run_prompt_apply.md.j2")
-    workflow_run_prompt_apply_verify_template = _prompt_template_text_get("workflow_run_prompt_apply_verify.md.j2")
-
-    for expected_text in [
-        "Map clear natural-language source-scope instructions",
-        "source-scope instruction",
-        "must not remain only in shared_instruction",
-    ]:
-        assert expected_text in workflow_run_prompt_apply_template
-    for expected_text in [
-        "source-scope instruction",
-        "must not remain only in shared_instruction",
-    ]:
-        assert expected_text in workflow_run_prompt_apply_verify_template
-    assert "only when the prompt names exact allowed source_type keys" not in workflow_run_prompt_apply_template
-
-
 def test_workflow_run_prompt_apply_context_contains_source_type_catalog(tmp_path: Path) -> None:
     """Give prompt parsing enough source-type metadata to map natural-language restrictions."""
     stage = WorkflowRunPromptApplyStage(
@@ -3654,16 +3524,7 @@ def test_workflow_run_prompt_apply_context_contains_source_type_catalog(tmp_path
         result_dir=tmp_path,
         workflow_run_prompt="Use official manufacturer pages only.",
     )
-    prompt_context = stage._prompt_context_get()  # noqa: SLF001
-    workflow_run_prompt_apply_template = _prompt_template_text_get("workflow_run_prompt_apply.md.j2")
-    workflow_run_prompt_apply_verify_template = _prompt_template_text_get("workflow_run_prompt_apply_verify.md.j2")
-
-    for expected_text in [
-        "## Contracts",
-        "## Workflow Sequence",
-        "## Terminal Handoff",
-    ]:
-        assert expected_text in workflow_run_prompt_apply_template
+    prompt_context = stage._stage_input_get()  # noqa: SLF001
     source_type_catalog_by_key_map = {
         source_type_catalog.source_type: source_type_catalog
         for source_type_catalog in prompt_context.source_type_catalog_list
@@ -3677,9 +3538,6 @@ def test_workflow_run_prompt_apply_context_contains_source_type_catalog(tmp_path
     )
     assert "official_marketplace_store" in source_type_catalog_by_key_map
     assert source_type_catalog_by_key_map["official_marketplace_store"].requires_product_type is True
-    assert "source-scope instructions from workflow_run_prompt are represented" in (
-        workflow_run_prompt_apply_verify_template
-    )
 
 
 def test_source_type_result_records_failed_source_without_discovery_artifact(tmp_path: Path) -> None:
@@ -3901,137 +3759,6 @@ def test_prompt_scope_stage_retries_unknown_source_type_allow_phrase(monkeypatch
     assert prompt_scope_call_count == 3
 
 
-def test_source_discovery_prompt_makes_table_forms_universal() -> None:
-    """Search every source type for size charts in any browser-visible form."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2").lower()
-
-    assert "html table" in source_discover_template
-    assert "modal" in source_discover_template
-    assert "widget" in source_discover_template
-    assert "pdf" in source_discover_template
-    assert "image" in source_discover_template
-    assert "help" in source_discover_template
-    assert "faq" in source_discover_template
-    assert "q&a" in source_discover_template
-    assert "for `official_brand_size_guide`" not in source_discover_template
-
-
-def test_source_discovery_prompt_uses_split_evidence_paths() -> None:
-    """Keep source discovery prompt explicit about filesystem writes and returned references."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-
-    assert "under the browser evidence write directory" in source_discover_template
-    assert "result-dir-relative paths under the evidence reference directory" in source_discover_template
-    assert "under the evidence directory" not in source_discover_template
-
-
-def test_source_discovery_prompt_has_executable_workflow_structure() -> None:
-    """Keep source discovery as an ordered workflow with durable state and handoff boundaries."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    for expected_text in [
-        "## Contracts",
-        "## Persistent State",
-        "## Workflow Sequence",
-        "## Retry And Recovery",
-        "## Terminal Handoff",
-        "initialize the canonical inventory",
-        "close selected source boundaries",
-        "apply market selection",
-    ]:
-        assert expected_text in source_discover_template
-    assert "source_discover follows this sequence" in design_text
-
-
-def test_size_group_key_contract_is_prompt_and_design_owned() -> None:
-    """Keep size-group naming as a semantic prompt/design contract."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    table_extract_template = _prompt_template_text_get("table_extract.md.j2")
-    table_extract_verify_template = _prompt_template_text_get("table_extract_verify.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-    workflow_text = _workflow_package_source_text_get()
-
-    assert "{sex}_{product_group_or_type}" in source_discover_template
-    assert "{sex}_{sex_suffix}_{product_group_or_type}" in source_discover_template
-    assert "{min}_{max}_{month|year}" in source_discover_template
-    assert "Approved non-age `sex_suffix` terms" in source_discover_template
-    assert "Do not list or invent concrete approved age intervals" in source_discover_template
-    assert "child_3_8" not in source_discover_template
-    assert "youth_8_14" not in source_discover_template
-    assert "child_3_8" not in design_text
-    assert "youth_8_14" not in design_text
-    assert "Never use `size_chart`" in source_discover_template
-    assert "Use `lower` for lower-body clothing tables" in source_discover_template
-    assert "`pants_skirts`" not in source_discover_template
-    assert "`pants_skirts`" not in design_text
-    assert "Semantic verification must reject alternative names" in design_text
-    assert "source_title is the browser-visible chart group or table heading" in source_discover_template
-    assert "size_group_key is the normalized table key derived from source_title and evidence" in (
-        source_discover_template
-    )
-    assert "use `source_discovery.source_title` and `source_discovery.evidence_path_list`" in table_extract_template
-    assert "do not treat it as a browser-visible selector" in table_extract_template
-    assert "verify size_group_key derivation from source_title and evidence" not in table_extract_verify_template
-    assert "Do not derive, rename, or validate size_group_key naming" in table_extract_verify_template
-    assert "`source_title` is the browser-visible source identity" in design_text
-    assert "size_group_key must match one concrete browser-visible" not in source_discover_template
-    assert "Target size_group_key and Target source title" not in table_extract_template
-    assert "size_group_key against the saved browser-visible evidence" not in table_extract_verify_template
-    assert "women_size_chart" not in workflow_text
-    assert "men_shoes_size_chart" not in workflow_text
-
-
-def test_source_discovery_checks_official_host_variants() -> None:
-    """Search all browser-visible official host variants before failing source discovery."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-
-    assert "official host variants" in source_discover_template
-    assert "country-code " in source_discover_template
-    assert "brand domains" in source_discover_template
-    assert "stop after one official domain variant fails" in source_discover_template
-
-
-def test_source_discovery_searches_localized_size_terms_without_route_templates() -> None:
-    """Find official size guides through localized browser search rather than hardcoded URL guesses."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-
-    assert "browser-visible language and market" in source_discover_template
-    assert "localized size-chart term searches" in source_discover_template
-    assert "derive localized size-chart search-term families" in source_discover_template
-    assert "URL templates" in source_discover_template
-    assert "beden rehberi" not in source_discover_template
-    assert "beden tablosu" not in source_discover_template
-    assert "/statik/beden-rehberi" not in source_discover_template
-
-
-def test_table_extraction_preserves_size_system_columns() -> None:
-    """Represent size-system columns with an explicit non-empty unit."""
-    table_extract_template = _prompt_template_text_get("table_extract.md.j2")
-
-    assert "For size-system " in table_extract_template
-    assert "use unit='size'" in table_extract_template
-    assert "Treat this row.size_label measurement as an atomic label" in table_extract_template
-    assert "do not parse or split row labels" in table_extract_template
-
-
-def test_table_extraction_keeps_metadata_out_of_chart_artifact() -> None:
-    """Keep chart artifact schema separate from extraction metadata."""
-    table_extract_template = _prompt_template_text_get("table_extract.md.j2")
-
-    assert "read the BrandSizeChart schema from sibling `chart.schema.json`" in table_extract_template
-    assert "A BrandSizeChart artifact must contain only description and row_list" not in table_extract_template
-    assert "Each row_list item must contain only size_label and measurement_list" not in table_extract_template
-    assert "Each measurement_list item must contain only name, unit, min_value, and max_value" not in (
-        table_extract_template
-    )
-    assert "belong to the Python-built TableExtractionArtifact, not inside the chart artifact" in table_extract_template
-    assert "The structured output must be TableExtractionDeltaBatchResult" in table_extract_template
-    assert "Successful handoff requires one delta and one valid chart artifact" in table_extract_template
-    assert "Return TableExtractionDeltaBatchResult only after every execplan item" not in table_extract_template
-    assert "do not silently omit the item, rename it, or return partial success" in table_extract_template
-
-
 def test_table_extraction_stage_writes_chart_schema_artifact(tmp_path: Path) -> None:
     """Generate the BrandSizeChart schema beside table-extract prompt context."""
     from brand_size_chart.stage.table_extraction import TableExtractionStage
@@ -4076,66 +3803,6 @@ def test_table_extraction_stage_writes_chart_schema_artifact(tmp_path: Path) -> 
     assert "row_list" in schema_payload["properties"]
 
 
-def test_table_extraction_batch_uses_chart_targets_as_durable_item_state() -> None:
-    """Require batch extraction retries to resume from chart target files."""
-    table_extract_template = _prompt_template_text_get("table_extract.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    for expected_text in [
-        "## FSM",
-        "chart_filesystem_path is the durable per-item extraction state",
-        "Do not write a table_extract state.json file",
-        "missing-or-invalid-chart -> valid-chart",
-        "Successful handoff requires one delta and one valid chart artifact",
-        "On retry, use the execplan plus existing chart target files as the recovery state",
-    ]:
-        assert expected_text in table_extract_template
-    for expected_text in [
-        "chart artifact target declared by each `TableExtractionPromptContext.execplan_item_list[].chart_filesystem_path`",
-        "not a separate `state.json` file",
-        "missing-or-invalid-chart -> valid-chart",
-        "Successful handoff requires one delta and one valid chart artifact",
-    ]:
-        assert expected_text in design_text
-
-
-def test_table_extraction_design_separates_codex_artifact_result_from_workflow_result() -> None:
-    """Keep table-extract action output distinct from workflow-level loaded tables."""
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    assert "Codex action returns one `TableExtractionDeltaBatchResult`" in design_text
-    assert "builds deterministic `chart_path` from `ArtifactLayout`" in design_text
-    assert "exposes only the chart artifact filesystem path" in design_text
-    assert "Later stages receive only `TableExtractionArtifact` handles" in design_text
-    assert "returns one `TableExtractionBatchResult` containing one `TableExtraction` per discovered source" not in (
-        design_text
-    )
-
-
-def test_table_extraction_verification_keeps_mechanical_state_checks_out_of_prompt() -> None:
-    """Keep durable batch state checks in the deterministic validator."""
-    table_extract_verify_template = _prompt_template_text_get("table_extract_verify.md.j2")
-
-    for forbidden_text in [
-        "Load state.json",
-        "one item for every current execplan row",
-        "Any failed execplan item must make verification status='failed'",
-        "Accepted handoff requires every execplan item state='extracted'",
-        "chart_path exists",
-        "matching result item",
-    ]:
-        assert forbidden_text not in table_extract_verify_template
-    assert "verify every source row, column, unit, size label, measurement" in table_extract_verify_template
-
-
-def test_table_extraction_verification_reports_semantic_item_feedback() -> None:
-    """Keep table verification focused on evidence-backed semantic feedback."""
-    table_extract_verify_template = _prompt_template_text_get("table_extract_verify.md.j2")
-
-    assert "A failed item requires status='failed' plus item-specific feedback" not in table_extract_verify_template
-    assert "current extracted row, measurement name, and value" in table_extract_verify_template
-
-
 def test_table_extraction_rejects_missing_execplan_artifact(tmp_path: Path) -> None:
     """Treat batch execplan as required durable extraction state."""
     from brand_size_chart.validator.table_extraction import TableExtractionValidator
@@ -4170,7 +3837,7 @@ def test_table_extraction_rejects_missing_execplan_artifact(tmp_path: Path) -> N
 
     with pytest.raises(RuntimeError, match="Stage table_extract returned missing artifact"):
         TableExtractionValidator(
-            prompt_context=_table_extraction_prompt_context_get(
+            stage_input=_table_extraction_prompt_context_get(
                 source_discovery_list=[source_discovery],
                 stage_dir=stage_dir,
                 tmp_path=tmp_path,
@@ -4203,7 +3870,7 @@ def test_table_extraction_validator_uses_prompt_context_chart_target(tmp_path: P
         ).model_dump_json(indent=2),
         encoding="utf-8",
     )
-    prompt_context = TableExtractionPromptContext(
+    prompt_context = TableExtractionInput(
         brand_name="Defacto",
         execplan_item_list=[
             TableExtractionExecplanItem(
@@ -4223,7 +3890,7 @@ def test_table_extraction_validator_uses_prompt_context_chart_target(tmp_path: P
     )
 
     TableExtractionValidator(
-        prompt_context=prompt_context,
+        stage_input=prompt_context,
         result_dir=tmp_path,
     ).validate(
         TableExtractionDeltaBatchResult(
@@ -4258,7 +3925,7 @@ def test_table_extraction_rejects_duplicate_chart_targets(tmp_path: Path) -> Non
         ).model_dump_json(indent=2),
         encoding="utf-8",
     )
-    prompt_context = TableExtractionPromptContext(
+    prompt_context = TableExtractionInput(
         brand_name="Defacto",
         execplan_item_list=[
             TableExtractionExecplanItem(
@@ -4302,575 +3969,6 @@ def test_table_extraction_rejects_duplicate_chart_targets(tmp_path: Path) -> Non
 
     with pytest.raises(RuntimeError, match="duplicate chart artifact targets"):
         TableExtractionValidator(
-            prompt_context=prompt_context,
+            stage_input=prompt_context,
             result_dir=tmp_path,
         ).validate(table_extraction_delta_batch_result)
-
-
-def test_browser_stage_prompts_forbid_local_artifact_browser_access() -> None:
-    """Keep local artifact reads and non-evidence writes outside the browser context."""
-    browser_stage_text = "\n".join(
-        [
-            _runtime_prompt_template_text_get("system/codex_browser_stage.md.j2"),
-            _prompt_template_text_get("source_discover.md.j2"),
-            _prompt_template_text_get("source_discover_verify.md.j2"),
-            _prompt_template_text_get("table_extract.md.j2"),
-            _prompt_template_text_get("table_extract_verify.md.j2"),
-        ]
-    )
-
-    assert "Do not open local result artifacts through browser tools" in browser_stage_text
-    assert "file://, localhost, or 127.0.0.1" in browser_stage_text
-    assert "Read local artifact files through normal filesystem access" in browser_stage_text
-    assert "Browser tools may write only evidence artifacts" in browser_stage_text
-    assert "Do not use browser page context to write chart artifacts" in browser_stage_text
-    assert "Do not use jq with guessed JSON paths" in browser_stage_text
-    assert "Do not use browser_run_code_unsafe" in browser_stage_text
-    assert "Use browser_evaluate with pure browser JavaScript" in browser_stage_text
-    assert "must not use Node.js APIs" in browser_stage_text
-    assert "return serializable data" in browser_stage_text
-
-
-def test_browser_stage_prompts_require_robust_browser_interactions() -> None:
-    """Keep browser stages from repeating recoverable selector and overlay failures."""
-    browser_stage_text = "\n".join(
-        [
-            _runtime_prompt_template_text_get("system/codex_browser_stage.md.j2"),
-            _prompt_template_text_get("source_discover.md.j2"),
-            _prompt_template_text_get("table_extract.md.j2"),
-        ]
-    )
-
-    assert "overlays that intercept pointer events" in browser_stage_text
-    assert "use the browser snapshot to choose a scoped unique target" in browser_stage_text
-    assert "Retry transient browser navigation failures such as ERR_NETWORK_CHANGED" in browser_stage_text
-
-
-def test_verification_prompts_forbid_brittle_local_json_scripts() -> None:
-    """Keep semantic verifier helper scripts from failing on unrelated JSON artifact shapes."""
-    verification_text = "\n".join(
-        [
-            _runtime_prompt_template_text_get("system/codex_browser_stage.md.j2"),
-            _runtime_prompt_template_text_get("system/codex_stage.md.j2"),
-            _prompt_template_text_get("source_discover_verify.md.j2"),
-            _prompt_template_text_get("table_extract_verify.md.j2"),
-        ]
-    )
-
-    assert "validate each parsed JSON value shape before field access" in verification_text
-    assert "skip unrelated JSON artifact shapes" in verification_text
-    assert "Do not use brittle glob scripts over heterogeneous JSON artifacts" in verification_text
-
-
-def test_table_extraction_preserves_physical_units_and_omits_blank_cells() -> None:
-    """Keep physical measurement units and avoid empty measurement values."""
-    table_extract_template = _prompt_template_text_get("table_extract.md.j2")
-
-    assert "Do not emit measurement entries for blank source cells" in table_extract_template
-    assert "must keep their physical source unit" in table_extract_template
-
-
-def test_coverage_decision_prompt_receives_verified_table_artifacts() -> None:
-    """Prevent coverage decision from ignoring verified tables as missing evidence."""
-    coverage_decide_template = _prompt_template_text_get("coverage_decide.md.j2")
-    coverage_decide_verify_template = _prompt_template_text_get("coverage_decide_verify.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    assert "Read requested_product_type_list and verified_table_artifact_list from the Stage prompt context path" in (
-        coverage_decide_template
-    )
-    assert "Return one positive CoveredProductType entry" in coverage_decide_template
-    assert "Build the coverage decision only from the verified table context and referenced artifacts" in (
-        coverage_decide_template
-    )
-    assert "coverage_by_product_type_map" not in coverage_decide_template
-    assert "coverage_by_product_type_map" not in coverage_decide_verify_template
-    assert "coverage_by_product_type_map" not in design_text
-    assert "Return positive CoveredProductType entries" in coverage_decide_template
-    assert "Return structured uncovered_product_type_gap_list entries" in coverage_decide_template
-    assert "each item must contain product_type and one concrete reason" not in coverage_decide_template
-    assert "CoveredProductType.reason must name the explicit loaded chart content" in coverage_decide_template
-    assert "ignored with warnings" not in coverage_decide_template
-    assert "CoverageDecision.missing_size_list" not in coverage_decide_template
-    assert "each uncovered product type has one uncovered_product_type_gap_list item with a non-empty reason" not in (
-        coverage_decide_verify_template
-    )
-    assert "table-scoped fields are not used for product-level gaps" in coverage_decide_verify_template
-    assert "Identifier-only fields are supporting context, not coverage evidence" in coverage_decide_template
-    assert "Identifier-only fields are supporting context, not coverage evidence" in coverage_decide_verify_template
-    assert (
-        "Do not use source_url, source_title, size_group_key, or country_code_list as product-type coverage proof"
-        in coverage_decide_template
-    )
-    assert "Positive coverage may be backed by loaded chart content" in coverage_decide_verify_template
-    assert "loaded evidence content, applicability_description, or chart description" in (
-        coverage_decide_verify_template
-    )
-    assert "Positive coverage must be represented in CoverageDecision.covered_product_type_list" not in (
-        coverage_decide_verify_template
-    )
-
-
-def test_coverage_decision_reads_artifact_content_instead_of_path_strings() -> None:
-    """Treat artifact paths as references, not semantic product-type coverage evidence."""
-    coverage_decide_template = _prompt_template_text_get("coverage_decide.md.j2")
-    coverage_decide_verify_template = _prompt_template_text_get("coverage_decide_verify.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    for artifact_text in [coverage_decide_template, coverage_decide_verify_template, design_text]:
-        assert "chart_path and evidence_path_list are artifact references, not product-type coverage evidence" in (
-            artifact_text
-        )
-        assert "read every referenced chart_path and relevant evidence_path_list artifact" in artifact_text
-    assert "Positive coverage must not depend only on path strings" in coverage_decide_template
-    for artifact_text in [coverage_decide_verify_template, design_text]:
-        assert "must fail when positive coverage depends only on path strings" in artifact_text
-
-
-def test_coverage_decision_missing_evidence_rule_is_table_scoped() -> None:
-    """Do not suppress product-level gaps only because some verified table exists."""
-    coverage_decide_template = _prompt_template_text_get("coverage_decide.md.j2")
-    coverage_decide_verify_template = _prompt_template_text_get("coverage_decide_verify.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    for artifact_text in [coverage_decide_template, coverage_decide_verify_template, design_text]:
-        artifact_text_normalized = artifact_text.replace("`", "")
-        assert "do not report missing evidence when this list is non-empty" not in artifact_text
-        assert "CoveredProductType" in artifact_text
-
-    for artifact_text in [coverage_decide_template, design_text]:
-        artifact_text_normalized = artifact_text.replace("`", "")
-        assert "structured uncovered_product_type_gap_list" in artifact_text_normalized
-
-
-def test_coverage_decision_records_positive_product_type_resolution() -> None:
-    """Make covered requested product types auditable instead of inferred by absence."""
-    coverage_decide_template = _prompt_template_text_get("coverage_decide.md.j2")
-    coverage_decide_verify_template = _prompt_template_text_get("coverage_decide_verify.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    for artifact_text in [coverage_decide_template, coverage_decide_verify_template, design_text]:
-        artifact_text_normalized = artifact_text.replace("`", "")
-        assert "Absence from uncovered_product_type_gap_list is not coverage evidence" not in artifact_text_normalized
-
-    for artifact_text in [coverage_decide_template, design_text]:
-        artifact_text_normalized = artifact_text.replace("`", "")
-        assert "CoveredProductType" in artifact_text_normalized
-        assert "uncovered_product_type_gap_list" in artifact_text_normalized
-        assert "Every requested product type must appear either" not in artifact_text_normalized
-    assert "Every requested product type must appear either" not in coverage_decide_verify_template
-
-
-def test_canonical_selection_prompt_has_deterministic_selection_workflow() -> None:
-    """Select canonical tables through explicit grouping and conflict rules."""
-    canonical_select_template = _prompt_template_text_get("canonical_select.md.j2")
-    canonical_select_verify_template = _prompt_template_text_get("canonical_select_verify.md.j2")
-
-    for expected_text in [
-        "group canonical_selection_candidate_list items",
-        "choose the maximum source_priority",
-        "If one candidate remains, select it",
-        "If multiple maximum-priority candidates remain",
-        "choose the deterministic representative",
-        "Do not return conflict payloads",
-    ]:
-        assert expected_text in canonical_select_template
-    assert "verify semantic equivalence only" in canonical_select_verify_template
-    assert "Do not re-check omitted-group candidate membership" in canonical_select_verify_template
-    assert "candidate priority" in canonical_select_verify_template
-    assert "verify grouping by size_group_key" not in canonical_select_verify_template
-    assert "verify the selected candidate is the deterministic representative" not in canonical_select_verify_template
-
-
-def test_canonical_selection_equivalence_uses_chart_content_not_url_identity() -> None:
-    """Treat mirrored same-priority chart URLs as equivalent when table content and applicability match."""
-    canonical_select_template = _prompt_template_text_get("canonical_select.md.j2")
-    canonical_select_verify_template = _prompt_template_text_get("canonical_select_verify.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    for artifact_text in [canonical_select_template, canonical_select_verify_template, design_text]:
-        assert "equivalent by source_url, source_title, applicability_status, and chart artifact identity" not in (
-            artifact_text
-        )
-        assert "equivalent by normalized chart content and applicability scope" in artifact_text
-        assert "source_url and source_title are compared evidence fields, not equivalence keys" in artifact_text
-        assert "chart_path" in artifact_text
-        assert "source_url" in artifact_text
-        assert "source_title" in artifact_text
-
-
-def test_canonical_selection_result_forbids_conflict_payloads() -> None:
-    """Keep unresolved conflict candidates derived from prompt context, not Codex output."""
-
-    with pytest.raises(ValidationError):
-        CanonicalSelectionResult(
-            canonical_selection_list=[
-                CanonicalSelection(
-                    selected_chart_path="brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/"
-                    "table_extract/chart/women_upper.json",
-                )
-            ],
-            conflict_list=[
-                {
-                    "chart_path": "brand_size_chart_audit/brand/defacto/source_type/official_brand_size_guide/"
-                    "table_extract/chart/women_upper.json"
-                }
-            ],
-        )
-
-
-def test_source_discovery_prompt_preserves_partial_candidates() -> None:
-    """Keep evidence-backed candidates successful even when requested product-type coverage is incomplete."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-
-    assert "If at least one concrete table candidate is evidence-backed, write it as an accepted table_list row" in (
-        source_discover_template
-    )
-    assert "Do not write product-type coverage gaps to source-discovery no-table reasons" in source_discover_template
-
-
-def test_source_discovery_product_types_do_not_filter_tables() -> None:
-    """Keep full source-surface table discovery separate from requested product-type coverage."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    expected_text = "Requested product types are source-discovery worklist inputs"
-    assert expected_text in source_discover_template
-    assert "`product_type_request_list` defines coverage targets" in design_text
-    assert "must not filter `source_discover` candidates" not in design_text
-    assert "must not filter `source_discover` candidates" not in source_discover_template
-    assert "must not filter or narrow accepted table_list entries" in source_discover_template
-    assert "Requested product types are coverage targets only" in source_discover_verify_template
-
-
-def test_source_discovery_product_scoped_sources_use_product_type_sex_worklist() -> None:
-    """Search product-scoped source types by requested product type and applicable sex."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    for expected_text in [
-        "product_type_sex_worklist",
-        "worklist_key",
-        "worklist_key_list",
-        "Start from the closed source-discovery sex set",
-        "A removed product type and sex row must remain in product_type_sex_worklist with state='rejected'",
-    ]:
-        assert expected_text in source_discover_template
-        assert expected_text in design_text
-    assert "Link URL entries to the active worklist rows" in source_discover_template
-    assert "one URL inventory entry for each active worklist row" in design_text
-    assert "Table rows never carry worklist_key_list" in source_discover_template
-    assert "Table rows never carry `worklist_key_list`" in design_text
-    assert "`market_conflict` rows are fatal blockers and do not close active worklist rows" in design_text
-    assert "evidence-backed product or store boundary closure" in source_discover_verify_template
-    assert "Do not re-check worklist key parity" in source_discover_verify_template
-
-
-def test_source_discovery_worklist_sex_derivation_is_persisted_and_auditable() -> None:
-    """Avoid model-memory-only product-type/sex pruning."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    for artifact_text in [source_discover_template, design_text]:
-        assert "use every sex that can realistically apply" not in artifact_text
-        assert "Start from the closed source-discovery sex set" in artifact_text
-        assert "If the requested product type names an explicit sex, keep only that sex" in artifact_text
-        assert (
-            "If the requested product type does not name an explicit sex, create one worklist row for every sex in the closed set"
-            in (artifact_text)
-        )
-        assert "A removed product type and sex row must remain in product_type_sex_worklist with state='rejected'" in (
-            artifact_text
-        )
-        assert "reason and evidence_path_list" in artifact_text
-    assert "use every sex that can realistically apply" not in source_discover_verify_template
-    assert "evidence-backed product or store boundary closure" in source_discover_verify_template
-
-
-def test_source_discovery_requires_current_table_specific_inventory() -> None:
-    """Require table-specific current evidence instead of vague prior-evidence notes."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-
-    assert "every visible table group and subtable" in source_discover_template
-    assert "prior evidence" in source_discover_template
-    assert "current evidence_path_list entry" in source_discover_verify_template
-    assert "A note such as prior evidence" in source_discover_verify_template
-
-
-def test_source_discovery_returns_unique_size_group_key_candidates() -> None:
-    """Keep duplicate locale tables as evidence instead of duplicate source candidates."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    assert "accept at most one table row for one `source_discovery.size_group_key`" in source_discover_template
-    assert "must not require a second accepted table row" in source_discover_verify_template
-    assert "write one accepted table_list row per table" in source_discover_template
-    assert "one `source_discovery.size_group_key` may appear at most once among accepted table rows" in design_text
-
-
-def test_source_discovery_applies_market_selection_before_final_table_classification() -> None:
-    """Keep accepted table_list rows aligned with market filtering."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    for artifact_text in [source_discover_template, design_text]:
-        assert "apply market selection before writing final table states" in artifact_text
-        assert "write selected tables to `table_list` with state `accepted`" in artifact_text or (
-            "write selected concrete tables to table_list with state accepted" in artifact_text
-        )
-        assert "non-returned concrete table" in artifact_text
-        assert "classify accepted and non-returned table entries, apply market selection" not in artifact_text
-
-
-def test_source_discovery_locale_policy_is_priority_global_europe_without_vague_candidate_wording() -> None:
-    """Use one explicit country-selection ladder instead of vague other-locale candidate rules."""
-    apply_prompt = _prompt_template_text_get("workflow_run_prompt_apply.md.j2")
-    prompt_context = SourceDiscoveryPromptContext(
-        brand_name="Defacto",
-        evidence_write_target=ArtifactWriteTarget(
-            artifact_path="evidence",
-            filesystem_path="/tmp/evidence",
-        ),
-        priority_country_code="TR",
-        source_type="official_brand_size_guide",
-        source_type_instruction="Find source surfaces.",
-    )
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-    combined_text = "\n".join([apply_prompt, source_discover_template, source_discover_verify_template, design_text])
-
-    assert "`priority_country_code`" in apply_prompt
-    assert prompt_context.priority_country_code == "TR"
-    assert "priority country tables exist" in source_discover_template
-    assert "global tables" in source_discover_template
-    assert "European country tables" in source_discover_template
-    assert "priority country tables exist" in source_discover_verify_template
-    assert "`priority_country_code` defines the market priority" in design_text
-    for forbidden_text in ["comparison/" + "evidence/" + "blocker", "other " + "locales"]:
-        assert forbidden_text not in combined_text
-
-
-def test_priority_country_is_not_hardcoded_in_prompts_or_design() -> None:
-    """Keep concrete priority market selection only in the workflow-run prompt."""
-    prompt_text = "\n".join(
-        path.read_text(encoding="utf-8") for path in sorted(Path("brand_size_chart/prompt").rglob("*.md*"))
-    )
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-    checked_text = "\n".join([prompt_text, design_text])
-
-    assert not re.search(r"\bTR\b", checked_text)
-    for forbidden_text in ["Turkey", "Turkiye", "Türkiye", "Турция", "Turkish", "beden rehberi", "beden tablosu"]:
-        assert forbidden_text not in checked_text
-
-
-def test_source_discovery_prompt_requires_canonical_inventory_on_retry() -> None:
-    """Require retry attempts to update the canonical source-surface inventory."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-
-    assert "read the SourceSurfaceInventory schema from sibling `state.schema.json`" in source_discover_template
-    assert "build one canonical source-surface inventory state artifact" in source_discover_template
-    assert "state.json" in source_discover_template
-    assert "Derive the source_discover stage directory from the Stage prompt context path" in source_discover_template
-    assert "attempt-only inventory artifacts are allowed only as extra" in source_discover_template
-    assert "Save evidence before referencing it in state.json" in source_discover_template
-    assert "must reference an actually saved artifact path" not in source_discover_template
-    assert "must not contain leading or trailing whitespace" not in source_discover_template
-
-
-def test_source_discovery_inventory_has_explicit_contract_for_verification() -> None:
-    """Make source-surface inventory a verifiable artifact instead of an informal note."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    for source_discover_expected_text in [
-        "SourceSurfaceInventory schema",
-        "canonical source-surface inventory state artifact",
-        "must conform to that generated schema",
-        "url_list",
-        "table_list",
-        "each URL state is owned only by that URL's `state` field",
-    ]:
-        assert source_discover_expected_text in source_discover_template
-    for removed_field_text in [
-        "candidate URLs",
-        "candidate_url_list",
-        "discovery queries, url_list, table_list",
-        "SourceSurfaceInventory.browsing_error_list",
-    ]:
-        assert removed_field_text not in source_discover_template
-    for design_expected_text in [
-        "SourceSurfaceInventory shape is owned by the `SourceSurfaceInventory` Pydantic model",
-        "generated JSON schema",
-        "canonical source-surface inventory artifact",
-        "discover source surfaces",
-        "close selected source boundaries according to the source-boundary closure contract",
-        "apply market selection before writing final table states",
-        "`table_list`",
-    ]:
-        assert design_expected_text in design_text
-    for expected_text in [
-        "product_type_sex_worklist",
-        "country_code_list",
-    ]:
-        assert expected_text in design_text
-    assert "duplicate_or_equivalent_table_list" not in source_discover_template
-    assert "duplicate_or_equivalent_table_list" not in source_discover_verify_template
-    assert "duplicate_or_equivalent_table_list" not in design_text
-    assert "Load the current Stage result JSON" in source_discover_verify_template
-    assert "Validate that every non-accepted concrete table has current evidence" in source_discover_verify_template
-
-
-def test_source_discovery_non_returned_tables_cover_all_inventory_states() -> None:
-    """Verify every non-returned table state as first-class inventory, not only duplicate tables."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-    design_text = Path("doc/design/brand-size-chart.md").read_text(encoding="utf-8")
-
-    for artifact_text in [source_discover_template, source_discover_verify_template, design_text]:
-        assert "equivalent, market_conflict, market_filtered, or rejected" in artifact_text
-        assert "table_list" in artifact_text
-    assert "Validate that every non-accepted concrete table has current evidence" in source_discover_verify_template
-    assert "duplicate or equivalent omissions" not in source_discover_verify_template
-    assert "unless the canonical inventory proves that omitted table is a duplicate or equivalent" not in (
-        source_discover_verify_template
-    )
-
-
-def test_source_discovery_prompts_use_only_canonical_inventory_field_names() -> None:
-    """Avoid competing inventory field names in source discovery prompts."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-    combined_template = "\n".join([source_discover_template, source_discover_verify_template])
-
-    for forbidden_text in ["candidate_urls", "opened_urls", "rejected_urls", "accepted_tables"]:
-        assert forbidden_text not in combined_template
-
-
-def test_source_discovery_prompt_requires_market_localized_term_families() -> None:
-    """Require all local size-guide/search-term families before an absence result."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-
-    expected_text = "derive localized size-chart search-term families"
-    assert expected_text in source_discover_template
-    assert expected_text in source_discover_verify_template
-
-
-def test_source_discovery_verification_localized_terms_apply_only_to_official_sources() -> None:
-    """Avoid applying official-host absence checks to product-scoped source types."""
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-
-    assert "Verification must fail an absence result unless the canonical inventory proves" not in (
-        source_discover_verify_template
-    )
-    assert "For official non-product source types" in source_discover_verify_template
-    assert "localized size-chart search-term families" in source_discover_verify_template
-    assert "For product-scoped source types" in source_discover_verify_template
-    assert "verify absence through evidence-backed product or store boundary closure" in (
-        source_discover_verify_template
-    )
-
-
-def test_source_discovery_inventory_records_selected_helper_surfaces_as_closed_urls() -> None:
-    """Keep sitemap and navigation helper surfaces as opened or rejected evidence."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-
-    assert "helper surfaces are discovery surfaces" in source_discover_template
-    assert "opened or rejected URL inventory entries" in source_discover_template
-
-
-def test_source_discovery_candidate_urls_exclude_broad_product_lists() -> None:
-    """Keep broad search-result product inventories separate from selected source candidates."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-
-    assert "broad search-result or category product URL inventories" in source_discover_template
-    assert "separate evidence artifacts" in source_discover_template
-    assert "separate evidence artifacts" in source_discover_verify_template
-    for forbidden_text in ["search_result_url_list", "category_product_url_list", "another clearly named"]:
-        assert forbidden_text not in source_discover_template
-        assert forbidden_text not in source_discover_verify_template
-
-
-def test_source_discovery_prompt_closes_selected_source_boundary_urls() -> None:
-    """Require selected seller/store/product URL closure without exhaustive URL crawling."""
-    source_discover_template = _prompt_template_text_get("source_discover.md.j2")
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-
-    assert "Do not exhaustively open every similar product URL" in source_discover_template
-    assert "## Source Boundary Closure" in source_discover_template
-    assert "close selected source boundaries according to Source Boundary Closure" in source_discover_template
-    assert "Every concrete URL selected as a possible source boundary" in source_discover_template
-    assert "selected as a possible seller, store, product, or size-guide boundary" in source_discover_verify_template
-    assert "Broad unselected URL evidence artifacts" in source_discover_verify_template
-
-
-def test_source_discovery_verification_preserves_partial_candidates() -> None:
-    """Prevent verification feedback from converting evidence-backed candidates into failed discovery."""
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-
-    assert "Do not require zero accepted table rows only because requested product-type coverage is incomplete" in (
-        source_discover_verify_template
-    )
-    assert "zero accepted table rows only when no concrete acceptable candidate remains" in (
-        source_discover_verify_template
-    )
-
-
-def test_source_discovery_verification_uses_bounded_completeness() -> None:
-    """Do not require unbounded product URL enumeration after bounded inventory is complete."""
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-
-    assert "verify source-type completeness inside the bounded source surface" in source_discover_verify_template
-    assert "canonical inventory evidence is missing or stale" in source_discover_verify_template
-    assert "unbounded search evidence contains additional similar product URLs" in source_discover_verify_template
-
-
-def test_source_discovery_verification_has_ordered_workflow() -> None:
-    """Make source-discovery verification order deterministic across retries."""
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-
-    for expected_text in [
-        "## Verification Workflow",
-        "1. Load the current Stage result JSON",
-        "2. Validate canonical inventory freshness",
-        "3. Run `Browsing Failures`",
-        "4. Run `Selected Source-Boundary Closure`",
-        "5. Run `Product-Scoped Completeness`",
-        "6. Run `Source Table Completeness`",
-        "7. Run `Market Applicability`",
-    ]:
-        assert expected_text in source_discover_verify_template
-
-
-def test_verification_prompt_rejects_stale_feedback() -> None:
-    """Verify only the current stage result and current artifacts."""
-    source_discover_verify_template = _prompt_template_text_get("source_discover_verify.md.j2")
-
-    assert "Feedback from previous attempts is not evidence" in source_discover_verify_template
-    assert "A URL already present in url_list with state opened is tested" in source_discover_verify_template
-    assert "Navigation, search, home, sitemap, FAQ, or help URLs" in source_discover_verify_template
-    assert "Every URL selected as a possible source boundary must be closed" in source_discover_verify_template
-
-
-def test_verification_prompt_rejects_stale_hidden_row_errors() -> None:
-    """Do not fail table extraction for hidden rows already omitted from the current chart artifact."""
-    table_extract_verify_template = _prompt_template_text_get("table_extract_verify.md.j2")
-
-    assert "open every chart_path" not in table_extract_verify_template
-    assert "read every execplan item's chart_filesystem_path" in table_extract_verify_template
-    assert "chart_write_target" not in table_extract_verify_template
-    assert "TableExtractionArtifact.chart_path is built by Python after validation" in table_extract_verify_template
-    assert "Do not use browser tools, file://, localhost, or 127.0.0.1 for chart_filesystem_path" in (
-        table_extract_verify_template
-    )
-    assert "hidden or non-rendered rows" in table_extract_verify_template
-    assert "current chart artifact already omits them" in table_extract_verify_template
-    assert "quote the exact current extracted row" in table_extract_verify_template

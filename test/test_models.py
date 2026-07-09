@@ -2,19 +2,25 @@
 
 from typing import get_args
 
+from pydantic import ValidationError
 import pytest
 from workflow_container_runtime.stage import BrowserActionResult
 
 from brand_size_chart.model import (
     ApplicabilityStatus,
+    ArtifactWriteTarget,
     BrandResult,
     BrandSizeChart,
     BrandSizeChartMeasurement,
     BrandSizeChartRow,
+    CanonicalSelectionInput,
     CoverageDecisionProductTypeGap,
+    CoverageDecisionInput,
     PromptScope,
     RunResult,
     SourceDiscovery,
+    SourceDiscoveryInput,
+    SourceDiscoveryResult,
     SourceSurfaceDiscoveryQuery,
     SourceSurfaceInventory,
     SourceSurfaceProductTypeSex,
@@ -23,6 +29,9 @@ from brand_size_chart.model import (
     SourceTypeResult,
     TableExtractionArtifact,
     TableExtractionDeltaBatchResult,
+    TableExtractionInput,
+    TableExtractionResult,
+    WorkflowRunPromptApplyInput,
 )
 
 
@@ -125,7 +134,8 @@ def test_stage_result_models_have_only_structured_decision_fields() -> None:
     ]:
         assert "message" not in model_class.model_fields
 
-    assert not hasattr(model, "SourceDiscoveryResult")
+    assert hasattr(model, "SourceDiscoveryResult")
+    assert hasattr(model, "TableExtractionResult")
     assert "source_priority" not in SourceDiscovery.model_fields
     assert "source_type" not in SourceDiscovery.model_fields
     assert "error_list" not in TableExtractionDeltaBatchResult.model_fields
@@ -143,6 +153,36 @@ def test_stage_result_models_have_only_structured_decision_fields() -> None:
     assert "product_type_hint_list" not in TableExtractionExecplanItem.model_fields
     assert "state" not in SourceTypeResult.model_fields
     assert "table_extraction_list" in SourceTypeResult.model_fields
+    assert "source_discovery_list" in SourceDiscoveryResult.model_fields
+    assert "table_extraction_list" in TableExtractionResult.model_fields
+
+
+def test_stage_input_models_are_strict() -> None:
+    """Reject unknown fields in public stage-input models."""
+
+    with pytest.raises(ValidationError):
+        SourceDiscoveryInput(
+            brand_name="Defacto",
+            evidence_write_target=ArtifactWriteTarget(artifact_path="a", filesystem_path="/tmp/a"),
+            priority_country_code="TR",
+            requested_product_type_list=[],
+            source_type="official_brand_size_guide",
+            source_type_instruction="Search official source.",
+            unknown_field=True,
+        )
+
+
+def test_stage_input_models_use_input_names_only() -> None:
+    """Expose only renamed public stage-input class names."""
+
+    for model_class in [
+        CanonicalSelectionInput,
+        CoverageDecisionInput,
+        SourceDiscoveryInput,
+        TableExtractionInput,
+        WorkflowRunPromptApplyInput,
+    ]:
+        assert model_class.__name__.endswith("Input")
 
 
 def test_pydantic_models_validate_representative_artifacts() -> None:

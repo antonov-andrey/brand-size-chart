@@ -8,7 +8,7 @@ from workflow_container_runtime.stage import BrowserActionResult
 
 from brand_size_chart.artifact import ArtifactReferenceValidator
 from brand_size_chart.model import (
-    SourceDiscoveryPromptContext,
+    SourceDiscoveryInput,
     SourceSurfaceInventory,
     SourceSurfaceTable,
 )
@@ -20,20 +20,20 @@ class SourceDiscoveryValidator:
     def __init__(
         self,
         *,
-        prompt_context: SourceDiscoveryPromptContext,
+        stage_input: SourceDiscoveryInput,
         result_dir: Path,
         stage_dir: Path,
     ) -> None:
-        """Store source-discovery validation context.
+        """Store source-discovery validation input.
 
         Args:
-            prompt_context: Source-discovery prompt context used by the action.
+            stage_input: Source-discovery input used by the action.
             result_dir: Root result directory.
             stage_dir: Source-discovery stage artifact directory.
         """
 
         self._artifact_reference_validator = ArtifactReferenceValidator(result_dir)
-        self._prompt_context = prompt_context
+        self._stage_input = stage_input
         self._stage_dir = stage_dir
 
     def _country_selection_validate(self, *, accepted_table_list: list[SourceSurfaceTable]) -> None:
@@ -46,7 +46,7 @@ class SourceDiscoveryValidator:
             RuntimeError: If lower-priority market scopes are mixed into a higher-priority result.
         """
 
-        priority_country_code = self._prompt_context.priority_country_code
+        priority_country_code = self._stage_input.priority_country_code
         priority_country_source_list = [
             source_surface_table
             for source_surface_table in accepted_table_list

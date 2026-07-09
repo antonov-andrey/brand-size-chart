@@ -8,7 +8,7 @@
 
 Use browser screenshots, DOM extracts, rendered table text, downloaded browser-visible assets, and existing discovery evidence. Treat the table extraction execplan as an ordered batch worklist. Process every execplan item sequentially. For each item, use `source_discovery.source_title` and `source_discovery.evidence_path_list` as the browser-visible selector for the table; preserve `source_discovery.size_group_key` exactly as the artifact key, but do not treat it as a browser-visible selector unless the source itself visibly contains that exact key. If the source page contains multiple chart tabs, groups, or tables, select the table matching the target `source_discovery.source_title` and discovery evidence before reading rows. Do not extract a default, current, product-category, adjacent, or differently named table from the same page. Use `source_discovery.source_url`, `source_discovery.source_title`, and `source_discovery.size_group_key` only as read-only execplan context.
 
-Read the ordered execplan from the Stage prompt context path before extracting tables.
+Read the ordered execplan from input_path before extracting tables.
 
 {% include "runtime/partial/browser_browsing_error_result_contract.md.j2" %}
 
@@ -38,7 +38,7 @@ Stage terminal rules:
 
 Follow this order:
 
-1. Read the ordered execplan from prompt_context_path.
+1. Read the ordered execplan from input_path.
 2. For each execplan item in order, check whether chart_filesystem_path already contains a valid chart artifact.
 3. Preserve existing valid chart artifacts unless verification feedback names a concrete error in that item.
 4. Process missing, invalid, or feedback-named items in execplan order.

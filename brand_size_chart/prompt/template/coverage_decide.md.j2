@@ -1,6 +1,6 @@
 # Coverage Decide
 
-Check whether verified tables cover requested product types. Read requested_product_type_list and verified_table_artifact_list from the Stage prompt context path before deciding coverage. Return one positive CoveredProductType entry for each evidence-backed covered requested product type and structured uncovered_product_type_gap_list entries for requested product types that remain unsupported after semantic review. Build the coverage decision only from the verified table context and referenced artifacts.
+Check whether verified tables cover requested product types. Read requested_product_type_list and verified_table_artifact_list from the stage input path before deciding coverage. Return one positive CoveredProductType entry for each evidence-backed covered requested product type and structured uncovered_product_type_gap_list entries for requested product types that remain unsupported after semantic review. Build the coverage decision only from the verified table context and referenced artifacts.
 
 Follow this order:
 

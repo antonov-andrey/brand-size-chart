@@ -1,19 +1,19 @@
 """Coverage-decision mechanical validation."""
 
-from brand_size_chart.model import CoverageDecisionPromptContext, CoverageDecisionResult
+from brand_size_chart.model import CoverageDecisionInput, CoverageDecisionResult
 
 
 class CoverageDecisionValidator:
     """Validate coverage decisions against prompt scope."""
 
-    def __init__(self, *, prompt_context: CoverageDecisionPromptContext) -> None:
-        """Store coverage-decision validation context.
+    def __init__(self, *, stage_input: CoverageDecisionInput) -> None:
+        """Store coverage-decision validation input.
 
         Args:
-            prompt_context: Coverage-decision prompt context used by the action.
+            stage_input: Coverage-decision input used by the action.
         """
 
-        self._prompt_context = prompt_context
+        self._stage_input = stage_input
 
     def validate(self, coverage_decision_result: CoverageDecisionResult) -> None:
         """Validate coverage decision against the requested product-type scope.
@@ -25,10 +25,10 @@ class CoverageDecisionValidator:
             RuntimeError: If coverage output mentions product types outside the requested scope.
         """
 
-        requested_product_type_set = set(self._prompt_context.requested_product_type_list)
+        requested_product_type_set = set(self._stage_input.requested_product_type_list)
         covered_product_type_set: set[str] = set()
         verified_chart_path_set = {
-            table_extraction.chart_path for table_extraction in self._prompt_context.verified_table_artifact_list
+            table_extraction.chart_path for table_extraction in self._stage_input.verified_table_artifact_list
         }
         for covered_product_type in coverage_decision_result.covered_product_type_list:
             if not covered_product_type.reason.strip():

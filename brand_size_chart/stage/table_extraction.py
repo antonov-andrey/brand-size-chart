@@ -4,7 +4,6 @@ from pathlib import Path
 
 from workflow_container_runtime.artifact import JsonArtifactWriter
 from workflow_container_runtime.prompt import PromptRenderer
-from workflow_container_runtime.stage import VerifiedCodexStageConfig, VerifiedCodexStageRunner
 
 from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import (
@@ -17,9 +16,15 @@ from brand_size_chart.model import (
     TableExtractionDelta,
     TableExtractionDeltaBatchResult,
     TableExtractionExecplanItem,
-    TableExtractionPromptContext,
+    TableExtractionInput,
+    TableExtractionResult,
 )
-from brand_size_chart.stage.base import CodexStageRun, stage_instruction_list_get
+from brand_size_chart.stage.base import (
+    CodexStageRun,
+    VerifiedCodexStageConfig,
+    VerifiedCodexStageRunner,
+    stage_instruction_list_get,
+)
 from brand_size_chart.validator import TableExtractionValidator
 
 PROJECT_TEMPLATE_DIR = Path(__file__).parents[1] / "prompt" / "template"
@@ -70,28 +75,28 @@ class TableExtractionStage:
         """
 
         self._artifact_directory_prepare()
-        prompt_context = self._prompt_context_get()
+        stage_input = self._stage_input_get()
         table_extraction_delta_batch_result = VerifiedCodexStageRunner(
             codex_stage_run_callable=self._codex_stage_run,
             prompt_renderer=PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
         ).run(
             config=VerifiedCodexStageConfig(
                 browser_runtime_mcp_url=self._browser_runtime_mcp_url,
-                prompt_context=prompt_context,
+                prompt_context=stage_input,
                 result_dir=self._result_dir,
                 stage_dir=self._stage_dir,
                 stage_key="table_extract",
             ),
             model_class=TableExtractionDeltaBatchResult,
             mechanical_validate=TableExtractionValidator(
-                prompt_context=prompt_context,
+                stage_input=stage_input,
                 result_dir=self._result_dir,
             ).validate,
         )
-        return self._table_extraction_artifact_list_get(
-            prompt_context=prompt_context,
+        return self._result_get(
+            stage_input=stage_input,
             table_extraction_delta_batch_result=table_extraction_delta_batch_result,
-        )
+        ).table_extraction_list
 
     def _artifact_directory_prepare(self) -> None:
         """Create table-extraction directories required before Codex browser execution."""
@@ -110,11 +115,30 @@ class TableExtractionStage:
 
         return self._stage_dir / "chart.schema.json"
 
-    def _prompt_context_get(self) -> TableExtractionPromptContext:
-        """Return batch table-extraction prompt context.
+    def _result_get(
+        self,
+        *,
+        stage_input: TableExtractionInput,
+        table_extraction_delta_batch_result: TableExtractionDeltaBatchResult,
+    ) -> TableExtractionResult:
+        """Build the public table-extraction result from one Codex delta result.
 
         Returns:
-            Prompt context object.
+            Public table-extraction result.
+        """
+
+        return TableExtractionResult(
+            table_extraction_list=self._table_extraction_artifact_list_get(
+                stage_input=stage_input,
+                table_extraction_delta_batch_result=table_extraction_delta_batch_result,
+            )
+        )
+
+    def _stage_input_get(self) -> TableExtractionInput:
+        """Return batch table-extraction input.
+
+        Returns:
+            Stage input object.
         """
 
         execplan_item_list = []
@@ -135,7 +159,7 @@ class TableExtractionStage:
                     source_discovery=source_discovery,
                 )
             )
-        return TableExtractionPromptContext(
+        return TableExtractionInput(
             brand_name=self._brand_input.parsed_brand_name,
             execplan_item_list=execplan_item_list,
             shared_instruction=self._prompt_scope.shared_instruction,
@@ -198,13 +222,13 @@ class TableExtractionStage:
     def _table_extraction_artifact_list_get(
         self,
         *,
-        prompt_context: TableExtractionPromptContext,
+        stage_input: TableExtractionInput,
         table_extraction_delta_batch_result: TableExtractionDeltaBatchResult,
     ) -> list[TableExtractionArtifact]:
         """Build cross-stage artifact handles from one Codex delta result.
 
         Args:
-            prompt_context: Table-extraction prompt context used by the action and validator.
+            stage_input: Table-extraction input used by the action and validator.
             table_extraction_delta_batch_result: Codex-owned extraction deltas.
 
         Returns:
@@ -217,7 +241,7 @@ class TableExtractionStage:
                 table_extraction_delta=table_extraction_delta,
             )
             for execplan_item, table_extraction_delta in zip(
-                prompt_context.execplan_item_list,
+                stage_input.execplan_item_list,
                 table_extraction_delta_batch_result.table_extraction_delta_list,
                 strict=True,
             )

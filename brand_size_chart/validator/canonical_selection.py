@@ -2,7 +2,7 @@
 
 from brand_size_chart.model import (
     CanonicalSelectionCandidate,
-    CanonicalSelectionPromptContext,
+    CanonicalSelectionInput,
     CanonicalSelectionResult,
 )
 
@@ -10,14 +10,14 @@ from brand_size_chart.model import (
 class CanonicalSelectionValidator:
     """Validate canonical-selection structural consistency."""
 
-    def __init__(self, *, prompt_context: CanonicalSelectionPromptContext) -> None:
-        """Store canonical-selection prompt context.
+    def __init__(self, *, stage_input: CanonicalSelectionInput) -> None:
+        """Store canonical-selection input.
 
         Args:
-            prompt_context: Canonical-selection prompt context used by the action.
+            stage_input: Canonical-selection input used by the action.
         """
 
-        self._prompt_context = prompt_context
+        self._stage_input = stage_input
 
     def validate(self, canonical_selection_result: CanonicalSelectionResult) -> None:
         """Validate canonical-selection structural consistency.
@@ -29,7 +29,7 @@ class CanonicalSelectionValidator:
             RuntimeError: If selection points to missing or inconsistent table data.
         """
 
-        candidate_list = self._prompt_context.canonical_selection_candidate_list
+        candidate_list = self._stage_input.canonical_selection_candidate_list
         candidate_by_chart_path_map = self._candidate_by_chart_path_map_get(candidate_list)
         selected_size_group_key_set = self._selection_list_validate(
             canonical_selection_result=canonical_selection_result,

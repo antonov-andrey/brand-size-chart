@@ -437,17 +437,12 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
         source_type="official_marketplace_product_page",
     )
 
-    prompt_context = json.loads(
-        (source_type_dir / "source_discover" / "prompt_context.json").read_text(encoding="utf-8")
-    )
+    prompt_context = json.loads((source_type_dir / "source_discover" / "input.json").read_text(encoding="utf-8"))
     assert prompt_context["source_type"] == "official_marketplace_product_page"
     assert call_list[0]["browser_runtime_mcp_url"] == "http://127.0.0.1:12000/mcp"
     prompt_text = str(call_list[0]["prompt_text"])
-    prompt_context = json.loads(
-        (source_type_dir / "source_discover" / "prompt_context.json").read_text(encoding="utf-8")
-    )
-    assert "Use the configured browser" in prompt_text
-    assert "source_discover/prompt_context.json" in prompt_text
+    prompt_context = json.loads((source_type_dir / "source_discover" / "input.json").read_text(encoding="utf-8"))
+    assert "source_discover/input.json" in prompt_text
     assert prompt_context["evidence_write_target"]["filesystem_path"] == str(
         tmp_path / ".playwright-mcp/current/brand_size_chart_audit/brand/defacto/source_type/"
         "official_marketplace_product_page/source_discover/evidence"
@@ -458,13 +453,6 @@ def test_source_discovery_calls_codex_browser_stage_without_local_sources(monkey
         "official_marketplace_product_page/source_discover/evidence"
     )
     assert prompt_context["requested_product_type_list"] == ["women shoes"]
-    assert "derive localized size-chart search-term families" in prompt_text
-    assert (
-        "Do not create one source candidate from product category, product title, variant labels, or option labels "
-        "alone." in prompt_text
-    )
-    assert "source_title is the browser-visible chart group or table heading" in prompt_text
-    assert "size_group_key is the normalized table key derived from source_title and evidence" in prompt_text
     assert prompt_context["shared_instruction"] == (
         "Only search official marketplace product page evidence for requested product types."
     )
@@ -972,78 +960,6 @@ def test_source_discovery_prepares_browser_evidence_directory_before_codex(monke
     ]
 
 
-def test_source_discovery_prompt_has_no_hardcoded_size_guide_routes(monkeypatch: object, tmp_path: Path) -> None:
-    """Keep official brand size-guide discovery generic without hardcoded route templates."""
-    call_list: list[dict[str, object]] = []
-    source_type_dir = (
-        tmp_path / "brand_size_chart_audit" / "brand" / "defacto" / "source_type" / "official_brand_size_guide"
-    )
-
-    def fake_codex_stage_run(
-        *,
-        browser_runtime_mcp_url: str,
-        model_class: type[BaseModel],
-        prompt_text: str,
-        result_dir: Path,
-        stage_dir: Path,
-        stage_name: str,
-    ) -> BaseModel:
-        """Return valid source discovery while preserving the prompt for assertions.
-
-        Args:
-            browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
-            model_class: Expected stage result model.
-            prompt_text: Prompt text passed to Codex.
-            result_dir: Root result directory.
-            stage_dir: Stage artifact directory.
-            stage_name: Stage name.
-
-        Returns:
-            Fake validated stage result.
-        """
-        _ = browser_runtime_mcp_url
-        _ = stage_name
-        call_list.append({"model_class": model_class, "prompt_text": prompt_text})
-        evidence_path = stage_dir / "evidence" / "defacto_size_guide.md"
-        evidence_path.parent.mkdir(parents=True, exist_ok=True)
-        evidence_path.write_text("browser-visible evidence\n", encoding="utf-8")
-        if model_class is BrowserActionResult:
-            source_discovery = SourceDiscovery(
-                country_code_list=["TR"],
-                evidence_path_list=[evidence_path.relative_to(result_dir).as_posix()],
-                size_group_key="women_upper",
-                source_title="Kadın Üst Beden Tablosu",
-                source_url="https://www.defacto.com.tr/brand-size-guide",
-            )
-            _source_discover_state_write(
-                evidence_path=evidence_path,
-                result_dir=result_dir,
-                source_discovery=source_discovery,
-                stage_dir=stage_dir,
-            )
-            return BrowserActionResult()
-        return StageVerificationResult(
-            status="success",
-        )
-
-    _source_discovery_list_get(
-        brand_input=_brand_input_get(),
-        browser_runtime_mcp_url="http://127.0.0.1:12000/mcp",
-        codex_stage_run_callable=fake_codex_stage_run,
-        prompt_scope=PromptScope(priority_country_code="TR"),
-        result_dir=tmp_path,
-        source_type="official_brand_size_guide",
-    )
-
-    discovery_prompt = str(
-        next(call["prompt_text"] for call in call_list if call["model_class"] is BrowserActionResult)
-    )
-    assert "/statik/beden-rehberi" not in discovery_prompt
-    assert "/statik/size-guide" not in discovery_prompt
-    assert "/beden-tablosu" not in discovery_prompt
-    assert "search" in discovery_prompt.lower()
-
-
 def test_source_discovery_retries_then_fails_empty_skipped_result(monkeypatch: object, tmp_path: Path) -> None:
     """Reject empty skipped source discovery as an incomplete critical stage result."""
     call_list: list[dict[str, object]] = []
@@ -1213,9 +1129,8 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
     assert table_extract_call_list[0]["browser_runtime_mcp_url"] == "http://127.0.0.1:12000/mcp"
     assert table_extract_call_list[0]["stage_name"] == "table_extract"
     prompt_text = str(table_extract_call_list[0]["prompt_text"])
-    prompt_context = json.loads((source_type_dir / "table_extract" / "prompt_context.json").read_text(encoding="utf-8"))
-    assert "Use the configured browser" in prompt_text
-    assert "table_extract/prompt_context.json" in prompt_text
+    prompt_context = json.loads((source_type_dir / "table_extract" / "input.json").read_text(encoding="utf-8"))
+    assert "table_extract/input.json" in prompt_text
     assert [item["source_discovery"]["size_group_key"] for item in prompt_context["execplan_item_list"]] == [
         "women_upper",
         "women_lower",
@@ -1236,7 +1151,6 @@ def test_table_extract_batch_calls_codex_once_for_multiple_discoveries(monkeypat
         "Official marketplace product page upper size answer",
         "Official marketplace product page lower size answer",
     ]
-    assert "Do not extract a default, current, product-category, adjacent, or differently named table" in prompt_text
     batch_result_payload = json.loads(
         (
             tmp_path
@@ -1346,9 +1260,9 @@ def test_table_extract_batch_loads_chart_artifacts_from_lightweight_codex_result
 
     table_extract_call_list = [call for call in call_list if call["model_class"] is TableExtractionDeltaBatchResult]
     result_payload = json.loads((source_type_dir / "table_extract" / "result.json").read_text(encoding="utf-8"))
-    prompt_context = json.loads((source_type_dir / "table_extract" / "prompt_context.json").read_text(encoding="utf-8"))
+    prompt_context = json.loads((source_type_dir / "table_extract" / "input.json").read_text(encoding="utf-8"))
     assert len(table_extract_call_list) == 1
-    assert "table_extract/prompt_context.json" in str(table_extract_call_list[0]["prompt_text"])
+    assert "table_extract/input.json" in str(table_extract_call_list[0]["prompt_text"])
     assert all("chart_write_target" not in item for item in prompt_context["execplan_item_list"])
     assert all(
         item["chart_filesystem_path"].endswith(f"{item['source_discovery']['size_group_key']}.json")

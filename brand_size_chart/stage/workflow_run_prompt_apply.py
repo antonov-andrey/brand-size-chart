@@ -3,16 +3,16 @@
 from pathlib import Path
 
 from workflow_container_runtime.prompt import PromptRenderer
-from workflow_container_runtime.stage import (
+
+from brand_size_chart.artifact import ArtifactLayout
+from brand_size_chart.model import PromptScope, SourceTypeCatalogItem, WorkflowRunPromptApplyInput
+from brand_size_chart.source import SOURCE_TYPE_REGISTRY
+from brand_size_chart.stage.base import (
+    CodexStageRun,
     VerifiedCodexStageConfig,
     VerifiedCodexStageRunner,
     verified_stage_artifact_write,
 )
-
-from brand_size_chart.artifact import ArtifactLayout
-from brand_size_chart.model import PromptScope, SourceTypeCatalogItem, WorkflowRunPromptApplyPromptContext
-from brand_size_chart.source import SOURCE_TYPE_REGISTRY
-from brand_size_chart.stage.base import CodexStageRun
 from brand_size_chart.validator import PromptScopeValidator
 
 PROJECT_TEMPLATE_DIR = Path(__file__).parents[1] / "prompt" / "template"
@@ -54,7 +54,7 @@ class WorkflowRunPromptApplyStage:
             prompt_renderer=PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
         ).run(
             config=VerifiedCodexStageConfig(
-                prompt_context=self._prompt_context_get(),
+                prompt_context=self._stage_input_get(),
                 result_dir=self._result_dir,
                 stage_dir=self._stage_dir,
                 stage_key="workflow_run_prompt_apply",
@@ -84,7 +84,7 @@ class WorkflowRunPromptApplyStage:
         self._prompt_scope_validator.validate(prompt_scope)
         verified_stage_artifact_write(
             config=VerifiedCodexStageConfig(
-                prompt_context=self._prompt_context_get(),
+                prompt_context=self._stage_input_get(),
                 result_dir=self._result_dir,
                 stage_dir=self._stage_dir,
                 stage_key="workflow_run_prompt_apply",
@@ -92,14 +92,14 @@ class WorkflowRunPromptApplyStage:
             result=prompt_scope,
         )
 
-    def _prompt_context_get(self) -> WorkflowRunPromptApplyPromptContext:
-        """Return prompt context for workflow-run prompt application.
+    def _stage_input_get(self) -> WorkflowRunPromptApplyInput:
+        """Return stage input for workflow-run prompt application.
 
         Returns:
-            Prompt context object.
+            Stage input object.
         """
 
-        return WorkflowRunPromptApplyPromptContext(
+        return WorkflowRunPromptApplyInput(
             source_type_catalog_list=[
                 SourceTypeCatalogItem(
                     discovery_instruction=SOURCE_TYPE_REGISTRY.source_type_discovery_instruction_get(source_type),

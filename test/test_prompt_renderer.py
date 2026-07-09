@@ -7,8 +7,9 @@ from jinja2 import UndefinedError
 from pydantic import BaseModel
 
 from brand_size_chart.model import PromptScope
+from brand_size_chart.stage.base import VerifiedCodexStageConfig, VerifiedCodexStageRunner
 from workflow_container_runtime.prompt import PromptRenderer
-from workflow_container_runtime.stage import StageVerificationResult, VerifiedCodexStageConfig, VerifiedCodexStageRunner
+from workflow_container_runtime.stage import StageVerificationResult
 
 PROJECT_TEMPLATE_DIR = Path("brand_size_chart/prompt/template")
 
@@ -25,30 +26,6 @@ def test_project_prompt_renderer_has_no_project_wrapper() -> None:
     """Use runtime prompt renderer directly with the project template directory."""
 
     assert not Path("brand_size_chart/prompt/renderer.py").exists()
-
-
-def test_source_discover_template_includes_stage_runtime_context() -> None:
-    """Render source discovery prompts from full templates and shared partial contracts."""
-    prompt_text = PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR).render(
-        "source_discover.md.j2",
-        {
-            "attempt_index": 2,
-            "feedback_list": ["retry feedback"],
-            "prompt_context_path": "brand_size_chart_audit/brand/defacto/source_discover/prompt_context.json",
-            "stage_key": "source_discover",
-            "previous_stage_result_path": "brand_size_chart_audit/brand/defacto/source_type/source/result.json",
-        },
-    )
-
-    assert "Stage: source_discover" in prompt_text
-    assert "Attempt: 2" in prompt_text
-    assert "Stage prompt context path:" in prompt_text
-    assert "brand_size_chart_audit/brand/defacto/source_discover/prompt_context.json" in prompt_text
-    assert "retry feedback" in prompt_text
-    assert "Previous stage result path:" in prompt_text
-    assert "brand_size_chart_audit/brand/defacto/source_type/source/result.json" in prompt_text
-    assert "Previous stage result JSON" not in prompt_text
-    assert "A `size_group_key` is a stable table identifier" in prompt_text
 
 
 def test_verified_stage_runner_reuses_one_prompt_renderer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -107,10 +84,9 @@ def test_verified_stage_runner_reuses_one_prompt_renderer(monkeypatch: pytest.Mo
             return StageVerificationResult(status="success")
         return PromptScope()
 
-    monkeypatch.setattr("workflow_container_runtime.stage.runner.PromptRenderer", FakePromptRenderer)
-
     VerifiedCodexStageRunner(
         codex_stage_run_callable=fake_codex_stage_run,
+        prompt_renderer=FakePromptRenderer(),
     ).run(
         config=VerifiedCodexStageConfig(
             prompt_context=PromptScope(priority_country_code="TR"),

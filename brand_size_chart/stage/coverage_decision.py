@@ -3,16 +3,20 @@
 from pathlib import Path
 
 from workflow_container_runtime.prompt import PromptRenderer
-from workflow_container_runtime.stage import VerifiedCodexStageConfig, VerifiedCodexStageRunner
 
 from brand_size_chart.model import (
     BrandInput,
-    CoverageDecisionPromptContext,
+    CoverageDecisionInput,
     CoverageDecisionResult,
     PromptScope,
     TableExtractionArtifact,
 )
-from brand_size_chart.stage.base import CodexStageRun, stage_instruction_list_get
+from brand_size_chart.stage.base import (
+    CodexStageRun,
+    VerifiedCodexStageConfig,
+    VerifiedCodexStageRunner,
+    stage_instruction_list_get,
+)
 from brand_size_chart.validator import CoverageDecisionValidator
 
 PROJECT_TEMPLATE_DIR = Path(__file__).parents[1] / "prompt" / "template"
@@ -56,30 +60,30 @@ class CoverageDecisionStage:
             Verified coverage decision result.
         """
 
-        prompt_context = self._prompt_context_get()
+        stage_input = self._stage_input_get()
         coverage_decision_result = VerifiedCodexStageRunner(
             codex_stage_run_callable=self._codex_stage_run,
             prompt_renderer=PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
         ).run(
             config=VerifiedCodexStageConfig(
-                prompt_context=prompt_context,
+                prompt_context=stage_input,
                 result_dir=self._result_dir,
                 stage_dir=self._stage_dir,
                 stage_key="coverage_decide",
             ),
             model_class=CoverageDecisionResult,
-            mechanical_validate=CoverageDecisionValidator(prompt_context=prompt_context).validate,
+            mechanical_validate=CoverageDecisionValidator(stage_input=stage_input).validate,
         )
         return coverage_decision_result
 
-    def _prompt_context_get(self) -> CoverageDecisionPromptContext:
-        """Return coverage-decision prompt context.
+    def _stage_input_get(self) -> CoverageDecisionInput:
+        """Return coverage-decision input.
 
         Returns:
-            Prompt context object.
+            Stage input object.
         """
 
-        return CoverageDecisionPromptContext(
+        return CoverageDecisionInput(
             brand_name=self._brand_input.parsed_brand_name,
             requested_product_type_list=self._prompt_scope.product_type_request_list,
             shared_instruction=self._prompt_scope.shared_instruction,

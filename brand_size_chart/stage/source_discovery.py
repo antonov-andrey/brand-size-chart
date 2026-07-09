@@ -4,7 +4,7 @@ from pathlib import Path
 
 from workflow_container_runtime.artifact import JsonArtifactWriter
 from workflow_container_runtime.prompt import PromptRenderer
-from workflow_container_runtime.stage import BrowserActionResult, VerifiedCodexStageConfig, VerifiedCodexStageRunner
+from workflow_container_runtime.stage import BrowserActionResult
 
 from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import (
@@ -12,11 +12,17 @@ from brand_size_chart.model import (
     BrandInput,
     PromptScope,
     SourceDiscovery,
-    SourceDiscoveryPromptContext,
+    SourceDiscoveryInput,
+    SourceDiscoveryResult,
     SourceSurfaceInventory,
 )
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
-from brand_size_chart.stage.base import CodexStageRun, stage_instruction_list_get
+from brand_size_chart.stage.base import (
+    CodexStageRun,
+    VerifiedCodexStageConfig,
+    VerifiedCodexStageRunner,
+    stage_instruction_list_get,
+)
 from brand_size_chart.validator import SourceDiscoveryValidator
 
 PROJECT_TEMPLATE_DIR = Path(__file__).parents[1] / "prompt" / "template"
@@ -64,26 +70,26 @@ class SourceDiscoveryStage:
         """
 
         self._artifact_directory_prepare()
-        prompt_context = self._prompt_context_get()
+        stage_input = self._stage_input_get()
         VerifiedCodexStageRunner(
             codex_stage_run_callable=self._codex_stage_run,
             prompt_renderer=PromptRenderer(template_dir=PROJECT_TEMPLATE_DIR),
         ).run(
             config=VerifiedCodexStageConfig(
                 browser_runtime_mcp_url=self._browser_runtime_mcp_url,
-                prompt_context=prompt_context,
+                prompt_context=stage_input,
                 result_dir=self._result_dir,
                 stage_dir=self._stage_dir,
                 stage_key="source_discover",
             ),
             model_class=BrowserActionResult,
             mechanical_validate=SourceDiscoveryValidator(
-                prompt_context=prompt_context,
+                stage_input=stage_input,
                 result_dir=self._result_dir,
                 stage_dir=self._stage_dir,
             ).validate,
         )
-        return self._source_discovery_list_get()
+        return self._result_get().source_discovery_list
 
     def _artifact_directory_prepare(self) -> None:
         """Create source-discovery directories required before Codex browser execution."""
@@ -98,15 +104,27 @@ class SourceDiscoveryStage:
             SourceSurfaceInventory.model_json_schema(),
         )
 
-    def _prompt_context_get(self) -> SourceDiscoveryPromptContext:
-        """Return source-discovery prompt context.
+    def _result_get(self) -> SourceDiscoveryResult:
+        """Build the public source-discovery result from validated private state.
 
         Returns:
-            Prompt context object.
+            Public source-discovery result.
+        """
+
+        return SourceDiscoveryResult(
+            source_discovery_list=self._source_discovery_list_get(),
+            warning_list=[],
+        )
+
+    def _stage_input_get(self) -> SourceDiscoveryInput:
+        """Return source-discovery input.
+
+        Returns:
+            Stage input object.
         """
 
         evidence_dir = self._artifact_layout.source_discover_evidence_dir(self._brand_input, self._source_type)
-        return SourceDiscoveryPromptContext(
+        return SourceDiscoveryInput(
             brand_name=self._brand_input.parsed_brand_name,
             evidence_write_target=ArtifactWriteTarget(
                 artifact_path=self._artifact_layout.artifact_path(evidence_dir),

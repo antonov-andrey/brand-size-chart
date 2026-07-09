@@ -21,6 +21,7 @@ from brand_size_chart.model.selection import (
 )
 from brand_size_chart.model.source import (
     SourceDiscovery,
+    SourceDiscoveryResult,
     SourceSurfaceDiscoveryQuery,
     SourceSurfaceInventory,
     SourceSurfaceProductTypeSex,
@@ -30,17 +31,18 @@ from brand_size_chart.model.source import (
     TableExtractionArtifact,
     TableExtractionDelta,
     TableExtractionDeltaBatchResult,
+    TableExtractionResult,
 )
-from brand_size_chart.model.stage_context import (
+from brand_size_chart.model.stage_input import (
     ArtifactWriteTarget,
     CanonicalSelectionCandidate,
-    CanonicalSelectionPromptContext,
-    CoverageDecisionPromptContext,
-    SourceDiscoveryPromptContext,
+    CanonicalSelectionInput,
+    CoverageDecisionInput,
+    SourceDiscoveryInput,
     SourceTypeCatalogItem,
     TableExtractionExecplanItem,
-    TableExtractionPromptContext,
-    WorkflowRunPromptApplyPromptContext,
+    TableExtractionInput,
+    WorkflowRunPromptApplyInput,
 )
 
 __all__ = [
@@ -55,12 +57,12 @@ __all__ = [
     "BrandSizeChart",
     "BrandSizeChartMeasurement",
     "BrandSizeChartRow",
+    "CanonicalSelectionInput",
     "CanonicalSelection",
     "CanonicalSelectionCandidate",
-    "CanonicalSelectionPromptContext",
     "CanonicalSelectionResult",
+    "CoverageDecisionInput",
     "CoverageDecisionProductTypeGap",
-    "CoverageDecisionPromptContext",
     "CoverageDecisionResult",
     "CoveredProductType",
     "IdentifierComponent",
@@ -68,12 +70,13 @@ __all__ = [
     "PromptStageInstruction",
     "RunResult",
     "SourceDiscovery",
+    "SourceDiscoveryInput",
+    "SourceDiscoveryResult",
     "SourceSurfaceDiscoveryQuery",
     "SourceSurfaceInventory",
     "SourceSurfaceProductTypeSex",
     "SourceSurfaceTable",
     "SourceSurfaceUrl",
-    "SourceDiscoveryPromptContext",
     "SourceTypeCatalogItem",
     "SourceTypeResult",
     "StageStatus",
@@ -82,6 +85,7 @@ __all__ = [
     "TableExtractionDelta",
     "TableExtractionDeltaBatchResult",
     "TableExtractionExecplanItem",
-    "TableExtractionPromptContext",
-    "WorkflowRunPromptApplyPromptContext",
+    "TableExtractionInput",
+    "TableExtractionResult",
+    "WorkflowRunPromptApplyInput",
 ]

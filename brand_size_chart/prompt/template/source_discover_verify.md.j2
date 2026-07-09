@@ -6,7 +6,7 @@
 
 Follow this order:
 
-1. Load the current Stage result JSON from `stage_result_path`, derive the source_discover stage directory from `prompt_context_path`, load `state.json` from that same directory, and load every evidence file referenced by state.json.
+1. Load the current Stage result JSON from `stage_result_path`, derive the source_discover stage directory from `input_path`, load `state.json` from that same directory, and load every evidence file referenced by state.json.
 2. Validate canonical inventory freshness: the inventory must belong to the current attempt-visible artifact tree and current evidence files.
 3. Run `Browsing Failures`.
 4. Run `Selected Source-Boundary Closure`.

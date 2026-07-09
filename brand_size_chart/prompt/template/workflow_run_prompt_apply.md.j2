@@ -4,9 +4,9 @@ Use the provided brand scope and source policy. Produce only structured artifact
 
 ## Contracts
 
-`source_type_allow_list` is an exact allow-list of source type keys. Do not place natural-language phrases in that field. Map clear natural-language source-scope instructions to exact source type keys from the stage context. When the workflow prompt asks for all source types, all supported source types, every source type, or equivalent unrestricted coverage, return an empty `source_type_allow_list`.
+`source_type_allow_list` is an exact allow-list of source type keys. Do not place natural-language phrases in that field. Map clear natural-language source-scope instructions to exact source type keys from the stage input. When the workflow prompt asks for all source types, all supported source types, every source type, or equivalent unrestricted coverage, return an empty `source_type_allow_list`.
 
-Read the workflow_run_prompt and source_type_catalog_list from the Stage prompt context path. Use source_type_catalog_list as the only source-type authority. The catalog lists each source_type, whether it requires product-type scope, and its discovery instruction. A source-scope instruction that clearly limits allowed source types must be represented in source_type_allow_list and must not remain only in shared_instruction. If the workflow prompt asks for all supported source types, leave source_type_allow_list empty. Keep one instruction in shared_instruction only when it is not a source-type allow-list restriction.
+Read the workflow_run_prompt and source_type_catalog_list from input_path. Use source_type_catalog_list as the only source-type authority. The catalog lists each source_type, whether it requires product-type scope, and its discovery instruction. A source-scope instruction that clearly limits allowed source types must be represented in source_type_allow_list and must not remain only in shared_instruction. If the workflow prompt asks for all supported source types, leave source_type_allow_list empty. Keep one instruction in shared_instruction only when it is not a source-type allow-list restriction.
 
 `priority_country_code` contains the priority market country from the workflow prompt as one ISO 3166 alpha-2 uppercase country code. The workflow prompt must choose this country explicitly. Normalize clear country names and market names to that country code. If the workflow prompt does not choose a priority country, leave `priority_country_code` empty so mechanical validation can fail. Remove the priority-country request from `shared_instruction` after writing it to `priority_country_code`.
 
@@ -18,7 +18,7 @@ Read the workflow_run_prompt and source_type_catalog_list from the Stage prompt 
 
 Follow this order:
 
-1. Read workflow_run_prompt and source_type_catalog_list from the Stage prompt context path.
+1. Read workflow_run_prompt and source_type_catalog_list from input_path.
 2. Extract source-scope instructions. If the source scope is unrestricted, write an empty source_type_allow_list. If the source scope clearly limits allowed source types, map it to exact source_type keys from the Source type catalog and remove that source-scope instruction from shared_instruction.
 3. Extract the priority country request into priority_country_code and remove that request from shared_instruction.
 4. Extract requested product type phrases into product_type_request_list and remove those phrases from shared_instruction.
