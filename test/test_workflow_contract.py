@@ -143,7 +143,7 @@ def _source_discovery_stage_input_get(
     product_type_request_list: list[str] | None = None,
     source_type: str = "official_brand_size_guide",
 ) -> SourceDiscoveryInput:
-    """Return source-discovery prompt context for validator tests.
+    """Return source-discovery stage input for validator tests.
 
     Args:
         priority_country_code: Priority market code.
@@ -151,7 +151,7 @@ def _source_discovery_stage_input_get(
         source_type: Source type key.
 
     Returns:
-        Source-discovery prompt context.
+        Source-discovery stage input.
     """
 
     return SourceDiscoveryInput(
@@ -230,7 +230,7 @@ def _source_discovery_result_get(stage_dir: Path) -> SourceDiscoveryResult:
 def _table_extraction_stage_input_get(
     *, source_discovery_list: list[SourceDiscovery], stage_dir: Path, tmp_path: Path
 ) -> TableExtractionInput:
-    """Return table-extraction prompt context for validator tests.
+    """Return table-extraction stage input for validator tests.
 
     Args:
         source_discovery_list: Source discoveries represented by the execplan.
@@ -238,7 +238,7 @@ def _table_extraction_stage_input_get(
         tmp_path: Test temporary result directory.
 
     Returns:
-        Table-extraction prompt context.
+        Table-extraction stage input.
     """
 
     return TableExtractionInput(
@@ -264,14 +264,14 @@ def _canonical_selection_stage_input_get(
     *,
     source_priority_by_key_map: dict[str, int] | None = None,
 ) -> CanonicalSelectionInput:
-    """Return canonical-selection prompt context for validator tests.
+    """Return canonical-selection stage input for validator tests.
 
     Args:
         table_extraction_list: Verified table artifacts.
         source_priority_by_key_map: Optional test priority override.
 
     Returns:
-        Canonical-selection prompt context.
+        Canonical-selection stage input.
     """
 
     priority_by_key_map = source_priority_by_key_map or SOURCE_TYPE_REGISTRY.source_type_priority_by_key_map
@@ -2717,7 +2717,7 @@ def test_canonical_selection_stage_has_no_deterministic_draft() -> None:
 
 
 def test_canonical_selection_result_forbids_conflict_payloads() -> None:
-    """Keep unresolved conflict candidates derived from prompt context, not Codex output."""
+    """Keep unresolved conflict candidates derived from stage input, not Codex output."""
 
     with pytest.raises(ValidationError):
         CanonicalSelectionResult(
@@ -3779,7 +3779,7 @@ def test_prompt_scope_stage_retries_unknown_source_type_allow_phrase(monkeypatch
 
 
 def test_table_extraction_stage_writes_chart_schema_artifact(tmp_path: Path) -> None:
-    """Generate the BrandSizeChart schema beside table-extract prompt context."""
+    """Generate the BrandSizeChart schema beside table-extract stage input."""
     from brand_size_chart.stage.table_extraction import TableExtractionStep
 
     source_discovery = SourceDiscovery(

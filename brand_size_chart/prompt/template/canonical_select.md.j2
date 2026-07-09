@@ -12,7 +12,7 @@ Follow this order:
 6. Normalize each candidate chart by row size_label and measurement name, unit, min_value, and max_value; compare normalized chart content together with applicability_status, country_code_list, applicability_description, evidence_path_list, source_url, and source_title.
 7. If multiple maximum-priority candidates remain, select only when evidence proves they are equivalent by normalized chart content and applicability scope. source_url and source_title are compared evidence fields, not equivalence keys.
 8. When selecting between equivalent maximum-priority candidates, choose the deterministic representative by sorting candidates by chart_path, then source_url, then source_title, then select the first candidate by returning its chart_path as selected_chart_path.
-9. When equivalence is unresolved, do not create a canonical selection for that size_group_key. Do not return conflict payloads; Python derives unresolved conflict candidates from omitted size_group_key groups and prompt context.
+9. When equivalence is unresolved, do not create a canonical selection for that size_group_key. Do not return conflict payloads; Python derives unresolved conflict candidates from omitted size_group_key groups and the stage input.
 10. Prefer the highest numeric source_priority only inside the same size_group_key group; do not compare unrelated size groups.
 
 {% include "runtime/partial/stage_retry_context.md.j2" %}
