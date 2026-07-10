@@ -1,76 +1,58 @@
-# Source Discover
+# Source Discovery
 
-{% include "runtime/partial/runtime_source_access.md.j2" %}
+{% include "runtime/partial/step_retry_context.md.j2" %}
 
-{% include "runtime/partial/artifact_reference_contract.md.j2" %}
+Read the current `SourceDiscoveryInput` from `input.json`. Use `workflow_input` for the brand, exact source type, scoped product list, and priority market. Follow `workflow_input.prompt_scope.shared_instruction` and `step_instruction_list`. Write and reread current-attempt browser evidence only through `evidence_write_target.filesystem_path`; record its future public reference through `evidence_write_target.artifact_path`.
 
-## Contracts
+{% include "partial/source_type_contract.md.j2" %}
 
-Search for size-chart data in any browser-visible form: HTML table, page text, modal, rendered widget, PDF, image, embedded asset, product image, help section, FAQ section, Q&A section, seller answer, product details, or size recommendation block. These forms are universal; source types differ only by authority, location, and applicability boundaries.
-
-Read stage input from input_path before starting discovery.
-
-## Persistent State
-
-Treat source discovery as a bounded workflow, not a best-effort search. Derive the source_discover stage directory from input_path, then read the SourceSurfaceInventory schema from sibling `state.schema.json` and build one canonical source-surface inventory state artifact named `state.json` in that same stage directory. The canonical inventory must conform to that generated schema. `url_list` is the only URL inventory list; each URL state is owned only by that URL's `state` field. `table_list` is the only table inventory list; each table row stores its concrete source-table identity only in `source_discovery`, and table state is owned only by that row's `state` field. Update that canonical inventory on every retry before handoff; overwrite the canonical state artifact so verification sees the completed state. attempt-only inventory artifacts are allowed only as extra diagnostics and must not replace the canonical inventory verified by the workflow.
-
-Save evidence before referencing it in state.json. Use evidence_write_target.filesystem_path for explicit browser artifact filenames and evidence_write_target.artifact_path for evidence references written to state.json. If a page is blocked or unavailable, save blocker evidence before referencing it; otherwise explain the absence in the rejection reason.
+Search every browser-visible size-chart form allowed by the source boundary, including tables, text, tabs, modals, widgets, PDFs, images, help or FAQ content, seller answers, product details, and recommendation blocks.
 
 {% include "runtime/partial/browser_browsing_error_result_contract.md.j2" %}
 
-## Workflow Sequence
+## Private Incremental State
 
-Follow this order:
+The sibling `state.json` is a runtime-owned `SourceDiscoveryState`. Read it but never create, replace, edit, or rewrite it. Its only domain fields are four relative references: `discovery_query_jsonl_path`, `product_type_sex_worklist_jsonl_path`, `table_jsonl_path`, and `url_jsonl_path`.
 
-1. initialize the canonical inventory before returning or rejecting any table;
-2. discover source surfaces for the current source type and record every discovery query or navigation surface;
-3. build product_type_sex_worklist for product-scoped source types when requested product types exist;
-4. close selected source boundaries according to Source Boundary Closure;
-5. enumerate every concrete size-chart table reachable inside each opened bounded surface;
-6. apply market selection before writing final table states;
-7. write table_list according to Table Inventory Contract;
-8. write BrowserActionResult only after the canonical inventory is complete for the current attempt.
+Read the generated sibling schemas `discovery_query.schema.json`, `product_type_sex_worklist.schema.json`, `table.schema.json`, and `url.schema.json`. Save supporting evidence first. As soon as one query, worklist row, URL, or table row is complete, append that one record immediately with:
 
-## Source Boundary Closure
+```text
+brand-size-chart-source-discovery-jsonl-append <state-path> {discovery-query|product-type-sex|table|url} <<'JSON'
+<one JSON object>
+JSON
+```
 
-Search pages, navigation pages, home pages, sitemap pages, FAQ index pages, help index pages, and other helper surfaces are discovery surfaces. Every concrete URL selected as a possible source boundary for this source type must be closed in the canonical inventory before handoff. A closed URL is one url_list entry with state opened and observed size-chart/table result evidence, or state rejected with a concrete rejection reason and evidence. Selected helper surfaces must be recorded as opened or rejected URL inventory entries with evidence and reasons. Do not leave selected seller/store/product URLs only inside broad URL evidence artifacts, notes, or verifier feedback. This includes selected helper surfaces and official or authorized seller/store roots surfaced by browser search evidence, such as marketplace store URLs. Do not put broad search-result or category product URL inventories in state.json. If you collect broad product URL lists for sampling or coverage, save them as separate evidence artifacts and reference those artifacts from discovery_query_list or url_list through evidence_path_list with the sampling or rejection rule in reason.
+Invoke the command once per item. This command is the only permitted non-evidence write. Never append to a JSONL file directly, batch several items into one payload, or modify an existing JSONL line. The command resolves the correct state-owned file and validates the record before its durable append.
 
-Do not exhaustively open every similar product URL from search or category results. For product-scoped source types, select the smallest browser-visible representative set needed to test the current requested product type inside each marketplace, seller, or store boundary: normally one official seller product per boundary unless evidence shows distinct size-chart mechanics. Record the sampling rule and store unselected broad result URLs only in separate evidence artifacts, not in state.json.
+Use one commit-before-continue loop. After one local action produces a complete worklist row, query result, URL decision, or table decision, save its evidence, append that one record or revision, and confirm the command succeeded before any next internal search, browser operation, or item decision. Use exactly one query per internal web-search invocation. Holding several completed items in model memory for a later batch append is forbidden.
 
-For product-scoped source types, product_type_sex_worklist is the source-discovery worklist. Start from the closed source-discovery sex set: women, men, girls, boys, unisex, and unisex_child. If the requested product type names an explicit sex, keep only that sex. If the requested product type does not name an explicit sex, create one worklist row for every sex in the closed set. A removed product type and sex row must remain in product_type_sex_worklist with state='rejected', reason and evidence_path_list that prove the pair is impossible for this product type. Worklist rows that still need source coverage use state='active'. Link URL entries to the active worklist rows they close through worklist_key_list. Table rows never carry worklist_key_list; table rows are inventory/audit rows only and do not close active worklist rows.
+Choose `entity_id` from the item's stable semantic identity, never from the attempt number or processing position. Give each revision a unique `record_id`. The first revision uses `revision_index=1` and `supersedes_record_id=null`. If later evidence or verification feedback corrects an item, append a new revision with the same `entity_id`, the next `revision_index`, and `supersedes_record_id` equal to the current revision's `record_id`. Never rewrite an existing line or create a branch from an older revision. Repeating one identical `record_id` is an idempotent no-op; reusing it for changed content is an explicit conflict. On retry, recover the current folded records through the four state references, preserve unrelated current records, and append only missing items or explicit next revisions. Runtime recovery may discard only an incomplete trailing fragment; an invalid complete line or revision chain is an explicit recovery error.
 
-When this source type uses official brand sources, identify browser-visible official host variants before concluding that the source type has no tables. Host variants include global brand domains, country-code brand domains, and locale paths that browser evidence shows as brand-owned. Open relevant official host roots and inspect visible navigation, footer, search, help, FAQ, sitemap, and static-page links. Do not stop after one official domain variant fails when another brand-owned host variant is visible or inferable from browser-visible evidence.
+## Discovery Sequence
 
-For each discovered official host, infer the browser-visible language and market from the opened page itself, then derive localized size-chart search-term families for that language and market. Use those localized search-term families through the runtime source-access contract, the site's own search, visible navigation, footer/help pages, and sitemap pages. Run separate searches for each distinct localized size-chart search-term family before concluding that no official size-guide table exists; these terms are search terms, not URL templates. Record the localized queries and the opened or rejected target source URLs in url_list. Do not conclude that an official host has no size guide until localized size-chart term searches for that host are represented in the canonical inventory.
+1. Recover current state and incremental records. Process `workflow_input.prompt_scope.product_type_request_list` in stored order. Do not append all initial worklist rows before searching. For the current requested product only, derive the ordered search-sex list: one explicitly named sex; `[men, women]` for explicitly unisex or unsexed adult products; `[boys, girls]` for explicitly unisex or unsexed child or baby products. Process every list member. Append one worklist row immediately before its search and close that row before appending another.
 
-Apply one market-selection ladder for accepted table rows. First search for the priority country code from PromptScope. If priority country tables exist for this source type, accepted table rows must contain only items whose `source_discovery.country_code_list` contains that priority country code. If no priority country table exists, accept global tables only when global tables exist and mark them with `source_discovery.country_code_list=['GLOBAL']`. If neither priority country nor global tables exist, accept European country tables only after verifying that the relevant official European country tables do not differ; mark such verified consensus rows with `source_discovery.country_code_list=['EU']`. If European country tables differ, record evidence-backed concrete table conflict entries only in table_list with state market_conflict, naming the exact conflicting country codes, URLs, and size_group_key values in `source_discovery`, do not encode the conflict as a terminal no-table reason, do not record the conflict in url_list, do not use it to close active worklist rows, and do not pick one locale.
+   ```text
+   input product pending
+     -> current search-sex row appended
+     -> query evidence appended
+     -> concrete product URL opened or pair rejected with evidence
+     -> every physical table in that boundary recorded
+     -> current search-sex row terminal
+     -> next search-sex row or next input product
+   ```
 
-## Table Inventory Contract
+   Complete every required search-sex row for the current requested product before advancing to the next input product. An impossible pair is terminal only after its evidence-backed rejected worklist row is appended. An opened pair is terminal only through its dedicated URL closure.
+2. Run one bounded discovery query, save its result inventory as evidence, append its query record, and only then run the next query. For non-product source types, inspect visible global, country, and locale host variants and run distinct localized size-chart term families before concluding absence.
+3. Inspect one selected source URL, save its evidence, append its `opened` or `rejected` URL record, and only then inspect another selected URL. Search, navigation, home, sitemap, FAQ, and help pages are discovery surfaces. For a product-scoped source, open at least one concrete matching product URL for every active product/sex worklist row and link that URL record to exactly that one `worklist_key`; a broad store, seller, category, or search URL may establish authority but cannot close multiple worklist rows. Before moving to the next product, inspect every visible product-local size-chart, help, seller-answer, Q&A, and recommendation surface and persist its terminal URL or table decision.
+4. Enumerate every concrete table reachable within each opened authority boundary, including every tab, group, subtable, modal, widget, linked asset, help answer, and Q&A panel. The current worklist row selects a product to inspect; it never supplies table identity or filters tables found in that product boundary. Record every physical table exactly as the source labels it. Derive `source_title` and `size_group_key` only from browser-visible table evidence. If one product exposes several tables, record every table. If several searches reach the same physical table, preserve one accepted identity and record later occurrences as equivalent evidence.
+5. Classify one completed table once its market and equivalence decision is final, save its evidence, append its table record, and only then classify another table. Preserve the exact browser-visible chart or table heading in `source_discovery.source_title`. Use `accepted` for the selected concrete table, `equivalent` for a duplicate that names its accepted representative, `market_filtered` for a lower market tier, `market_conflict` for incompatible European tables, and `rejected` for a table-specific evidence-backed rejection. Accept at most one table per physical `size_group_key` within this source type.
+6. Reread the persisted `input.json` and folded JSONL state. Return only `BrowserActionResult` after every requested product has the complete required search-sex expansion, every active row has its dedicated terminal URL closure, and all selected boundaries and concrete tables are closed. Product-type coverage belongs to `coverage_decide`, not this result or no-table reasoning.
 
-After applying the market-selection ladder, write selected concrete tables to table_list with state accepted. One accepted table row represents one concrete size chart table, not one page. Store the concrete source-table identity only in that row's `source_discovery` object. If one page contains multiple size chart tables with different `source_discovery.size_group_key` values, write one accepted table_list row per table. Inside one source type, accept at most one table row for one `source_discovery.size_group_key`.
+## Market Ladder
 
-Write every discovered concrete table that is not accepted after deduplication, equivalence checks, market conflict, market selection, or rejection to table_list with current evidence in `source_discovery`, state equivalent, market_conflict, market_filtered, or rejected, and a table-specific reason. Each such row is a non-returned concrete table record, not a second accepted source. Exact duplicate tables use state equivalent with duplicate details in reason. Equivalent rows must identify the accepted table row they equal. market_conflict, market_filtered, and rejected rows must name the evidence-backed conflict, market-selection, or rejection reason.
+Prefer tables for `workflow_input.prompt_scope.priority_country_code`. Only when none exist may global tables be accepted with `country_code_list=["GLOBAL"]`. Only when neither priority-country nor global tables exist may equivalent official European tables be accepted as consensus with `country_code_list=["EU"]`. If European tables differ, append the concrete conflicts as `market_conflict` table records with exact countries, URLs, evidence, and physical keys; do not pick one locale or turn the conflict into a no-table reason.
 
-One opened browser surface includes all size-chart content reachable from that surface without leaving its authority boundary: tabs, accordions, modals, popovers, rendered widgets, linked PDF or image assets, product-linked standard-size panels, help/FAQ answers, and Q&A panels. After opening such a surface, enumerate every browser-visible concrete size-chart table on that surface before handoff. Do not stop after the table that matches the product type or link that led to the surface.
-
-For tabbed or grouped size-chart surfaces, table_list must contain one explicit entry for every visible table group and subtable in every opened tab. Do not use vague notes such as prior evidence, already discovered, or retained candidate instead of current evidence paths and table-specific reasoning.
-
-## Retry And Recovery
-
-On retry, read Previous stage result path and state.json when existing files are present. Preserve evidence-backed accepted candidates from those current files unless verification feedback identifies a concrete error in that candidate. Complete the missing bounded inventory, rejection reasons, or coverage around those candidates instead of discarding them.
-
-## Terminal Handoff
-
-Complete handoff only after Source Boundary Closure and Table Inventory Contract are satisfied for the current attempt.
-
-Do not create one source candidate from product category, product title, variant labels, or option labels alone. source_title is the browser-visible chart group or table heading on the opened source surface. size_group_key is the normalized table key derived from source_title and evidence through the Size Group Key Contract. If an opened product page belongs to socks but its visible size-chart modal only exposes an Ayakkabi table, return the visible shoes table with the normalized shoes size_group_key or reject the socks candidate with an explicit inventory reason instead of inventing women_socks.
-
-Requested product types are source-discovery worklist inputs for product-scoped source types and coverage targets for the later coverage_decide stage. They must not filter or narrow accepted table_list entries or table extraction scope. When an opened source page contains concrete tables that are outside the requested product types, still accept those tables. If requested product types are present, search for every requested product type in this source type. Do not encode product-type coverage in BrowserActionResult; coverage_decide owns product-type coverage decisions.
-
-If at least one concrete table candidate is evidence-backed, write it as an accepted table_list row even when some requested product types remain uncovered. Do not write product-type coverage gaps to source-discovery no-table reasons; coverage_decide owns uncovered requested product types.
-
-Respect the source type boundary exactly; do not accept product-page measurement sections for official_brand_size_guide. BrowserActionResult must contain only browsing_error_list. If no concrete table can be accepted after browser-backed inventory, write detailed no-table reasons as evidence-backed terminal entries in state.json so this source type is recorded as skipped/no-table and the workflow can continue to the next source type. Do not invent candidates.
+If no acceptable table remains, complete the bounded queries and URL closures and persist evidence-backed terminal rejection reasons in their owning JSONL records. Never invent a candidate from product title, category, variant, or option labels.
 
 {% include "partial/size_group_key_contract.md.j2" %}
-
-{% include "runtime/partial/stage_retry_context.md.j2" %}

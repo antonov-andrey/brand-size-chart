@@ -1,39 +1,31 @@
-# Source Discover Verify
+# Source Discovery Verification
 
-{% include "runtime/partial/stage_verification_contract.md.j2" %}
+{% include "runtime/partial/step_verification_contract.md.j2" %}
 
-## Verification Workflow
-
-Follow this order:
-
-1. Load the current Stage result JSON from `stage_result_path`, derive the source_discover stage directory from `input_path`, load `state.json` from that same directory, and load every evidence file referenced by state.json.
-2. Validate canonical inventory freshness: the inventory must belong to the current attempt-visible artifact tree and current evidence files.
-3. Run `Browsing Failures`.
-4. Run `Selected Source-Boundary Closure`.
-5. Run `Product-Scoped Completeness`.
-6. Run `Source Table Completeness`.
-7. Run `Market Applicability`.
-
-## Browsing Failures
+Derive sibling `state.json` from the current input path. Read the current input and result, the runtime-owned `SourceDiscoveryState`, all four JSONL files referenced by that state, and every evidence artifact needed for the decisions. Treat an absent referenced JSONL as empty when no record of that type has been completed. Do not write or rewrite any artifact, invoke the append command, or repair state during verification.
 
 {% include "runtime/partial/browser_browsing_error_verification_contract.md.j2" %}
 
-## Selected Source-Boundary Closure
+{% include "partial/source_type_contract.md.j2" %}
 
-Every URL selected as a possible source boundary must be closed in the canonical inventory with current evidence. A URL selected as a possible seller, store, product, or size-guide boundary is closed only when it appears in url_list with state opened and the observed source result, or state rejected with a concrete rejection reason; the same closure rule applies to helper boundaries. A URL already present in url_list with state opened is tested. When reporting an untested selected boundary URL found in evidence, search, or navigation artifacts, quote the exact URL and the artifact or source where it appears, then require the next action attempt to add it to url_list with state opened or rejected. Navigation, search, home, sitemap, FAQ, or help URLs are bounded discovery surfaces, not concrete size-chart candidates. Broad unselected URL evidence artifacts must stay as separate evidence artifacts and do not need individual opening when the canonical inventory records the sampling rule and the selected representative URLs were closed.
+## Semantic Checks
 
-## Product-Scoped Completeness
+1. Verify that discovery applied exactly the rule matching `workflow_input.source_type`, the workflow scope, and current step instructions without crossing the source authority boundary.
+2. Verify selected source-boundary closure. Every selected seller, store, product, size-guide, or helper URL must have current evidence and a terminal opened or rejected URL record. Broad unselected search results need only an evidence-backed sampling rule and closed representative URLs.
+3. For product-scoped sources, verify:
 
-For product-scoped source types, verify absence through evidence-backed product or store boundary closure and verify product-scope completeness before passing. Start from the requested product types and applicable sex scope described by the stage input and current evidence. Verification must fail when the action did not evidence a product or store boundary attempt for one applicable product-type and sex row, or when a rejected row's evidence does not prove that the pair is impossible for this source type. Do not require localized official-host source-term searches for product-scoped absence results. Do not re-check worklist key parity; that is mechanical validator ownership.
+   - adult versus child/baby classification matches the requested product meaning;
+   - every required sex branch was actually searched or rejected with current evidence;
+   - both branches of an ordered two-sex expansion were processed, not treated as fallbacks;
+   - every table visible in an opened product boundary was inventoried independently of the query sex;
+   - table headings and physical identities come from source evidence rather than requested-product wording.
 
-## Source Table Completeness
+   Do not require official-host localized-query coverage for a product-scoped absence result.
+4. For official non-product sources, verify relevant visible host variants and distinct localized size-chart query families before accepting an absence result.
+5. Verify complete physical table inventory inside every opened boundary. Every visible table, tab, group, subtable, modal, widget, linked asset, help answer, or Q&A chart must be inventoried from current source evidence independently of requested product types and query sex.
+6. Verify the market ladder from priority country to global to equivalent European consensus. Conflicting European tables must remain explicit `market_conflict` records; they cannot justify choosing one locale or a terminal no-table reason.
+7. When no table is accepted, verify that bounded discovery is complete and current records contain concrete evidence-backed terminal reasons. A note such as "prior evidence" or "already discovered" is not evidence.
 
-For source_discover, verify source-type completeness inside the bounded source surface, not only internal consistency. One opened browser surface includes all size-chart content reachable from that surface without leaving its authority boundary: tabs, accordions, modals, popovers, rendered widgets, linked PDF or image assets, product-linked standard-size panels, help/FAQ answers, and Q&A panels. Validate that every non-accepted concrete table has current evidence. Verification must fail when any browser-visible concrete table in that opened surface is neither accepted in table_list nor recorded in table_list as an equivalent, market_conflict, market_filtered, or rejected table with current evidence and a table-specific reason. Equivalent entries must name the accepted size_group_key they map to; market_conflict, market_filtered, and rejected entries must name the evidence-backed conflict, market-selection, or rejection reason.
+Verify each physical key against the contract below. Do not repeat JSON schema, revision-chain shape, path containment, worklist-key parity, public-result projection, or list-parity checks owned by the generated schemas, JSONL store, and mechanical validator.
 
-When the canonical inventory mentions a table discovered from prior evidence, verification must require a current evidence_path_list entry or canonical inventory evidence path that exists in the current artifact tree and shows that table. A note such as prior evidence, previous evidence, retained candidate, or already discovered is not evidence by itself. Inside one source type, uniqueness is by size_group_key; verification must not require a second accepted table row for an equivalent or exact duplicate table with the same size_group_key when one evidence-backed accepted row with that key exists. Requested product types are coverage targets only; verification must fail when the main stage drops concrete unique tables from an opened source page only because they are outside the requested product types. Do not require zero accepted table rows only because requested product-type coverage is incomplete when at least one concrete candidate is evidence-backed. Missing requested product types must not be written to source-discovery no-table reasons; coverage_decide owns uncovered requested product types.
-
-Source discovery may have zero accepted table rows only when no concrete acceptable candidate remains and state.json contains evidence-backed terminal no-table reasons. Verification must fail when canonical inventory evidence is missing or stale. For official non-product source types, verify absence through official host or authorized seller source-surface evidence: the canonical inventory must prove that the main stage did derive localized size-chart search-term families for the source language and market, ran separate internal web searches for each distinct localized family, closed the resulting target source URLs in url_list, and found no concrete acceptable table. Do not fail only because unbounded search evidence contains additional similar product URLs after the inventory already proves that representative candidates were closed for the requested product type.
-
-## Market Applicability
-
-For source_discover, verify market applicability against evidence. If priority country tables exist, they must win. Global tables may be used only when evidence shows no priority country table exists. European consensus tables may be used only when evidence proves the relevant official European country tables do not differ. Conflicting European country tables must fail verification with the exact conflicting country codes, URLs, and size_group_key values.
+{% include "partial/size_group_key_contract.md.j2" %}
