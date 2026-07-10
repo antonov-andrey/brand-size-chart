@@ -139,6 +139,29 @@ def test_brand_result_partitions_source_type_results_and_skips() -> None:
     )
 
     assert brand_result.source_type_skip_list == [skip]
+    attempted_result = SourceTypeResult(
+        source_type="official_brand_product_page",
+        status="success",
+    )
+    with pytest.raises(ValidationError, match="source types must be unique"):
+        BrandResult(
+            brand_output_result=BrandOutputResult(),
+            canonical_selection_result=CanonicalSelectionResult(
+                canonical_selection_list=[],
+                unresolved_size_group_gap_list=[],
+            ),
+            coverage_decision_result=CoverageDecisionResult(
+                covered_product_type_list=[],
+                uncovered_product_type_gap_list=[],
+            ),
+            error_list=[],
+            parsed_brand_key="defacto",
+            parsed_brand_name="Defacto",
+            source_type_result_list=[attempted_result, attempted_result],
+            source_type_skip_list=[],
+            status="success",
+            warning_list=[],
+        )
     with pytest.raises(ValidationError, match="source types must be unique"):
         BrandResult(
             brand_output_result=BrandOutputResult(),
@@ -181,6 +204,23 @@ def test_brand_result_partitions_source_type_results_and_skips() -> None:
             source_type_skip_list=[skip],
             status="success",
             warning_list=[],
+        )
+
+
+def test_prompt_scope_rejects_duplicate_source_type_allow_list_values() -> None:
+    """Require each selected source type to appear once in the prompt scope."""
+
+    source_type_allow_list = [
+        "official_brand_size_guide",
+        "official_brand_product_page",
+    ]
+    assert PromptScope(source_type_allow_list=source_type_allow_list).source_type_allow_list == source_type_allow_list
+    with pytest.raises(ValidationError, match="source_type_allow_list.*unique"):
+        PromptScope(
+            source_type_allow_list=[
+                "official_brand_size_guide",
+                "official_brand_size_guide",
+            ]
         )
 
 
