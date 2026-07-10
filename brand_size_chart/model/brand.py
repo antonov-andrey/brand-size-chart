@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field
+from pydantic import ConfigDict, Field, model_validator
+from workflow_container_contract import WorkflowResult
 
-from brand_size_chart.model.base import StageStatus, StrictBaseModel
-from brand_size_chart.model.selection import CanonicalSelection
+from brand_size_chart.model.base import IdentifierComponent, StrictBaseModel
+from brand_size_chart.model.selection import CanonicalSelectionResult, CoverageDecisionResult
 from brand_size_chart.model.source import SourceTypeResult
 
 
@@ -38,14 +39,49 @@ class BrandListParseResult(StrictBaseModel):
     warning_list: list[BrandListParseWarning]
 
 
-class BrandResult(StrictBaseModel):
+class BrandOutputResult(StrictBaseModel):
+    """Final canonical size-chart artifacts published for one brand."""
+
+    size_chart_path_list: list[str] = Field(default_factory=list)
+
+
+class SourceTypeSkip(StrictBaseModel):
+    """Selected source type that did not start."""
+
+    reason: Literal[
+        "coverage_decision_failed",
+        "requested_product_type_coverage_complete",
+    ]
+    source_type: IdentifierComponent
+
+
+class BrandResult(WorkflowResult):
     """Workflow result for one brand."""
 
-    audit_artifact_path_list: list[str]
-    canonical_selection_list: list[CanonicalSelection]
-    error_list: list[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid", strict=True, validate_assignment=True, validate_default=True)
+
+    brand_output_result: BrandOutputResult | None
+    canonical_selection_result: CanonicalSelectionResult | None
+    coverage_decision_result: CoverageDecisionResult | None
     parsed_brand_key: str
     parsed_brand_name: str
-    size_chart_path_list: list[str]
     source_type_result_list: list[SourceTypeResult]
-    status: StageStatus
+    source_type_skip_list: list[SourceTypeSkip]
+
+    @model_validator(mode="after")
+    def _source_type_partition_validate(self) -> Self:
+        """Require one result-or-skip entry per represented source type.
+
+        Returns:
+            Validated brand result.
+
+        Raises:
+            ValueError: If one source type appears more than once across results and skips.
+        """
+
+        represented_source_type_list = [
+            source_type_result.source_type for source_type_result in self.source_type_result_list
+        ] + [source_type_skip.source_type for source_type_skip in self.source_type_skip_list]
+        if len(represented_source_type_list) != len(set(represented_source_type_list)):
+            raise ValueError("source types must be unique across source_type_result_list and source_type_skip_list")
+        return self
