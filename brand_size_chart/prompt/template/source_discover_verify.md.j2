@@ -15,6 +15,8 @@ Derive sibling `state.json` from the current input path. Read the current input 
 3. Only for product-scoped sources, verify:
 
    - adult versus child/baby classification matches the requested product meaning;
+   - every folded worklist row reached `searched` after inspecting an applicable concrete product boundary or reached `rejected` because no authorized matching boundary could be searched, with current evidence and an outcome reason;
+   - every `searched` row has a dedicated opened product URL linked only to its worklist key as evidence for that completed row, rather than treating URL linkage as the row state;
    - every required sex branch was actually searched or rejected with current evidence;
    - both branches of an ordered two-sex expansion were processed, not treated as fallbacks;
    - every table visible in an opened product boundary was inventoried independently of the query sex;

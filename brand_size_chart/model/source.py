@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import PurePosixPath
 from typing import Literal
 
-from pydantic import Field, field_validator
-from workflow_container_runtime.stage import BrowsingError
+from pydantic import ConfigDict, Field, field_validator
+from workflow_container_contract import WorkflowResult
+from workflow_container_runtime.artifact import JsonlRecord
+from workflow_container_runtime.step import BrowsingError, WorkflowStepCodexState
 
 from brand_size_chart.model.base import (
     COUNTRY_CODE_PATTERN,
@@ -15,7 +18,7 @@ from brand_size_chart.model.base import (
 )
 
 SourceSurfaceDiscoveryQueryState = Literal["searched", "failed"]
-SourceSurfaceProductTypeSexState = Literal["active", "rejected"]
+SourceSurfaceProductTypeSexState = Literal["pending", "searched", "rejected"]
 SourceSurfaceTableState = Literal["accepted", "equivalent", "market_conflict", "market_filtered", "rejected"]
 SourceSurfaceUrlState = Literal["opened", "rejected"]
 
@@ -44,7 +47,7 @@ def _country_code_list_validate(value: list[str]) -> list[str]:
     return normalized_country_code_list
 
 
-class SourceSurfaceDiscoveryQuery(StrictBaseModel):
+class SourceSurfaceDiscoveryQuery(JsonlRecord):
     """Discovery query recorded in the source-surface inventory."""
 
     evidence_path_list: list[str]
@@ -53,7 +56,7 @@ class SourceSurfaceDiscoveryQuery(StrictBaseModel):
     state: SourceSurfaceDiscoveryQueryState
 
 
-class SourceSurfaceProductTypeSex(StrictBaseModel):
+class SourceSurfaceProductTypeSex(JsonlRecord):
     """Product-type and sex worklist item recorded in the source-surface inventory."""
 
     evidence_path_list: list[str]
@@ -64,7 +67,7 @@ class SourceSurfaceProductTypeSex(StrictBaseModel):
     worklist_key: IdentifierComponent
 
 
-class SourceSurfaceUrl(StrictBaseModel):
+class SourceSurfaceUrl(JsonlRecord):
     """URL entry recorded in the source-surface inventory."""
 
     evidence_path_list: list[str]
@@ -103,11 +106,12 @@ class SourceDiscovery(StrictBaseModel):
 class SourceDiscoveryResult(StrictBaseModel):
     """Public source-discovery result and DBOS handoff."""
 
+    browsing_error_list: list[BrowsingError] = Field(default_factory=list)
     source_discovery_list: list[SourceDiscovery] = Field(default_factory=list)
     warning_list: list[str] = Field(default_factory=list)
 
 
-class SourceSurfaceTable(StrictBaseModel):
+class SourceSurfaceTable(JsonlRecord):
     """Concrete table inventory row with one stable source discovery object."""
 
     reason: str
@@ -116,7 +120,7 @@ class SourceSurfaceTable(StrictBaseModel):
 
 
 class SourceSurfaceInventory(StrictBaseModel):
-    """Canonical source-surface inventory for one source-discovery stage."""
+    """Canonical source-surface inventory for one source-discovery step."""
 
     discovery_query_list: list[SourceSurfaceDiscoveryQuery]
     product_type_sex_worklist: list[SourceSurfaceProductTypeSex]
@@ -127,7 +131,7 @@ class SourceSurfaceInventory(StrictBaseModel):
         """Return evidence-backed no-table reasons from terminal inventory entries.
 
         Returns:
-            No-table reason list from failed queries, rejected worklist rows, rejected URL rows, and terminal table rows.
+            No-table reason list from failed queries, terminal worklist rows, rejected URL rows, and terminal table rows.
         """
 
         no_table_reason_list: list[str] = []
@@ -141,7 +145,7 @@ class SourceSurfaceInventory(StrictBaseModel):
                 no_table_reason_set.add(discovery_query.reason.strip())
         for product_type_sex_worklist_item in self.product_type_sex_worklist:
             if (
-                product_type_sex_worklist_item.state == "rejected"
+                product_type_sex_worklist_item.state in {"searched", "rejected"}
                 and product_type_sex_worklist_item.reason.strip()
                 and product_type_sex_worklist_item.evidence_path_list
             ):
@@ -164,49 +168,72 @@ class SourceSurfaceInventory(StrictBaseModel):
         return no_table_reason_list
 
 
+class SourceDiscoveryState(WorkflowStepCodexState):
+    """Durable source-discovery state with relative incremental artifact paths."""
+
+    discovery_query_jsonl_path: str = "discovery_query.jsonl"
+    product_type_sex_worklist_jsonl_path: str = "product_type_sex_worklist.jsonl"
+    table_jsonl_path: str = "table.jsonl"
+    url_jsonl_path: str = "url.jsonl"
+
+    @field_validator(
+        "discovery_query_jsonl_path",
+        "product_type_sex_worklist_jsonl_path",
+        "table_jsonl_path",
+        "url_jsonl_path",
+    )
+    @classmethod
+    def jsonl_path_validate(cls, value: str) -> str:
+        """Require one normalized relative JSONL path.
+
+        Args:
+            value: Candidate incremental artifact path.
+
+        Returns:
+            Validated relative JSONL path.
+
+        Raises:
+            ValueError: If the path is empty, absolute, non-normalized, or not a JSONL path.
+        """
+
+        path = PurePosixPath(value)
+        if (
+            not value
+            or "\\" in value
+            or path.is_absolute()
+            or path.suffix != ".jsonl"
+            or ".." in path.parts
+            or str(path) != value
+        ):
+            raise ValueError("value must be a normalized relative JSONL path")
+        return value
+
+
 class TableExtractionArtifact(StrictBaseModel):
     """Extracted size-chart table metadata with chart artifact reference."""
 
     applicability_description: str = ""
     chart_path: str
-    country_code_list: list[str]
     evidence_path_list: list[str] = Field(default_factory=list)
-    size_group_key: IdentifierComponent
-    source_title: str
+    source_discovery: SourceDiscovery
     source_type: IdentifierComponent
-    source_url: str
-
-    @field_validator("country_code_list")
-    @classmethod
-    def country_code_list_validate(cls, value: list[str]) -> list[str]:
-        """Validate table-extraction source-market country codes.
-
-        Args:
-            value: Candidate country-code list.
-
-        Returns:
-            Normalized country-code list.
-
-        Raises:
-            ValueError: If one code is neither alpha-2 nor a supported market-scope marker.
-        """
-
-        return _country_code_list_validate(value)
 
 
 class TableExtractionResult(StrictBaseModel):
     """Public table-extraction result and DBOS handoff."""
 
+    browsing_error_list: list[BrowsingError] = Field(default_factory=list)
     table_extraction_list: list[TableExtractionArtifact] = Field(default_factory=list)
 
 
-class SourceTypeResult(StrictBaseModel):
+class SourceTypeResult(WorkflowResult):
     """Workflow result for one source type loop."""
 
-    blocker_list: list[str] = Field(default_factory=list)
+    model_config = ConfigDict(extra="forbid", strict=True, validate_assignment=True, validate_default=True)
+
     source_type: str
-    table_extraction_list: list[TableExtractionArtifact] = Field(default_factory=list)
-    warning_list: list[str] = Field(default_factory=list)
+    source_discovery_result: SourceDiscoveryResult | None = None
+    table_extraction_result: TableExtractionResult | None = None
 
 
 class TableExtractionDelta(StrictBaseModel):

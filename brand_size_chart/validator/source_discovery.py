@@ -1,291 +1,418 @@
 """Source-discovery mechanical validation."""
 
-import json
 from pathlib import Path
 
-from pydantic import ValidationError
+from workflow_container_runtime.step import StepResultValidationError, WorkflowStepExecutionContext
 
 from brand_size_chart.artifact import ArtifactReferenceValidator
 from brand_size_chart.model import (
-    SourceDiscoveryResult,
     SourceDiscoveryInput,
+    SourceDiscoveryResult,
     SourceSurfaceInventory,
     SourceSurfaceTable,
 )
+from brand_size_chart.source import SOURCE_TYPE_REGISTRY
+
+
+def _accepted_table_list_validate(
+    *,
+    accepted_table_list: list[SourceSurfaceTable],
+    priority_country_code: str,
+) -> None:
+    """Validate accepted table identity and market-selection invariants.
+
+    Args:
+        accepted_table_list: Accepted source-surface table rows.
+        priority_country_code: Preferred market from the persisted workflow input.
+
+    Raises:
+        StepResultValidationError: If accepted rows duplicate identities or mix market levels.
+    """
+
+    size_group_key_list = [table.source_discovery.size_group_key for table in accepted_table_list]
+    if len(set(size_group_key_list)) != len(size_group_key_list):
+        raise StepResultValidationError(
+            feedback_list=[
+                "Keep exactly one accepted source table per size_group_key and move duplicate tables to equivalent, "
+                "market_filtered, market_conflict, or rejected inventory rows."
+            ]
+        )
+
+    priority_country_source_list = [
+        table for table in accepted_table_list if priority_country_code in table.source_discovery.country_code_list
+    ]
+    if priority_country_source_list:
+        non_priority_country_size_group_key_list = sorted(
+            table.source_discovery.size_group_key
+            for table in accepted_table_list
+            if priority_country_code not in table.source_discovery.country_code_list
+        )
+        if non_priority_country_size_group_key_list:
+            raise StepResultValidationError(
+                feedback_list=[
+                    f"Keep only {priority_country_code} accepted tables because that priority market has verified "
+                    f"tables; move lower-market rows out of accepted: {non_priority_country_size_group_key_list}."
+                ]
+            )
+        return
+
+    global_source_list = [
+        table for table in accepted_table_list if "GLOBAL" in table.source_discovery.country_code_list
+    ]
+    if global_source_list:
+        non_global_size_group_key_list = sorted(
+            table.source_discovery.size_group_key
+            for table in accepted_table_list
+            if "GLOBAL" not in table.source_discovery.country_code_list
+        )
+        if non_global_size_group_key_list:
+            raise StepResultValidationError(
+                feedback_list=[
+                    "Keep only GLOBAL accepted tables because verified global tables exist; move lower-market rows "
+                    f"out of accepted: {non_global_size_group_key_list}."
+                ]
+            )
+        return
+
+    non_europe_size_group_key_list = sorted(
+        table.source_discovery.size_group_key
+        for table in accepted_table_list
+        if "EU" not in table.source_discovery.country_code_list
+    )
+    if non_europe_size_group_key_list:
+        raise StepResultValidationError(
+            feedback_list=[
+                f"Accept only {priority_country_code}, GLOBAL, or verified EU-consensus tables; correct the market "
+                f"classification for: {non_europe_size_group_key_list}."
+            ]
+        )
+
+
+def _artifact_reference_list_validate(
+    *,
+    execution_context: WorkflowStepExecutionContext,
+    evidence_path_list: list[str],
+    evidence_target_path: str,
+) -> None:
+    """Validate explicit evidence references against the declared target.
+
+    Args:
+        execution_context: Current step execution context.
+        evidence_path_list: Result-relative evidence references.
+        evidence_target_path: Declared public evidence directory.
+
+    Raises:
+        StepResultValidationError: If a reference escapes the target or does not exist.
+    """
+
+    target_path = (execution_context.result_dir / evidence_target_path).resolve()
+    outside_target_path_list: list[str] = []
+    for evidence_path in evidence_path_list:
+        evidence_relative_path = Path(evidence_path)
+        if (
+            evidence_relative_path.is_absolute()
+            or "\\" in evidence_path
+            or ".." in evidence_relative_path.parts
+            or evidence_relative_path.as_posix() != evidence_path
+        ):
+            outside_target_path_list.append(evidence_path)
+            continue
+        try:
+            (execution_context.result_dir / evidence_path).resolve().relative_to(target_path)
+        except ValueError:
+            outside_target_path_list.append(evidence_path)
+    if outside_target_path_list:
+        raise StepResultValidationError(
+            feedback_list=[
+                "Return source-discovery evidence only from the declared evidence_write_target.artifact_path "
+                f"{evidence_target_path}; outside references: {sorted(outside_target_path_list)}."
+            ]
+        )
+
+    try:
+        ArtifactReferenceValidator(execution_context.result_dir).path_list_validate(
+            path_list=evidence_path_list,
+            step_key="source_discover inventory",
+        )
+    except RuntimeError as exc:
+        raise StepResultValidationError(
+            feedback_list=[
+                "Create every referenced evidence artifact under the declared source-discovery evidence target and "
+                f"return normalized result-relative paths; artifact validation failed: {exc}."
+            ]
+        ) from exc
+
+
+def _equivalent_table_list_validate(
+    *,
+    accepted_size_group_key_set: set[str],
+    inventory: SourceSurfaceInventory,
+) -> None:
+    """Require each equivalent table to share an accepted table identity.
+
+    Args:
+        accepted_size_group_key_set: Accepted size-group identities.
+        inventory: Reconstructed source-surface inventory.
+
+    Raises:
+        StepResultValidationError: If one equivalent row has no accepted representative.
+    """
+
+    orphan_size_group_key_list = sorted(
+        {
+            table.source_discovery.size_group_key
+            for table in inventory.table_list
+            if table.state == "equivalent" and table.source_discovery.size_group_key not in accepted_size_group_key_set
+        }
+    )
+    if orphan_size_group_key_list:
+        raise StepResultValidationError(
+            feedback_list=[
+                "Add one accepted table with the same size_group_key for every equivalent inventory row, or change "
+                f"the orphan row state; orphan size groups: {orphan_size_group_key_list}."
+            ]
+        )
+
+
+def _inventory_evidence_path_list_get(inventory: SourceSurfaceInventory) -> list[str]:
+    """Return every explicit inventory evidence reference.
+
+    Args:
+        inventory: Reconstructed source-surface inventory.
+
+    Returns:
+        Evidence references from query, worklist, table, and URL rows.
+    """
+
+    evidence_path_list: list[str] = []
+    for discovery_query in inventory.discovery_query_list:
+        evidence_path_list.extend(discovery_query.evidence_path_list)
+    for worklist_item in inventory.product_type_sex_worklist:
+        evidence_path_list.extend(worklist_item.evidence_path_list)
+    for table in inventory.table_list:
+        evidence_path_list.extend(table.source_discovery.evidence_path_list)
+    for source_url in inventory.url_list:
+        evidence_path_list.extend(source_url.evidence_path_list)
+    return evidence_path_list
+
+
+def _worklist_validate(
+    *,
+    inventory: SourceSurfaceInventory,
+    require_dedicated_product_url: bool,
+    requested_product_type_list: list[str],
+) -> None:
+    """Validate product-type worklist identity and URL closure.
+
+    Args:
+        inventory: Reconstructed source-surface inventory.
+        require_dedicated_product_url: Whether each searched row requires its own product URL record.
+        requested_product_type_list: Exact product scope from the persisted step input.
+
+    Raises:
+        StepResultValidationError: If worklist rows are duplicated, invalid, or unclosed.
+    """
+
+    worklist_key_list = [worklist_item.worklist_key for worklist_item in inventory.product_type_sex_worklist]
+    worklist_key_set = set(worklist_key_list)
+    if len(worklist_key_set) != len(worklist_key_list):
+        raise StepResultValidationError(
+            feedback_list=["Give every product_type_sex_worklist row one unique worklist_key."]
+        )
+
+    represented_product_type_set = {
+        represented_product_type
+        for worklist_item in inventory.product_type_sex_worklist
+        for represented_product_type in {
+            worklist_item.product_type,
+            f"{worklist_item.sex} {worklist_item.product_type}",
+        }
+    }
+    missing_product_type_list = [
+        requested_product_type
+        for requested_product_type in requested_product_type_list
+        if requested_product_type not in represented_product_type_set
+    ]
+    if missing_product_type_list:
+        raise StepResultValidationError(
+            feedback_list=[
+                "Add at least one product_type_sex_worklist row for every requested product type; "
+                f"missing requested product types: {missing_product_type_list}."
+            ]
+        )
+
+    pending_worklist_key_list = sorted(
+        worklist_item.worklist_key
+        for worklist_item in inventory.product_type_sex_worklist
+        if worklist_item.state == "pending"
+    )
+    if pending_worklist_key_list:
+        raise StepResultValidationError(
+            feedback_list=[
+                "Complete every pending product_type_sex_worklist row before returning the source-discovery result; "
+                f"pending keys: {pending_worklist_key_list}."
+            ]
+        )
+
+    searched_worklist_key_set: set[str] = set()
+    for worklist_item in inventory.product_type_sex_worklist:
+        if not worklist_item.reason.strip():
+            raise StepResultValidationError(
+                feedback_list=[
+                    f"Add an evidence-backed terminal reason for product_type_sex_worklist row "
+                    f"{worklist_item.worklist_key}."
+                ]
+            )
+        if not worklist_item.evidence_path_list:
+            raise StepResultValidationError(
+                feedback_list=[
+                    f"Add evidence_path_list for terminal product_type_sex_worklist row "
+                    f"{worklist_item.worklist_key}."
+                ]
+            )
+        if worklist_item.state == "searched":
+            searched_worklist_key_set.add(worklist_item.worklist_key)
+
+    linked_worklist_key_set = {
+        worklist_key for source_url in inventory.url_list for worklist_key in source_url.worklist_key_list
+    }
+    unknown_worklist_key_list = sorted(linked_worklist_key_set - worklist_key_set)
+    if unknown_worklist_key_list:
+        raise StepResultValidationError(
+            feedback_list=[
+                "Remove unknown worklist_key_list references from URL inventory rows or add their worklist rows; "
+                f"unknown keys: {unknown_worklist_key_list}."
+            ]
+        )
+
+    if not require_dedicated_product_url:
+        return
+
+    closing_worklist_key_set = {
+        source_url.worklist_key_list[0]
+        for source_url in inventory.url_list
+        if source_url.state == "opened" and len(source_url.worklist_key_list) == 1
+    }
+    unclosed_worklist_key_list = sorted(searched_worklist_key_set - closing_worklist_key_set)
+    if unclosed_worklist_key_list:
+        raise StepResultValidationError(
+            feedback_list=[
+                "Open and record at least one dedicated product URL for every searched product/sex worklist row; "
+                "a rejected URL or URL linked to multiple rows cannot close them; "
+                f"unclosed keys: {unclosed_worklist_key_list}."
+            ]
+        )
 
 
 class SourceDiscoveryValidator:
-    """Validate source-discovery structural consistency."""
+    """Validate source discovery against its reconstructed private inventory."""
 
-    def __init__(
+    def validate(
         self,
-        *,
-        stage_input: SourceDiscoveryInput,
-        result_dir: Path,
-        stage_dir: Path,
+        execution_context: WorkflowStepExecutionContext,
+        step_input: SourceDiscoveryInput,
+        result: SourceDiscoveryResult,
+        inventory: SourceSurfaceInventory,
     ) -> None:
-        """Store source-discovery validation input.
+        """Validate one public source-discovery result mechanically.
 
         Args:
-            stage_input: Source-discovery input used by the action.
-            result_dir: Root result directory.
-            stage_dir: Source-discovery stage artifact directory.
-        """
-
-        self._artifact_reference_validator = ArtifactReferenceValidator(result_dir)
-        self._stage_input = stage_input
-        self._stage_dir = stage_dir
-
-    def _country_selection_validate(self, *, accepted_table_list: list[SourceSurfaceTable]) -> None:
-        """Validate the source-discovery market selection ladder.
-
-        Args:
-            accepted_table_list: Accepted source-surface table rows.
+            execution_context: Current step execution context.
+            step_input: Persisted source-discovery input used by the action.
+            result: Candidate public source-discovery result.
+            inventory: Inventory reconstructed by the step from private JSONL files.
 
         Raises:
-            RuntimeError: If lower-priority market scopes are mixed into a higher-priority result.
+            StepResultValidationError: If the public result or inventory violates its mechanical contract.
         """
 
-        priority_country_code = self._stage_input.priority_country_code
-        priority_country_source_list = [
-            source_surface_table
-            for source_surface_table in accepted_table_list
-            if priority_country_code in source_surface_table.source_discovery.country_code_list
-        ]
-        if priority_country_source_list:
-            non_priority_country_size_group_key_list = [
-                source_surface_table.source_discovery.size_group_key
-                for source_surface_table in accepted_table_list
-                if priority_country_code not in source_surface_table.source_discovery.country_code_list
-            ]
-            if non_priority_country_size_group_key_list:
-                raise RuntimeError(
-                    "source_discover contains non-priority country candidates while priority country tables exist: "
-                    f"priority_country_code={priority_country_code}; "
-                    f"size_group_key_list={sorted(non_priority_country_size_group_key_list)}"
-                )
-            return
-
-        global_source_list = [
-            source_surface_table
-            for source_surface_table in accepted_table_list
-            if "GLOBAL" in source_surface_table.source_discovery.country_code_list
-        ]
-        if global_source_list:
-            non_global_size_group_key_list = [
-                source_surface_table.source_discovery.size_group_key
-                for source_surface_table in accepted_table_list
-                if "GLOBAL" not in source_surface_table.source_discovery.country_code_list
-            ]
-            if non_global_size_group_key_list:
-                raise RuntimeError(
-                    "source_discover contains non-global candidates while global tables exist: "
-                    f"priority_country_code={priority_country_code}; "
-                    f"size_group_key_list={sorted(non_global_size_group_key_list)}"
-                )
-            return
-
-        non_europe_size_group_key_list = [
-            source_surface_table.source_discovery.size_group_key
-            for source_surface_table in accepted_table_list
-            if "EU" not in source_surface_table.source_discovery.country_code_list
-        ]
-        if non_europe_size_group_key_list:
-            raise RuntimeError(
-                "source_discover contains candidates that are neither priority-country, global, nor verified European "
-                f"consensus tables: priority_country_code={priority_country_code}; "
-                f"size_group_key_list={sorted(non_europe_size_group_key_list)}"
+        market_conflict_size_group_key_list = sorted(
+            {
+                table.source_discovery.size_group_key
+                for table in inventory.table_list
+                if table.state == "market_conflict"
+            }
+        )
+        if market_conflict_size_group_key_list:
+            raise StepResultValidationError(
+                feedback_list=[
+                    "Resolve the market conflict instead of returning it as a no-table outcome; reconcile the "
+                    f"European country tables for: {market_conflict_size_group_key_list}."
+                ]
             )
 
-    def validate(self, source_discovery_result: SourceDiscoveryResult) -> None:
-        """Validate source-discovery structural consistency before semantic verification.
-
-        Args:
-            source_discovery_result: Public source-discovery result.
-
-        Raises:
-            RuntimeError: If discovery is structurally inconsistent.
-        """
-
-        inventory = self._inventory_validate()
-        market_conflict_table_list = [
-            source_surface_table
-            for source_surface_table in inventory.table_list
-            if source_surface_table.state == "market_conflict"
-        ]
-        if market_conflict_table_list:
-            raise RuntimeError(
-                "source_discover found conflicting European country tables; this is a blocker, not a no-table "
-                "source result: size_group_key_list="
-                f"{sorted({table.source_discovery.size_group_key for table in market_conflict_table_list})}"
-            )
-        accepted_table_list = [
-            source_surface_table
-            for source_surface_table in inventory.table_list
-            if source_surface_table.state == "accepted"
-        ]
-        self._equivalent_table_validate(
-            accepted_size_group_key_set={table.source_discovery.size_group_key for table in accepted_table_list},
+        accepted_table_list = [table for table in inventory.table_list if table.state == "accepted"]
+        accepted_size_group_key_set = {table.source_discovery.size_group_key for table in accepted_table_list}
+        _equivalent_table_list_validate(
+            accepted_size_group_key_set=accepted_size_group_key_set,
             inventory=inventory,
         )
-        expected_source_discovery_list = [
-            source_surface_table.source_discovery for source_surface_table in accepted_table_list
-        ]
-        if source_discovery_result.source_discovery_list != expected_source_discovery_list:
-            raise RuntimeError("source_discover result does not match accepted rows in state.json")
+        _worklist_validate(
+            inventory=inventory,
+            require_dedicated_product_url=SOURCE_TYPE_REGISTRY.source_type_requires_product_type(
+                step_input.workflow_input.source_type
+            ),
+            requested_product_type_list=step_input.workflow_input.prompt_scope.product_type_request_list,
+        )
+        _artifact_reference_list_validate(
+            execution_context=execution_context,
+            evidence_path_list=_inventory_evidence_path_list_get(inventory),
+            evidence_target_path=step_input.evidence_write_target.artifact_path,
+        )
+
+        expected_source_discovery_list = [table.source_discovery for table in accepted_table_list]
+        if result.source_discovery_list != expected_source_discovery_list:
+            raise StepResultValidationError(
+                feedback_list=[
+                    "Return source_discovery_list exactly from accepted inventory table rows, preserving row order "
+                    "and every SourceDiscovery field."
+                ]
+            )
+
         if not accepted_table_list:
             expected_warning_list = inventory.no_table_reason_list_get()
             if not expected_warning_list:
-                raise RuntimeError(
-                    "source_discover returned no accepted table rows and no evidence-backed no-table inventory reasons"
+                raise StepResultValidationError(
+                    feedback_list=[
+                        "Add at least one evidence-backed terminal no-table reason to the source inventory before "
+                        "returning an empty source_discovery_list."
+                    ]
                 )
-            if source_discovery_result.warning_list != expected_warning_list:
-                raise RuntimeError("source_discover warning_list does not match evidence-backed no-table reasons")
+            if result.warning_list != expected_warning_list:
+                raise StepResultValidationError(
+                    feedback_list=[
+                        "Return warning_list exactly as the sorted evidence-backed no-table reasons from the source "
+                        f"inventory; expected: {expected_warning_list}."
+                    ]
+                )
             return
-        if source_discovery_result.warning_list:
-            raise RuntimeError("source_discover warning_list must be empty when accepted table rows exist")
-        self._country_selection_validate(accepted_table_list=accepted_table_list)
-        size_group_key_set: set[str] = set()
-        for source_discovery in source_discovery_result.source_discovery_list:
-            if source_discovery.size_group_key in size_group_key_set:
-                raise RuntimeError(f"source_discover duplicate size_group_key: {source_discovery.size_group_key}")
-            size_group_key_set.add(source_discovery.size_group_key)
-            if not source_discovery.source_url.strip():
-                raise RuntimeError(f"source_discover returned empty source_url for {source_discovery.size_group_key}")
-            if not source_discovery.source_title.strip():
-                raise RuntimeError(f"source_discover returned empty source_title for {source_discovery.size_group_key}")
-            self._artifact_reference_validator.evidence_path_list_validate(
-                evidence_path_list=source_discovery.evidence_path_list,
-                stage_key="source_discover",
+
+        if result.warning_list:
+            raise StepResultValidationError(
+                feedback_list=[
+                    "Return an empty warning_list when accepted source tables exist; no-table warnings apply only "
+                    "to an empty accepted result."
+                ]
             )
 
-    def _equivalent_table_validate(
-        self, *, accepted_size_group_key_set: set[str], inventory: SourceSurfaceInventory
-    ) -> None:
-        """Validate equivalent table rows against accepted rows.
-
-        Args:
-            accepted_size_group_key_set: Accepted size-group keys in the current inventory.
-            inventory: Parsed source-surface inventory.
-
-        Raises:
-            RuntimeError: If one equivalent row has no accepted row with the same size group.
-        """
-
-        orphan_table_list = [
-            source_surface_table
-            for source_surface_table in inventory.table_list
-            if source_surface_table.state == "equivalent"
-            and source_surface_table.source_discovery.size_group_key not in accepted_size_group_key_set
-        ]
-        if orphan_table_list:
-            raise RuntimeError(
-                "source_discover equivalent table rows must reference an accepted table with the same size_group_key: "
-                f"{sorted({table.source_discovery.size_group_key for table in orphan_table_list})}"
-            )
-
-    def _inventory_evidence_path_list_get(self, inventory: SourceSurfaceInventory) -> list[str]:
-        """Return explicit evidence path references from the source-surface inventory.
-
-        Args:
-            inventory: Parsed source-surface inventory.
-
-        Returns:
-            Evidence path list from explicit inventory evidence fields.
-        """
-
-        evidence_path_list: list[str] = []
-        for discovery_query in inventory.discovery_query_list:
-            evidence_path_list.extend(discovery_query.evidence_path_list)
-        for product_type_sex_worklist_item in inventory.product_type_sex_worklist:
-            evidence_path_list.extend(product_type_sex_worklist_item.evidence_path_list)
-        for source_surface_table in inventory.table_list:
-            evidence_path_list.extend(source_surface_table.source_discovery.evidence_path_list)
-        for source_surface_url in inventory.url_list:
-            evidence_path_list.extend(source_surface_url.evidence_path_list)
-        return evidence_path_list
-
-    def _inventory_payload_get(self) -> SourceSurfaceInventory:
-        """Return parsed canonical source-surface inventory.
-
-        Returns:
-            Parsed source-surface inventory.
-
-        Raises:
-            RuntimeError: If the inventory is missing or invalid JSON.
-        """
-
-        inventory_path = self._stage_dir / "state.json"
-        if not inventory_path.is_file():
-            raise RuntimeError("source_discover must write state.json")
-        try:
-            inventory_payload = json.loads(inventory_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as exc:
-            raise RuntimeError("source_discover state.json is invalid JSON") from exc
-        try:
-            return SourceSurfaceInventory.model_validate(inventory_payload)
-        except ValidationError as exc:
-            raise RuntimeError(f"source_discover state.json violates SourceSurfaceInventory contract: {exc}") from exc
-
-    def _inventory_validate(self) -> SourceSurfaceInventory:
-        """Validate canonical source-surface inventory artifact references.
-
-        Returns:
-            Parsed source-surface inventory.
-        """
-
-        inventory = self._inventory_payload_get()
-        self._inventory_product_type_worklist_validate(inventory=inventory)
-        self._artifact_reference_validator.path_list_validate(
-            path_list=self._inventory_evidence_path_list_get(inventory),
-            stage_key="source_discover inventory",
+        _accepted_table_list_validate(
+            accepted_table_list=accepted_table_list,
+            priority_country_code=step_input.workflow_input.prompt_scope.priority_country_code,
         )
-        return inventory
-
-    def _inventory_product_type_worklist_validate(self, *, inventory: SourceSurfaceInventory) -> None:
-        """Validate product-type worklist closure in the source-surface inventory.
-
-        Args:
-            inventory: Parsed source-surface inventory.
-
-        Raises:
-            RuntimeError: If one worklist row is not linked to concrete inventory evidence.
-        """
-
-        worklist_key_set = {worklist_item.worklist_key for worklist_item in inventory.product_type_sex_worklist}
-        if len(worklist_key_set) != len(inventory.product_type_sex_worklist):
-            raise RuntimeError("source_discover duplicate product_type_sex_worklist worklist_key values")
-        active_worklist_key_set: set[str] = set()
-        for worklist_item in inventory.product_type_sex_worklist:
-            if worklist_item.state == "active":
-                active_worklist_key_set.add(worklist_item.worklist_key)
-                continue
-            if not worklist_item.reason.strip():
-                raise RuntimeError(
-                    "source_discover rejected product_type_sex_worklist row has empty reason: "
-                    f"{worklist_item.worklist_key}"
+        for source_discovery in result.source_discovery_list:
+            if not source_discovery.source_url.strip():
+                raise StepResultValidationError(
+                    feedback_list=[
+                        f"Set a non-empty source_url for accepted size group {source_discovery.size_group_key}."
+                    ]
                 )
-            if not worklist_item.evidence_path_list:
-                raise RuntimeError(
-                    "source_discover rejected product_type_sex_worklist row has no evidence_path_list: "
-                    f"{worklist_item.worklist_key}"
+            if not source_discovery.source_title.strip():
+                raise StepResultValidationError(
+                    feedback_list=[
+                        f"Set a non-empty source_title for accepted size group {source_discovery.size_group_key}."
+                    ]
                 )
-
-        linked_worklist_key_set: set[str] = set()
-        active_closing_worklist_key_set: set[str] = set()
-        for source_surface_url in inventory.url_list:
-            linked_worklist_key_set.update(source_surface_url.worklist_key_list)
-            active_closing_worklist_key_set.update(source_surface_url.worklist_key_list)
-
-        unknown_worklist_key_list = sorted(linked_worklist_key_set - worklist_key_set)
-        if unknown_worklist_key_list:
-            raise RuntimeError(
-                "source_discover inventory references unknown product_type_sex_worklist keys: "
-                f"{unknown_worklist_key_list}"
-            )
-
-        unlinked_worklist_key_list = sorted(active_worklist_key_set - active_closing_worklist_key_set)
-        if unlinked_worklist_key_list:
-            raise RuntimeError(
-                "source_discover unlinked product_type_sex_worklist keys: " f"{unlinked_worklist_key_list}"
-            )
+            if not source_discovery.evidence_path_list:
+                raise StepResultValidationError(
+                    feedback_list=[f"Add evidence_path_list for accepted size group {source_discovery.size_group_key}."]
+                )

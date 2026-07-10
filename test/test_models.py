@@ -346,7 +346,7 @@ def test_source_surface_rows_are_incremental_jsonl_records() -> None:
         record_id="worklist:women-shoes:r1",
         revision_index=1,
         sex="women",
-        state="active",
+        state="pending",
         supersedes_record_id=None,
         worklist_key="women_shoes",
     )
@@ -389,6 +389,48 @@ def test_source_surface_rows_are_incremental_jsonl_records() -> None:
     assert inventory.table_list == [source_surface_table]
     assert inventory.url_list == [source_surface_url]
     assert not isinstance(inventory, JsonlRecord)
+
+
+@pytest.mark.parametrize("state", ["pending", "searched"])
+def test_source_surface_product_type_sex_accepts_current_worklist_states(state: str) -> None:
+    """Accept each explicit worklist state used by the row-local discovery FSM.
+
+    Args:
+        state: Current durable worklist state.
+    """
+
+    product_type_sex = SourceSurfaceProductTypeSex(
+        entity_id="worklist:women-shoes",
+        evidence_path_list=[],
+        product_type="shoes",
+        reason="Current worklist revision.",
+        record_id="worklist:women-shoes:r1",
+        revision_index=1,
+        sex="women",
+        state=state,
+        supersedes_record_id=None,
+        worklist_key="women_shoes",
+    )
+
+    assert product_type_sex.state == state
+
+
+def test_source_surface_product_type_sex_rejects_legacy_active_state() -> None:
+    """Reject the superseded URL-derived worklist state."""
+
+    with pytest.raises(ValidationError, match="state"):
+        SourceSurfaceProductTypeSex(
+            entity_id="worklist:women-shoes",
+            evidence_path_list=[],
+            product_type="shoes",
+            reason="Legacy state.",
+            record_id="worklist:women-shoes:r1",
+            revision_index=1,
+            sex="women",
+            state="active",
+            supersedes_record_id=None,
+            worklist_key="women_shoes",
+        )
 
 
 def test_source_discovery_state_owns_only_relative_jsonl_paths() -> None:
@@ -796,7 +838,7 @@ def test_table_extraction_rejects_unsafe_artifact_components() -> None:
                 "record_id": "worklist:women-shoes:r1",
                 "revision_index": 1,
                 "sex": "women",
-                "state": "pending",
+                "state": "active",
                 "supersedes_record_id": None,
                 "worklist_key": "women_shoes",
             },
@@ -887,12 +929,25 @@ def test_source_surface_table_rejects_worklist_links() -> None:
         SourceSurfaceTable.model_validate(payload)
 
 
-def test_source_surface_inventory_no_table_reasons_ignore_equivalent_rows() -> None:
-    """Keep equivalent rows out of terminal no-table summaries."""
+def test_source_surface_inventory_no_table_reasons_include_terminal_worklist_outcomes() -> None:
+    """Publish searched and rejected worklist outcomes but not equivalent table rows."""
     inventory = SourceSurfaceInventory.model_validate(
         {
             "discovery_query_list": [],
-            "product_type_sex_worklist": [],
+            "product_type_sex_worklist": [
+                {
+                    "entity_id": "worklist:women-shoes",
+                    "evidence_path_list": ["brand_size_chart_audit/brand/defacto/source_type/source/evidence.json"],
+                    "product_type": "shoes",
+                    "reason": "The opened product had no size table.",
+                    "record_id": "worklist:women-shoes:r2",
+                    "revision_index": 2,
+                    "sex": "women",
+                    "state": "searched",
+                    "supersedes_record_id": "worklist:women-shoes:r1",
+                    "worklist_key": "women_shoes",
+                }
+            ],
             "url_list": [],
             "table_list": [
                 {
@@ -944,7 +999,10 @@ def test_source_surface_inventory_no_table_reasons_ignore_equivalent_rows() -> N
         }
     )
 
-    assert inventory.no_table_reason_list_get() == ["Filtered by market ladder."]
+    assert inventory.no_table_reason_list_get() == [
+        "Filtered by market ladder.",
+        "The opened product had no size table.",
+    ]
 
 
 def test_coverage_decision_product_type_gap_is_public_schema_model() -> None:
