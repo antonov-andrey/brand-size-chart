@@ -1,229 +1,198 @@
-"""Source discovery and table extraction models."""
+"""Source-discovery current-state rows and read-only downstream handoffs."""
 
 from __future__ import annotations
 
-from pathlib import PurePosixPath
-from typing import Literal
+from typing import Annotated, Literal
+from urllib.parse import urlsplit
 
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import AfterValidator, ConfigDict, field_validator
 from workflow_container_contract import WorkflowResult
-from workflow_container_runtime.artifact import JsonlRecord
-from workflow_container_runtime.step import BrowsingError, WorkflowStepCodexState
+from workflow_container_runtime.step import BrowserActionResult
 
-from brand_size_chart.model.base import (
-    COUNTRY_CODE_PATTERN,
-    IdentifierComponent,
-    SOURCE_COUNTRY_CODE_SPECIAL_SET,
-    StrictBaseModel,
-)
+from brand_size_chart.model.base import IdentifierComponent, StrictBaseModel, identifier_component_validate
 
-SourceSurfaceDiscoveryQueryState = Literal["searched", "failed"]
-SourceSurfaceProductTypeSexState = Literal["pending", "searched", "rejected"]
-SourceSurfaceTableState = Literal["accepted", "equivalent", "market_conflict", "market_filtered", "rejected"]
-SourceSurfaceUrlState = Literal["opened", "rejected"]
+SourceDiscoveryQueryState = Literal["searched", "failed"]
+SourceDiscoveryProductTypeSexState = Literal["pending", "searched", "rejected"]
+SourceDiscoveryUrlState = Literal["opened", "rejected"]
+SourceDiscoveryTableState = Literal["candidate", "accepted", "market_filtered", "market_conflict"]
+SourceDiscoveryOutcome = Literal["table_available", "no_table", "market_conflict"]
 
 
-def _country_code_list_validate(value: list[str]) -> list[str]:
-    """Validate and normalize source-market country codes.
+def browser_url_validate(value: str) -> str:
+    """Validate one browser-openable HTTP or HTTPS URL.
 
     Args:
-        value: Candidate country-code list.
+        value: Candidate browser URL.
 
     Returns:
-        Normalized country-code list.
+        Validated unmodified browser URL.
 
     Raises:
-        ValueError: If one code is neither alpha-2 nor a supported market-scope marker.
+        ValueError: If the URL is not an absolute HTTP or HTTPS URL with a host.
     """
 
-    normalized_country_code_list = []
-    for country_code in value:
-        normalized_country_code = country_code.strip().upper()
-        if normalized_country_code not in SOURCE_COUNTRY_CODE_SPECIAL_SET and not COUNTRY_CODE_PATTERN.match(
-            normalized_country_code
-        ):
-            raise ValueError("country_code_list values must be alpha-2 country codes, GLOBAL, or EU")
-        normalized_country_code_list.append(normalized_country_code)
-    return normalized_country_code_list
+    if not value or value.strip() != value or any(character.isspace() for character in value):
+        raise ValueError("browser URL must not be empty or contain whitespace")
+    try:
+        parsed_url = urlsplit(value)
+        _ = parsed_url.port
+    except ValueError as exc:
+        raise ValueError("browser URL must use a valid host and port") from exc
+    if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc or parsed_url.hostname is None:
+        raise ValueError("browser URL must be an absolute http or https URL with a host")
+    return value
 
 
-class SourceSurfaceDiscoveryQuery(JsonlRecord):
-    """Discovery query recorded in the source-surface inventory."""
+BrowserUrl = Annotated[str, AfterValidator(browser_url_validate)]
+
+
+def market_scope_key_validate(value: str) -> str:
+    """Validate one deterministic source-table market scope identity.
+
+    Args:
+        value: Candidate lowercase market scope key.
+
+    Returns:
+        Validated source-table market scope key.
+
+    Raises:
+        ValueError: If the key is not one supported deterministic market scope.
+    """
+
+    value = identifier_component_validate(value)
+    if "__" in value:
+        raise ValueError("market_scope_key must not contain the reserved __ separator")
+    if value in {"global", "eu"}:
+        return value
+    scope_component_list = value.split("_")
+    if (
+        not scope_component_list
+        or any(
+            len(country_code) != 2 or not country_code.isalpha() or country_code != country_code.lower()
+            for country_code in scope_component_list
+        )
+        or scope_component_list != sorted(set(scope_component_list))
+    ):
+        raise ValueError("market_scope_key must be global, eu, or a sorted lowercase alpha-2 country group")
+    return value
+
+
+def size_group_key_validate(value: str) -> str:
+    """Validate one source-derived physical chart identity component.
+
+    Args:
+        value: Candidate physical table identity.
+
+    Returns:
+        Validated physical table identity.
+
+    Raises:
+        ValueError: If the identifier uses the reserved component separator.
+    """
+
+    value = identifier_component_validate(value)
+    if "__" in value:
+        raise ValueError("size_group_key must not contain the reserved __ separator")
+    return value
+
+
+class SourceDiscoveryResult(BrowserActionResult):
+    """Public source-discovery result and DBOS handoff."""
+
+    outcome: SourceDiscoveryOutcome
+    source_discovery_database_path: str
+
+
+class SourceDiscoveryQuery(StrictBaseModel):
+    """Current source-discovery query row stored by its natural key."""
 
     evidence_path_list: list[str]
     query: str
     reason: str
-    state: SourceSurfaceDiscoveryQueryState
+    state: SourceDiscoveryQueryState
 
 
-class SourceSurfaceProductTypeSex(JsonlRecord):
-    """Product-type and sex worklist item recorded in the source-surface inventory."""
+class SourceDiscoveryProductTypeSex(StrictBaseModel):
+    """Current product-type and sex discovery worklist row."""
 
     evidence_path_list: list[str]
     product_type: str
     reason: str
     sex: str
-    state: SourceSurfaceProductTypeSexState
-    worklist_key: IdentifierComponent
+    state: SourceDiscoveryProductTypeSexState
 
 
-class SourceSurfaceUrl(JsonlRecord):
-    """URL entry recorded in the source-surface inventory."""
+class SourceDiscoveryUrl(StrictBaseModel):
+    """Current opened or rejected source URL row."""
 
     evidence_path_list: list[str]
     reason: str
-    state: SourceSurfaceUrlState
-    url: str
-    worklist_key_list: list[IdentifierComponent] = Field(default_factory=list)
+    state: SourceDiscoveryUrlState
+    url: BrowserUrl
 
 
-class SourceDiscovery(StrictBaseModel):
-    """Discovered source candidate for one brand."""
+class SourceDiscoveryUrlWorklist(StrictBaseModel):
+    """Persist one source URL to product-type and sex worklist relation."""
 
-    country_code_list: list[str]
-    evidence_path_list: list[str] = Field(default_factory=list)
+    product_type: str
+    sex: str
+    url: BrowserUrl
+
+
+class SourceDiscoveryTable(StrictBaseModel):
+    """Current physical source-table row keyed by group and market scope."""
+
+    evidence_path_list: list[str]
+    market_scope_key: IdentifierComponent
+    reason: str
     size_group_key: IdentifierComponent
     source_title: str
-    source_url: str
+    source_url: BrowserUrl
+    state: SourceDiscoveryTableState
 
-    @field_validator("country_code_list")
+    @field_validator("market_scope_key")
     @classmethod
-    def country_code_list_validate(cls, value: list[str]) -> list[str]:
-        """Validate source-market country codes.
+    def market_scope_key_validate(cls, value: str) -> str:
+        """Require one deterministic market scope key.
 
         Args:
-            value: Candidate country code list.
+            value: Candidate validated identifier component.
 
         Returns:
-            Normalized country code list.
-
-        Raises:
-            ValueError: If one code is neither alpha-2 nor a supported market-scope marker.
-        """
-        return _country_code_list_validate(value)
-
-
-class SourceDiscoveryResult(StrictBaseModel):
-    """Public source-discovery result and DBOS handoff."""
-
-    browsing_error_list: list[BrowsingError] = Field(default_factory=list)
-    source_discovery_list: list[SourceDiscovery] = Field(default_factory=list)
-    warning_list: list[str] = Field(default_factory=list)
-
-
-class SourceSurfaceTable(JsonlRecord):
-    """Concrete table inventory row with one stable source discovery object."""
-
-    reason: str
-    source_discovery: SourceDiscovery
-    state: SourceSurfaceTableState
-
-
-class SourceSurfaceInventory(StrictBaseModel):
-    """Canonical source-surface inventory for one source-discovery step."""
-
-    discovery_query_list: list[SourceSurfaceDiscoveryQuery]
-    product_type_sex_worklist: list[SourceSurfaceProductTypeSex]
-    table_list: list[SourceSurfaceTable]
-    url_list: list[SourceSurfaceUrl]
-
-    def no_table_reason_list_get(self) -> list[str]:
-        """Return evidence-backed no-table reasons from terminal inventory entries.
-
-        Returns:
-            No-table reason list from failed queries, terminal worklist rows, rejected URL rows, and terminal table rows.
+            Deterministic market scope key.
         """
 
-        no_table_reason_list: list[str] = []
-        no_table_reason_set: set[str] = set()
-        for discovery_query in self.discovery_query_list:
-            if (
-                discovery_query.state == "failed"
-                and discovery_query.reason.strip()
-                and discovery_query.evidence_path_list
-            ):
-                no_table_reason_set.add(discovery_query.reason.strip())
-        for product_type_sex_worklist_item in self.product_type_sex_worklist:
-            if (
-                product_type_sex_worklist_item.state in {"searched", "rejected"}
-                and product_type_sex_worklist_item.reason.strip()
-                and product_type_sex_worklist_item.evidence_path_list
-            ):
-                no_table_reason_set.add(product_type_sex_worklist_item.reason.strip())
-        for source_surface_url in self.url_list:
-            if (
-                source_surface_url.state == "rejected"
-                and source_surface_url.reason.strip()
-                and source_surface_url.evidence_path_list
-            ):
-                no_table_reason_set.add(source_surface_url.reason.strip())
-        for source_surface_table in self.table_list:
-            if (
-                source_surface_table.state in {"market_filtered", "rejected"}
-                and source_surface_table.reason.strip()
-                and source_surface_table.source_discovery.evidence_path_list
-            ):
-                no_table_reason_set.add(source_surface_table.reason.strip())
-        no_table_reason_list.extend(sorted(no_table_reason_set))
-        return no_table_reason_list
+        return market_scope_key_validate(value)
 
-
-class SourceDiscoveryState(WorkflowStepCodexState):
-    """Durable source-discovery state with relative incremental artifact paths."""
-
-    discovery_query_jsonl_path: str = "discovery_query.jsonl"
-    product_type_sex_worklist_jsonl_path: str = "product_type_sex_worklist.jsonl"
-    table_jsonl_path: str = "table.jsonl"
-    url_jsonl_path: str = "url.jsonl"
-
-    @field_validator(
-        "discovery_query_jsonl_path",
-        "product_type_sex_worklist_jsonl_path",
-        "table_jsonl_path",
-        "url_jsonl_path",
-    )
+    @field_validator("size_group_key")
     @classmethod
-    def jsonl_path_validate(cls, value: str) -> str:
-        """Require one normalized relative JSONL path.
+    def size_group_key_validate(cls, value: str) -> str:
+        """Reserve the double underscore for chart-path component separation.
 
         Args:
-            value: Candidate incremental artifact path.
+            value: Candidate validated physical table key.
 
         Returns:
-            Validated relative JSONL path.
-
-        Raises:
-            ValueError: If the path is empty, absolute, non-normalized, or not a JSONL path.
+            Validated physical table key.
         """
 
-        path = PurePosixPath(value)
-        if (
-            not value
-            or "\\" in value
-            or path.is_absolute()
-            or path.suffix != ".jsonl"
-            or ".." in path.parts
-            or str(path) != value
-        ):
-            raise ValueError("value must be a normalized relative JSONL path")
-        return value
+        return size_group_key_validate(value)
 
 
-class TableExtractionArtifact(StrictBaseModel):
-    """Extracted size-chart table metadata with chart artifact reference."""
+class SourceDiscoveryAcceptedTable(StrictBaseModel):
+    """Transient accepted source-table query result for downstream decisions."""
 
-    applicability_description: str = ""
     chart_path: str
-    evidence_path_list: list[str] = Field(default_factory=list)
-    source_discovery: SourceDiscovery
+    source_priority: int
+    source_table: SourceDiscoveryTable
     source_type: IdentifierComponent
 
 
-class TableExtractionResult(StrictBaseModel):
-    """Public table-extraction result and DBOS handoff."""
+class SourceDiscoveryChartWriteResult(StrictBaseModel):
+    """Outcome of one bounded source-discovery chart publication attempt."""
 
-    browsing_error_list: list[BrowsingError] = Field(default_factory=list)
-    table_extraction_list: list[TableExtractionArtifact] = Field(default_factory=list)
+    chart_filesystem_path: str
+    status: Literal["created", "unchanged", "conflict"]
 
 
 class SourceTypeResult(WorkflowResult):
@@ -233,18 +202,63 @@ class SourceTypeResult(WorkflowResult):
 
     source_type: str
     source_discovery_result: SourceDiscoveryResult | None = None
-    table_extraction_result: TableExtractionResult | None = None
 
 
-class TableExtractionDelta(StrictBaseModel):
-    """Codex-owned extracted table delta for one source discovery."""
+def source_type_result_list_validate(value: list[SourceTypeResult]) -> list[SourceTypeResult]:
+    """Require unique source types and declared source-discovery database paths.
 
-    applicability_description: str = ""
-    evidence_path_list: list[str] = Field(default_factory=list)
+    Args:
+        value: Complete source-type workflow results supplied to one downstream owner.
+
+    Returns:
+        The validated unmodified source-type result list.
+
+    Raises:
+        ValueError: If two results claim one source type or one declared database artifact.
+    """
+
+    source_type_set: set[str] = set()
+    source_discovery_database_path_set: set[str] = set()
+    for source_type_result in value:
+        if source_type_result.source_type in source_type_set:
+            raise ValueError(
+                f"source_type_result_list contains duplicate source_type: {source_type_result.source_type}"
+            )
+        source_type_set.add(source_type_result.source_type)
+        source_discovery_result = source_type_result.source_discovery_result
+        if source_discovery_result is None:
+            continue
+        source_discovery_database_path = source_discovery_result.source_discovery_database_path
+        if source_discovery_database_path in source_discovery_database_path_set:
+            raise ValueError(
+                "source_type_result_list contains duplicate source_discovery_database_path: "
+                f"{source_discovery_database_path}"
+            )
+        source_discovery_database_path_set.add(source_discovery_database_path)
+    return value
 
 
-class TableExtractionDeltaBatchResult(StrictBaseModel):
-    """Codex-owned batch extraction result without immutable source identity."""
+SourceTypeResultList = Annotated[list[SourceTypeResult], AfterValidator(source_type_result_list_validate)]
 
-    browsing_error_list: list[BrowsingError] = Field(default_factory=list)
-    table_extraction_delta_list: list[TableExtractionDelta]
+
+def source_discovery_accepted_table_list_validate(
+    value: list[SourceDiscoveryAcceptedTable],
+) -> list[SourceDiscoveryAcceptedTable]:
+    """Require one transient accepted-table owner for every derived chart path.
+
+    Args:
+        value: Aggregated transient accepted-table query results.
+
+    Returns:
+        The validated unmodified accepted-table list.
+
+    Raises:
+        ValueError: If several accepted rows derive the same chart artifact identity.
+    """
+
+    chart_path_set: set[str] = set()
+    for accepted_table in value:
+        if accepted_table.chart_path in chart_path_set:
+            raise ValueError(f"Accepted source tables derive duplicate chart_path: {accepted_table.chart_path}")
+        chart_path_set.add(accepted_table.chart_path)
+    return value

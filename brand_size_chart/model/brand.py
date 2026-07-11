@@ -9,7 +9,7 @@ from workflow_container_contract import WorkflowResult
 
 from brand_size_chart.model.base import IdentifierComponent, StrictBaseModel
 from brand_size_chart.model.selection import CanonicalSelectionResult, CoverageDecisionResult
-from brand_size_chart.model.source import SourceTypeResult
+from brand_size_chart.model.source import SourceTypeResultList
 
 
 class BrandInput(StrictBaseModel):
@@ -60,12 +60,11 @@ class BrandResult(WorkflowResult):
 
     model_config = ConfigDict(extra="forbid", strict=True, validate_assignment=True, validate_default=True)
 
+    brand_input: BrandInput
     brand_output_result: BrandOutputResult | None
     canonical_selection_result: CanonicalSelectionResult | None
     coverage_decision_result: CoverageDecisionResult | None
-    parsed_brand_key: str
-    parsed_brand_name: str
-    source_type_result_list: list[SourceTypeResult]
+    source_type_result_list: SourceTypeResultList
     source_type_skip_list: list[SourceTypeSkip]
 
     @model_validator(mode="after")

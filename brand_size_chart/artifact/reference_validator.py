@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 class ArtifactReferenceValidator:
-    """Validate artifact references returned by workflow stages."""
+    """Validate artifact references returned by workflow steps."""
 
     def __init__(self, result_dir: Path) -> None:
         """Store the result root directory.
@@ -13,34 +13,34 @@ class ArtifactReferenceValidator:
             result_dir: Root result directory.
         """
 
-        self.result_dir = result_dir.resolve()
+        self._result_dir = result_dir.resolve()
 
-    def evidence_path_list_validate(self, *, evidence_path_list: list[str], stage_key: str) -> None:
+    def evidence_path_list_validate(self, *, evidence_path_list: list[str], step_key: str) -> None:
         """Validate that evidence references point to existing run artifacts.
 
         Args:
             evidence_path_list: Result-dir-relative artifact references.
-            stage_key: Stable stage key for diagnostics.
+            step_key: Stable step key for diagnostics.
 
         Raises:
             RuntimeError: If one evidence reference is absent or points outside the run directory.
         """
 
         if not evidence_path_list:
-            raise RuntimeError(f"Stage {stage_key} returned no evidence_path_list.")
+            raise RuntimeError(f"Step {step_key} returned no evidence_path_list.")
         for evidence_path_text in evidence_path_list:
             self._artifact_path_validate(
-                missing_message=f"Stage {stage_key} returned missing evidence artifact: {evidence_path_text}",
-                outside_message=f"Stage {stage_key} returned evidence outside result_dir: {evidence_path_text}",
+                missing_message=f"Step {step_key} returned missing evidence artifact: {evidence_path_text}",
+                outside_message=f"Step {step_key} returned evidence outside result_dir: {evidence_path_text}",
                 path_text=evidence_path_text,
             )
 
-    def path_list_validate(self, *, path_list: list[str], stage_key: str) -> None:
+    def path_list_validate(self, *, path_list: list[str], step_key: str) -> None:
         """Validate that artifact references point to existing run artifacts.
 
         Args:
             path_list: Result-dir-relative artifact references.
-            stage_key: Stable stage key for diagnostics.
+            step_key: Stable step key for diagnostics.
 
         Raises:
             RuntimeError: If one artifact reference is absent or points outside the run directory.
@@ -48,8 +48,8 @@ class ArtifactReferenceValidator:
 
         for path_text in path_list:
             self._artifact_path_validate(
-                missing_message=f"Stage {stage_key} returned missing artifact: {path_text}",
-                outside_message=f"Stage {stage_key} returned artifact outside result_dir: {path_text}",
+                missing_message=f"Step {step_key} returned missing artifact: {path_text}",
+                outside_message=f"Step {step_key} returned artifact outside result_dir: {path_text}",
                 path_text=path_text,
             )
 
@@ -67,9 +67,9 @@ class ArtifactReferenceValidator:
 
         if path_text != path_text.strip():
             raise RuntimeError(f"Artifact reference has leading or trailing whitespace: {path_text}")
-        artifact_path = (self.result_dir / path_text).resolve()
+        artifact_path = (self._result_dir / path_text).resolve()
         try:
-            artifact_path.relative_to(self.result_dir)
+            artifact_path.relative_to(self._result_dir)
         except ValueError as exc:
             raise RuntimeError(outside_message) from exc
         if not artifact_path.exists():

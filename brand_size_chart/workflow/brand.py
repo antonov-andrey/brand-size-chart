@@ -2,9 +2,13 @@
 
 from dbos import DBOS, DBOSConfiguredInstance, pydantic_args_validator
 from workflow_container_runtime.artifact import JsonArtifactWriter
-from workflow_container_runtime.codex import CodexExecutionError
 from workflow_container_runtime.step import StepResultValidationError, WorkflowStepExecutionContext
-from workflow_container_runtime.workflow import WorkflowBase, WorkflowExecutionContext, WorkflowRuntimeCapability
+from workflow_container_runtime.workflow import (
+    WorkflowBase,
+    WorkflowExecutionContext,
+    WorkflowResultValidationError,
+    WorkflowRuntimeCapability,
+)
 
 from brand_size_chart.model import (
     BrandOutputInputSource,
@@ -142,7 +146,7 @@ class BrandSizeChartBrandWorkflow(
                             workflow_input=workflow_input,
                         ),
                     )
-                except (CodexExecutionError, StepResultValidationError) as exc:
+                except StepResultValidationError as exc:
                     error_list.append(f"{type(exc).__name__}: {exc}")
                     source_type_skip_list.extend(
                         SourceTypeSkip(
@@ -189,16 +193,15 @@ class BrandSizeChartBrandWorkflow(
                         workflow_input=workflow_input,
                     ),
                 )
-            except (CodexExecutionError, StepResultValidationError) as exc:
+            except StepResultValidationError as exc:
                 error_list.append(f"{type(exc).__name__}: {exc}")
 
         workflow_result = BrandResult(
+            brand_input=workflow_input.brand_input,
             brand_output_result=brand_output_result,
             canonical_selection_result=canonical_selection_result,
             coverage_decision_result=coverage_decision_result,
             error_list=error_list,
-            parsed_brand_key=workflow_input.brand_input.parsed_brand_key,
-            parsed_brand_name=workflow_input.brand_input.parsed_brand_name,
             source_type_result_list=source_type_result_list,
             source_type_skip_list=source_type_skip_list,
             status="failed" if error_list else "success",
@@ -281,19 +284,56 @@ class BrandSizeChartBrandWorkflow(
             source_type_allow_list=prompt_scope.source_type_allow_list,
         )
 
+    def result_validate(
+        self,
+        execution_context: WorkflowExecutionContext,
+        workflow_input: BrandWorkflowInput,
+        workflow_result: BrandResult,
+    ) -> None:
+        """Require the result and skip channels to partition the selected source plan.
+
+        Args:
+            execution_context: Current brand workflow context.
+            workflow_input: Immutable brand workflow input.
+            workflow_result: Candidate brand workflow result.
+
+        Raises:
+            WorkflowResultValidationError: If one selected source is missing or one unselected source is represented.
+        """
+
+        _ = execution_context
+        selected_source_type_list = self.source_type_list_get(workflow_input.prompt_scope)
+        attempted_source_type_list = [result.source_type for result in workflow_result.source_type_result_list]
+        skipped_source_type_list = [skip.source_type for skip in workflow_result.source_type_skip_list]
+        represented_source_type_list = attempted_source_type_list + skipped_source_type_list
+        selected_source_type_set = set(selected_source_type_list)
+        represented_source_type_set = set(represented_source_type_list)
+        missing_source_type_list = [
+            source_type for source_type in selected_source_type_list if source_type not in represented_source_type_set
+        ]
+        extra_source_type_list = sorted(represented_source_type_set - selected_source_type_set)
+        if missing_source_type_list or extra_source_type_list:
+            raise WorkflowResultValidationError(
+                feedback_list=[
+                    "Partition the selected source plan exactly between source_type_result_list and "
+                    "source_type_skip_list; "
+                    f"missing={missing_source_type_list}, extra={extra_source_type_list}."
+                ]
+            )
+
     def _have_verified_table(self, source_type_result_list: list[SourceTypeResult]) -> bool:
-        """Return whether any child result exposes a verified table artifact.
+        """Return whether any child result declares available source tables.
 
         Args:
             source_type_result_list: Complete source-type result list.
 
         Returns:
-            Whether at least one verified table exists.
+            Whether at least one complete child result declares available source tables.
         """
 
         return any(
-            source_type_result.table_extraction_result is not None
-            and bool(source_type_result.table_extraction_result.table_extraction_list)
+            source_type_result.source_discovery_result is not None
+            and source_type_result.source_discovery_result.outcome == "table_available"
             for source_type_result in source_type_result_list
         )
 
@@ -321,7 +361,6 @@ class BrandSizeChartBrandWorkflow(
         return PromptScope(
             priority_country_code=prompt_scope.priority_country_code,
             product_type_request_list=product_type_request_list,
-            scope_warning_list=prompt_scope.scope_warning_list,
             shared_instruction=prompt_scope.shared_instruction,
             source_type_allow_list=prompt_scope.source_type_allow_list,
             step_instruction_list=prompt_scope.step_instruction_list,

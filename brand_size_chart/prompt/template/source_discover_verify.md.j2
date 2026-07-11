@@ -2,32 +2,23 @@
 
 {% include "runtime/partial/step_verification_contract.md.j2" %}
 
-Derive sibling `state.json` from the current input path. Read the current input and result, the runtime-owned `SourceDiscoveryState`, all four JSONL files referenced by that state, and every evidence artifact needed for the decisions. Treat an absent referenced JSONL as empty when no record of that type has been completed. Do not write or rewrite any artifact, invoke the append command, or repair state during verification.
-
-{% include "runtime/partial/browser_browsing_error_verification_contract.md.j2" %}
+Read the current `input.json`, `result.json`, sibling `state.sqlite3` through `brand-size-chart-source-discovery-state`, current charts, and current evidence. Do not mutate SQLite, charts, evidence, or any runtime file.
 
 {% include "partial/source_type_contract.md.j2" %}
 
-## Semantic Checks
+{% include "partial/product_search_sex_contract.md.j2" %}
 
-1. Verify that discovery applied exactly the rule matching `workflow_input.source_type`, the workflow scope, and current step instructions without crossing the source authority boundary.
-2. Verify selected source-boundary closure. Every selected seller, store, product, size-guide, or helper URL must have current evidence and a terminal opened or rejected URL record. Broad unselected search results need only an evidence-backed sampling rule and closed representative URLs.
-3. Only for product-scoped sources, verify:
+{% include "partial/market_selection_contract.md.j2" %}
 
-   - adult versus child/baby classification matches the requested product meaning;
-   - every folded worklist row reached `searched` after inspecting an applicable concrete product boundary or reached `rejected` because no authorized matching boundary could be searched, with current evidence and an outcome reason;
-   - every `searched` row has a dedicated opened product URL linked only to its worklist key as evidence for that completed row, rather than treating URL linkage as the row state;
-   - every required sex branch was actually searched or rejected with current evidence;
-   - both branches of an ordered two-sex expansion were processed, not treated as fallbacks;
-   - every table visible in an opened product boundary was inventoried independently of the query sex;
-   - table headings and physical identities come from source evidence rather than requested-product wording.
+Verify semantic source-boundary completeness only:
 
-   Do not require official-host localized-query coverage for a product-scoped absence result.
-4. For official non-product sources, verify relevant visible host variants and distinct localized size-chart query families before accepting an absence result.
-5. Verify complete physical table inventory inside every opened boundary. Every visible table, tab, group, subtable, modal, widget, linked asset, help answer, or Q&A chart must be inventoried from current source evidence independently of requested product types and query sex.
-6. Verify the market ladder from priority country to global to equivalent European consensus. Conflicting European tables must remain explicit `market_conflict` records; they cannot justify choosing one locale or a terminal no-table reason.
-7. When no table is accepted, verify that bounded discovery is complete and current records contain concrete evidence-backed terminal reasons. A note such as "prior evidence" or "already discovered" is not evidence.
+1. Discovery stayed within the source authority selected by `workflow_input.source_type`.
+2. Product-scoped discovery applied the semantic product/sex expansion to every requested product in order; non-product discovery created no product/sex worklist.
+3. Every inspected boundary has sufficient current evidence, and every visible physical source table in that boundary was handled independently of the search request.
+4. Table identity comes from visible table heading and scope rather than product or search wording.
+5. Market scope and policy decisions follow the shared market ladder, including correctly evidenced terminal conflicts.
+6. Physical tables treated as equivalent are semantically equivalent in visible rows, measurements, scope, and authority.
 
-Verify each physical key against the contract below. Do not repeat JSON schema, revision-chain shape, path containment, worklist-key parity, public-result projection, or list-parity checks owned by the generated schemas, JSONL store, and mechanical validator.
+Do not repeat mechanical schema, database-handle, path, evidence-existence, row-state, chart-path, relation, or public-outcome checks. Those belong to the mechanical validator.
 
-{% include "partial/size_group_key_contract.md.j2" %}
+{% include "runtime/partial/browser_browsing_error_verification_contract.md.j2" %}

@@ -1,68 +1,16 @@
-# Size Group Key Contract
+# Physical Size Group Key Contract
 
-This contract applies to real size-chart tables in `SourceDiscovery`, `TableExtractionArtifact`, `CanonicalSelection`, and canonical chart output paths. A `size_group_key` is a stable table identifier, not a page name, product id, source type, coverage bucket, or diagnostic label.
+`size_group_key` identifies one physical manufacturer-derived chart group visible in source evidence. Derive it from the chart heading, grouping, and applicability, never from the requested product type, page category, product id, source type, brand name, coverage gap, or diagnostic state.
 
-Use exactly one of these forms:
+Use one form:
 
 - `{sex}_{product_group_or_type}`
 - `{sex}_{sex_suffix}_{product_group_or_type}`
 
-`sex` is a closed set:
+`sex` is one of `women`, `men`, `girls`, `boys`, `unisex`, or `unisex_child`. Omit `sex_suffix` unless the manufacturer visibly defines a distinct chart group. The non-age suffixes are `plus` and `baby`; an evidence-backed whole-group age range uses `{min}_{max}_{month|year}` only when that range appears in the table heading or group label itself. Values found only in table rows never define or rename the physical group.
 
-- `women`
-- `men`
-- `girls`
-- `boys`
-- `unisex`
-- `unisex_child`
+Reuse the established product meaning when it fits: `upper`, `lower`, `belts`, `shoes`, `clothing`, `dresses`, `outerwear`, `underwear`, `swimwear`, `socks`, `hosiery`, `hats`, `gloves`, or `bras`. Use `lower` for pants, skirts, shorts, trousers, jeans, leggings, and equivalent lower-body groups unless the source visibly defines a separate physical chart.
 
-Use no suffix when there is no objective chart-group qualifier. Do not add a default suffix.
+Examples include `women_upper`, `women_plus_lower`, `men_shoes`, `girls_baby_clothing`, `unisex_socks`, and `unisex_child_{min}_{max}_month_clothing`.
 
-Approved non-age `sex_suffix` terms:
-
-- `plus`
-- `baby`
-
-Age-range `sex_suffix` values must use only this template:
-
-- `{min}_{max}_{month|year}`
-
-Use this age-range suffix only when browser-visible source evidence names the whole chart group by an age range. Do not list or invent concrete approved age intervals in the prompt. The numbers come only from the source chart-group label during extraction.
-
-Current approved `product_group_or_type` terms from existing extracted chart groups and requested product types:
-
-- `upper`
-- `lower`
-- `belts`
-- `shoes`
-- `clothing`
-- `dresses`
-- `outerwear`
-- `underwear`
-- `swimwear`
-- `socks`
-- `hosiery`
-- `hats`
-- `gloves`
-- `bras`
-
-Examples:
-
-- `women_upper`
-- `women_plus_lower`
-- `men_shoes`
-- `girls_{min}_{max}_year_clothing`
-- `boys_{min}_{max}_year_clothing`
-- `unisex_child_{min}_{max}_month_clothing`
-- `girls_baby_clothing`
-- `boys_baby_clothing`
-- `unisex_socks`
-- `unisex_child_hats`
-
-Never use `size_chart`, `chart`, `product_measurement`, `product_measurements`, product ids, source-type names, brand names, `requested`, `uncovered`, `gap`, or `coverage` inside a real table `size_group_key`.
-
-Product row size labels, including row-level age labels, bra sizes, alpha sizes, or similar source row values, are not `sex_suffix` terms and must not become table-group suffixes.
-
-Synonyms are forbidden. Use the approved term when the meaning is already covered by the approved list. If browser-visible source evidence proves a genuinely new table group that is not covered by this list, create one new clear snake_case term, explain the source wording in the discovery inventory table reason or `applicability_description`, and let verification check that it is not a duplicate name for an existing approved meaning.
-
-Use `lower` for lower-body clothing tables such as pants, skirts, shorts, trousers, jeans, leggings, and equivalent source-language terms unless the source exposes a distinct standalone table whose meaning is not covered by `lower`. Do not create combined keys by joining narrower synonyms when an approved broader term already covers the table meaning.
+Do not use `size_chart`, `chart`, `product_measurement`, `requested`, `uncovered`, `gap`, or `coverage` as group meaning. Do not join narrower synonyms when one established term already describes the physical table. If evidence proves a genuinely new manufacturer-defined group, create one clear snake_case term and explain the source wording in the table reason.

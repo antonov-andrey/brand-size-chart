@@ -22,18 +22,20 @@ wheels = [
 
 [[package]]
 name = "brand-size-chart"
-version = "0.1.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "dbos" },
     { name = "jinja2" },
     { name = "pydantic" },
-    { name = "pysqlite3-binary" },
-    { name = "pytest" },
-    { name = "pyyaml" },
     { name = "unidecode" },
     { name = "workflow-container-contract" },
     { name = "workflow-container-runtime" },
+]
+
+[package.optional-dependencies]
+test = [
+    { name = "pytest" },
 ]
 
 [package.metadata]
@@ -41,13 +43,12 @@ requires-dist = [
     { name = "dbos", specifier = ">=2.0.0" },
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pysqlite3-binary", specifier = ">=0.5.4.post2,<0.6" },
-    { name = "pytest", specifier = ">=8.4.0" },
-    { name = "pyyaml", specifier = ">=6.0.2" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.4.0" },
     { name = "unidecode", specifier = ">=1.3.8" },
     { name = "workflow-container-contract", editable = "../workflow-container-contract" },
     { name = "workflow-container-runtime", editable = "../workflow-container-runtime" },
 ]
+provides-extras = ["test"]
 
 [[package]]
 name = "colorama"
@@ -313,14 +314,6 @@ wheels = [
 ]
 
 [[package]]
-name = "pysqlite3-binary"
-version = "0.5.4.post2"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/cf/00/9dc79fa319ee2f2fb8dc35bd5393b9fa79936899523c9640d2ca7206c742/pysqlite3_binary-0.5.4.post2-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:da62981abfbfb4b3d0a9e339932fe44f8d7f3fc62037851f89ea224409ed1767", size = 4943501, upload-time = "2025-12-03T18:37:07.853Z" },
-]
-
-[[package]]
 name = "pytest"
 version = "9.1.1"
 source = { registry = "https://pypi.org/simple" }
@@ -532,7 +525,7 @@ wheels = [
 
 [[package]]
 name = "workflow-container-contract"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "../workflow-container-contract" }
 dependencies = [
     { name = "pydantic" },
@@ -542,20 +535,28 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.4.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
 ]
+provides-extras = ["test"]
 
 [[package]]
 name = "workflow-container-runtime"
-version = "0.1.0"
+version = "0.3.0"
 source = { editable = "../workflow-container-runtime" }
 dependencies = [
+    { name = "dbos" },
     { name = "jinja2" },
     { name = "pydantic" },
+    { name = "workflow-container-contract" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "dbos", specifier = ">=2.0.0" },
     { name = "jinja2", specifier = ">=3.1.0" },
     { name = "pydantic", specifier = ">=2.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.4.0" },
+    { name = "workflow-container-contract", editable = "../workflow-container-contract" },
 ]
+provides-extras = ["test"]

@@ -19,7 +19,6 @@ class PromptScope(StrictBaseModel):
 
     priority_country_code: str = ""
     product_type_request_list: list[str] = Field(default_factory=list)
-    scope_warning_list: list[str] = Field(default_factory=list)
     shared_instruction: str = ""
     source_type_allow_list: list[str] = Field(default_factory=list)
     step_instruction_list: list[PromptStepInstruction] = Field(default_factory=list)

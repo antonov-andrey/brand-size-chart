@@ -1,0 +1,20 @@
+## Market Selection Algorithm
+
+`workflow_input.prompt_scope.priority_country_code` is the single primary market explicitly selected from the user prompt, and source discovery is valid only when it is non-empty.
+
+Each `market_scope_key` has exactly one canonical encoding:
+
+- One country uses its lowercase ISO alpha-2 code, for example `tr`.
+- One explicit country group uses two or more unique lowercase country codes sorted lexically and joined by `_`, for example `de_fr`.
+- One global scope uses `global`.
+- One EU-wide scope uses `eu`.
+
+Selection is independent for each `size_group_key`. The exact five ordered tiers are:
+
+1. An exact priority-country `market_scope_key`.
+2. The narrowest explicit country-group `market_scope_key` containing the priority country, ordered by country count and then lexical `market_scope_key`.
+3. `global`.
+4. `eu`.
+5. A deterministic representative of semantically equivalent European country-specific candidates, ordered by `(market_scope_key, source_url, source_title)`.
+
+The selected row of the first available verified tier has terminal state `accepted`. Candidate rows in every non-winning tier, including lower tiers, have terminal state `market_filtered`. Tier 5 is available only when current evidence proves all of its candidates equivalent. When tier-5 candidates differ, every conflicting candidate has terminal state `market_conflict`; no arbitrary locale is `accepted`, and the group is not a no-table result. A higher-tier `accepted` row is not widened or merged with a lower tier. The final state contains no `candidate` rows.

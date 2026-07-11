@@ -1,7 +1,0 @@
-# Table Extract Verify
-
-{% include "runtime/partial/stage_verification_contract.md.j2" %}
-
-{% include "runtime/partial/browser_browsing_error_verification_contract.md.j2" %}
-
-For table_extract, read every execplan item's chart_filesystem_path as a local JSON artifact through filesystem access and verify every source row, column, unit, size label, measurement, applicability description, `source_discovery.source_url`, and `source_discovery.source_title` against the saved browser-visible evidence. TableExtractionArtifact.chart_path is built by Python after validation and is not available to this verifier. Do not derive, rename, or validate size_group_key naming in this verifier. Do not use browser tools, file://, localhost, or 127.0.0.1 for chart_filesystem_path. Missing source columns must fail verification. When raw DOM or diagnostic evidence contains hidden or non-rendered rows, compare those rows against the current extracted chart artifact before failing. Do not report hidden or non-rendered rows as an extraction error when the current chart artifact already omits them and the current visible rows, size labels, units, and measurements match browser-visible evidence. If you report a hidden-row or stale-row error, quote the exact current extracted row, measurement name, and value that still contains the hidden data.

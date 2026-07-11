@@ -3,22 +3,13 @@
 from __future__ import annotations
 
 import re
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import AfterValidator, BaseModel, ConfigDict
 
 from brand_size_chart.identifier import dbos_identifier_component
 
-ApplicabilityStatus = Literal[
-    "priority_country_official",
-    "official_global",
-    "official_eu_consensus",
-    "official_cross_locale_consensus",
-    "unknown_blocked",
-]
-StageStatus = Literal["success", "failed", "skipped"]
 COUNTRY_CODE_PATTERN = re.compile(r"^[A-Z]{2}$")
-SOURCE_COUNTRY_CODE_SPECIAL_SET = {"EU", "GLOBAL"}
 
 
 def identifier_component_validate(value: str) -> str:
@@ -45,4 +36,4 @@ IdentifierComponent = Annotated[str, AfterValidator(identifier_component_validat
 class StrictBaseModel(BaseModel):
     """Base model with strict validation for workflow artifacts."""
 
-    model_config = ConfigDict(extra="forbid", strict=True)
+    model_config = ConfigDict(extra="forbid", strict=True, validate_assignment=True, validate_default=True)

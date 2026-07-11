@@ -1,64 +1,96 @@
 """Prompt-scope mechanical validation."""
 
-from collections.abc import Collection
+from workflow_container_runtime.step import StepResultValidationError, WorkflowStepExecutionContext
 
-from brand_size_chart.model import PromptScope
-from brand_size_chart.source import SOURCE_TYPE_REGISTRY
-from brand_size_chart.stage.base import STAGE_KEY_SET
+from brand_size_chart.model import (
+    PromptScope,
+    PromptStepInstruction,
+    WorkflowRunPromptApplyInput,
+)
+
+STEP_KEY_SET = frozenset(
+    {
+        "canonical_select",
+        "coverage_decide",
+        "source_discover",
+        "workflow_run_prompt_apply",
+    }
+)
+
+
+def _step_instruction_list_validate(step_instruction_list: list[PromptStepInstruction]) -> None:
+    """Reject instructions assigned to unknown workflow steps.
+
+    Args:
+        step_instruction_list: Parsed step-specific instructions.
+
+    Raises:
+        StepResultValidationError: If one instruction names an unknown step.
+    """
+
+    unknown_step_key_list = sorted(
+        {
+            step_instruction.step_key
+            for step_instruction in step_instruction_list
+            if step_instruction.step_key not in STEP_KEY_SET
+        }
+    )
+    if unknown_step_key_list:
+        raise StepResultValidationError(
+            feedback_list=[
+                "Replace every unsupported step_key in step_instruction_list with one of "
+                f"{sorted(STEP_KEY_SET)}; unsupported values: {unknown_step_key_list}."
+            ]
+        )
 
 
 class PromptScopeValidator:
     """Validate prompt-derived execution keys and scope isolation."""
 
-    def __init__(
+    def validate(
         self,
-        *,
-        source_type_set: Collection[str] = frozenset(SOURCE_TYPE_REGISTRY.source_type_priority_by_key_map),
-        stage_key_set: Collection[str] = frozenset(STAGE_KEY_SET),
+        execution_context: WorkflowStepExecutionContext,
+        step_input: WorkflowRunPromptApplyInput,
+        result: PromptScope,
     ) -> None:
-        """Store allowed prompt-scope keys.
+        """Validate one prompt scope against its persisted parsing input.
 
         Args:
-            source_type_set: Allowed source type keys.
-            stage_key_set: Allowed workflow stage keys.
-        """
-
-        self._source_type_set = set(source_type_set)
-        self._stage_key_set = set(stage_key_set)
-
-    def validate(self, prompt_scope: PromptScope) -> None:
-        """Validate prompt-derived execution keys.
-
-        Args:
-            prompt_scope: Parsed prompt scope.
+            execution_context: Current step execution context.
+            step_input: Persisted prompt-application input used by the action.
+            result: Parsed prompt scope.
 
         Raises:
-            RuntimeError: If prompt scope contains unknown source types, unknown stage keys, or leaked product types.
+            StepResultValidationError: If the prompt scope violates its mechanical contract.
         """
 
-        if not prompt_scope.priority_country_code:
-            raise RuntimeError("priority_country_code must be supplied by workflow_run_prompt")
-        unknown_source_type_list = [
-            source_type
-            for source_type in prompt_scope.source_type_allow_list
-            if source_type not in self._source_type_set
-        ]
+        _ = execution_context
+        source_type_set = {
+            source_type_catalog_item.source_type for source_type_catalog_item in step_input.source_type_catalog_list
+        }
+        unknown_source_type_list = sorted(
+            {source_type for source_type in result.source_type_allow_list if source_type not in source_type_set}
+        )
         if unknown_source_type_list:
-            raise RuntimeError(f"Unknown source_type_allow_list values: {unknown_source_type_list}")
-        unknown_stage_key_list = [
-            stage_instruction.stage_key
-            for stage_instruction in prompt_scope.stage_instruction_list
-            if stage_instruction.stage_key not in self._stage_key_set
-        ]
-        if unknown_stage_key_list:
-            raise RuntimeError(f"Unknown stage_instruction stage_key values: {unknown_stage_key_list}")
-        leaked_product_type_list = [
-            product_type
-            for product_type in prompt_scope.product_type_request_list
-            if product_type.casefold() in prompt_scope.shared_instruction.casefold()
-        ]
+            raise StepResultValidationError(
+                feedback_list=[
+                    "Remove unsupported source_type_allow_list values and use only source types declared in input.json; "
+                    f"unsupported values: {unknown_source_type_list}."
+                ]
+            )
+
+        _step_instruction_list_validate(result.step_instruction_list)
+        leaked_product_type_list = sorted(
+            {
+                product_type
+                for product_type in result.product_type_request_list
+                if product_type.casefold() in result.shared_instruction.casefold()
+            }
+        )
         if leaked_product_type_list:
-            raise RuntimeError(
-                "shared_instruction must not repeat product_type_request_list values: "
-                f"{sorted(leaked_product_type_list)}"
+            raise StepResultValidationError(
+                feedback_list=[
+                    "Remove product_type_request_list values from shared_instruction and keep them only in the typed "
+                    f"product-type field; repeated values: {leaked_product_type_list}."
+                ]
             )

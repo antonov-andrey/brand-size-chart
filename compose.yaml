@@ -1,5 +1,5 @@
 services:
-  openvpn:
+  vpn-egress:
     build:
       context: ${BROWSER_VPN_RUNTIME_CONTEXT:-../browser-vpn-runtime}
       dockerfile: docker/openvpn/Dockerfile
@@ -15,38 +15,41 @@ services:
       start_period: 10s
       test:
         - CMD-SHELL
-        - ip link show tun0 >/dev/null 2>&1
+        - python -c "import socket; socket.create_connection(('127.0.0.1', 1080), 2).close()"
       timeout: 5s
+    networks:
+      - vpn-uplink
+      - browser-control
     volumes:
       - ./.secret:/input/.secret:ro
-      - openvpn-runtime:/runtime
+      - vpn-egress-runtime:/runtime
 
   playwright-mcp:
     build:
       context: ${BROWSER_VPN_RUNTIME_CONTEXT:-../browser-vpn-runtime}
       dockerfile: docker/playwright/Dockerfile
-    entrypoint: []
     command:
-      - bash
-      - -lc
-      - >
-        cleanup() { chown -R "$${HOST_UID}:$${HOST_GID}" /output 2>/dev/null || true; };
-        trap cleanup EXIT;
-        browser-vpn-runtime-playwright-mcp
-        --allowed-hosts localhost,127.0.0.1,openvpn
-        --data-source-path /input/.secret
-        --persistent-profile-path "/runtime/browser_vpn_runtime/playwright_profile"
-        --output-dir /output/.playwright-mcp/current
-        --mcp-config-path "/runtime/browser_vpn_runtime/playwright_mcp/config.json"
-        --host 0.0.0.0
-        --port 8931
-        --require-openvpn
+      - browser-vpn-runtime-playwright-mcp
+      - --allowed-hosts
+      - localhost,127.0.0.1,playwright-mcp
+      - --data-source-path
+      - /input/.secret
+      - --persistent-profile-path
+      - /runtime-profile/playwright_profile
+      - --output-dir
+      - /output/.playwright-mcp/current
+      - --mcp-config-path
+      - /runtime/browser_vpn_runtime/playwright_mcp/config.json
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8931"
+      - --vpn-proxy-server
+      - vpn-egress:1080
     depends_on:
-      openvpn:
+      vpn-egress:
         condition: service_healthy
     environment:
-      HOST_GID: ${HOST_GID:-1000}
-      HOST_UID: ${HOST_UID:-1000}
       OUTPUT_DIR: ${OUTPUT_DIR:-./out}
     healthcheck:
       interval: 10s
@@ -56,16 +59,39 @@ services:
         - CMD-SHELL
         - python -c "import socket; socket.create_connection(('127.0.0.1', 8931), 2).close()"
       timeout: 5s
-    network_mode: service:openvpn
+    networks:
+      - browser-control
     profiles:
       - vpn
     volumes:
       - ./.secret:/input/.secret:ro
+      - browser-profile-runtime:/runtime-profile
       - ${OUTPUT_DIR:-./out}:/output
+
+  playwright-profile-writeback:
+    build:
+      context: ${BROWSER_VPN_RUNTIME_CONTEXT:-../browser-vpn-runtime}
+      dockerfile: docker/playwright/Dockerfile
+    command:
+      - browser-vpn-runtime-playwright-profile-snapshot
+      - --runtime-profile-path
+      - /runtime-profile/playwright_profile
+      - --writeback-root-path
+      - /writeback
+      - --owner-uid
+      - ${HOST_UID:-1000}
+      - --owner-gid
+      - ${HOST_GID:-1000}
+    profiles:
+      - writeback
+    volumes:
+      - browser-profile-runtime:/runtime-profile:ro
+      - ./.secret:/writeback
 
   workflow:
     build:
       additional_contexts:
+        workflow_container_contract: ${WORKFLOW_CONTAINER_CONTRACT_CONTEXT:-../workflow-container-contract}
         workflow_container_runtime: ${WORKFLOW_CONTAINER_RUNTIME_CONTEXT:-../workflow-container-runtime}
       context: .
       dockerfile: docker/workflow/Dockerfile
@@ -92,7 +118,7 @@ services:
       - 1.1.1.1
       - 8.8.8.8
     environment:
-      BROWSER_RUNTIME_MCP_URL: http://openvpn:8931/mcp
+      BROWSER_RUNTIME_MCP_URL: http://playwright-mcp:8931/mcp
       DBOS_SYSTEM_DATABASE_URL: sqlite:////runtime/dbos.sqlite
       HOST_GID: ${HOST_GID:-1000}
       HOST_UID: ${HOST_UID:-1000}
@@ -102,6 +128,9 @@ services:
       WORKFLOW_RUN_PROMPT: ${WORKFLOW_RUN_PROMPT:-}
     profiles:
       - vpn
+    networks:
+      - vpn-uplink
+      - browser-control
     volumes:
       - ./.secret:/input/.secret:ro
       - type: bind
@@ -113,4 +142,11 @@ services:
       - ${OUTPUT_DIR:-./out}:/output
 
 volumes:
-  openvpn-runtime:
+  browser-profile-runtime:
+  vpn-egress-runtime:
+
+networks:
+  browser-control:
+    internal: true
+  vpn-uplink:
+    internal: false

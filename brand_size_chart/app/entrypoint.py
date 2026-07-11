@@ -1,18 +1,17 @@
 """Application entrypoint for the DBOS brand size-chart workflow."""
 
+import importlib.metadata
 import os
-import sys
 from pathlib import Path
 
-import pysqlite3
-
-sys.modules["sqlite3"] = pysqlite3
-
 from dbos import DBOS, DBOSConfig, SetWorkflowID
+from workflow_container_runtime.step import BrowserRuntimeCapability
+from workflow_container_runtime.workflow import WorkflowExecutionContext, WorkflowRuntimeCapability
 
 from brand_size_chart.app import runtime_config
+from brand_size_chart.app.application import BrandSizeChartApplication
 from brand_size_chart.identifier import dbos_identifier, dbos_identifier_component, workflow_project_name
-from brand_size_chart.workflow import BRAND_SIZE_CHART_RUN_WORKFLOW, run_failure_result_write
+from brand_size_chart.model import RunInput, RunResult
 
 
 def main() -> int:
@@ -35,41 +34,41 @@ def main() -> int:
     if codex_profile_path.is_dir():
         os.environ["CODEX_HOME"] = str(codex_profile_path)
 
-    try:
-        project_name = (
-            workflow_project_name(git_url=args.workflow_git_url) if args.workflow_git_url else workflow_project_name()
-        )
-        config: DBOSConfig = {
-            "executor_id": f"{project_name}.{dbos_identifier_component(args.workflow_run_id)}",
-            "name": "brand_size_chart",
-            "system_database_url": runtime_config.system_database_url_get(),
-        }
-        DBOS(config=config)
-        queue_name = dbos_identifier("queue", args.workflow_run_id)
-        workflow_id = dbos_identifier("workflow", args.workflow_run_id)
-        DBOS.listen_queues([queue_name])
-        DBOS.launch()
-        DBOS.register_queue(queue_name, worker_concurrency=runtime_config.DEFAULT_QUEUE_WORKER_CONCURRENCY)
+    project_name = (
+        workflow_project_name(git_url=args.workflow_git_url) if args.workflow_git_url else workflow_project_name()
+    )
+    config: DBOSConfig = {
+        "application_version": importlib.metadata.version("brand-size-chart"),
+        "executor_id": f"{project_name}.{dbos_identifier_component(args.workflow_run_id)}",
+        "name": "brand_size_chart",
+        "system_database_url": runtime_config.system_database_url_get(),
+    }
+    DBOS(config=config)
+    application = BrandSizeChartApplication()
+    queue_name = dbos_identifier("queue", args.workflow_run_id)
+    workflow_id = dbos_identifier("workflow", args.workflow_run_id)
+    DBOS.listen_queues([queue_name])
+    DBOS.launch()
+    DBOS.register_queue(queue_name, worker_concurrency=runtime_config.DEFAULT_QUEUE_WORKER_CONCURRENCY)
 
-        with SetWorkflowID(workflow_id):
-            workflow_handle = DBOS.enqueue_workflow(
-                queue_name,
-                BRAND_SIZE_CHART_RUN_WORKFLOW.run,
-                args.workflow_run_id,
-                brand_list_text,
-                str(args.output_dir),
-                args.workflow_run_prompt,
-                browser_runtime_mcp_url,
-            )
-        workflow_result_payload = workflow_handle.get_result()
-        if isinstance(workflow_result_payload, dict) and workflow_result_payload.get("status") == "failed":
-            return 1
-        return 0
-    except Exception as exc:
-        run_failure_result_write(
-            args.output_dir,
-            error_code=type(exc).__name__,
-            error_message=str(exc),
-            workflow_run_id=args.workflow_run_id,
+    result_dir = args.output_dir.resolve()
+    execution_context = WorkflowExecutionContext(
+        result_dir=result_dir,
+        runtime_capability=WorkflowRuntimeCapability(
+            browser=BrowserRuntimeCapability(mcp_url=browser_runtime_mcp_url),
+        ),
+        workflow_instance_dir=result_dir / "workflow" / "run",
+    )
+    workflow_input = RunInput(
+        brand_list_text=brand_list_text,
+        workflow_run_prompt=args.workflow_run_prompt,
+    )
+    with SetWorkflowID(workflow_id):
+        workflow_handle = DBOS.enqueue_workflow(
+            queue_name,
+            application.root_workflow.run,
+            execution_context,
+            workflow_input,
         )
-        raise
+    workflow_result = RunResult.model_validate(workflow_handle.get_result())
+    return 1 if workflow_result.status == "failed" else 0

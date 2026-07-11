@@ -1,218 +1,102 @@
 """Source-type DBOS workflow owner."""
 
-from pathlib import Path
-
-from dbos import DBOS
+from dbos import DBOS, DBOSConfiguredInstance, pydantic_args_validator
 from workflow_container_runtime.artifact import JsonArtifactWriter
+from workflow_container_runtime.step import StepResultValidationError, WorkflowStepExecutionContext
+from workflow_container_runtime.workflow import WorkflowBase, WorkflowExecutionContext
 
-from brand_size_chart.artifact import ArtifactLayout
-from brand_size_chart.model import (
-    BrandInput,
-    PromptScope,
-    SourceDiscovery,
-    SourceDiscoveryResult,
-    SourceTypeResult,
-    TableExtractionArtifact,
-    TableExtractionResult,
-)
-from brand_size_chart.stage import SourceDiscoveryStep, TableExtractionStep
-from brand_size_chart.workflow.codex import BrandSizeChartCodexWorkflow
+from brand_size_chart.model import SourceDiscoveryResult, SourceTypeResult, SourceTypeWorkflowInput
+from brand_size_chart.step import SourceDiscoveryStep
+
+_MARKET_CONFLICT_ERROR = "Source discovery market conflict."
 
 
 @DBOS.dbos_class("BrandSizeChartSourceTypeWorkflow")
-class BrandSizeChartSourceTypeWorkflow(BrandSizeChartCodexWorkflow):
-    """DBOS owner for one source type and source-type side-effect steps."""
+class BrandSizeChartSourceTypeWorkflow(
+    WorkflowBase[SourceTypeWorkflowInput, SourceTypeResult],
+    DBOSConfiguredInstance,
+):
+    """Run the one-step source-discovery lifecycle for one source type."""
 
-    @DBOS.workflow(name="brand_size_chart_source_type")
-    def run(
+    def __init__(
         self,
-        workflow_run_id: str,
-        brand_input_payload: dict[str, object],
-        browser_runtime_mcp_url: str,
-        prompt_scope_payload: dict[str, object],
-        result_dir: str,
-        source_type: str,
-    ) -> dict[str, object]:
-        """Process one source type with one batch table-extraction step.
+        *,
+        artifact_writer: JsonArtifactWriter,
+        config_name: str,
+        source_discovery_step: SourceDiscoveryStep,
+    ) -> None:
+        """Store the reusable source-discovery step.
 
         Args:
-            workflow_run_id: Stable workflow run identifier.
-            brand_input_payload: Serialized brand input.
-            browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
-            prompt_scope_payload: Serialized prompt scope.
-            result_dir: Root result directory string.
-            source_type: Source type key.
+            artifact_writer: Atomic standard-file writer.
+            config_name: Stable DBOS configured-instance name.
+            source_discovery_step: Browser-backed discovery/extraction step.
+        """
+
+        WorkflowBase.__init__(self, artifact_writer=artifact_writer)
+        DBOSConfiguredInstance.__init__(self, config_name=config_name)
+        self._source_discovery_step = source_discovery_step
+
+    @DBOS.workflow(name="brand_size_chart_source_type", validate_args=pydantic_args_validator)
+    def run(
+        self,
+        execution_context: WorkflowExecutionContext,
+        workflow_input: SourceTypeWorkflowInput,
+    ) -> SourceTypeResult:
+        """Run source discovery and expose only verified terminal outcomes.
+
+        Args:
+            execution_context: Current workflow execution context.
+            workflow_input: Stable source-type workflow input.
 
         Returns:
-            Serialized source-type result.
+            Complete source-type result.
         """
-        brand_input = BrandInput.model_validate(brand_input_payload)
-        prompt_scope = PromptScope.model_validate(prompt_scope_payload)
-        verified_table_extraction_payload_list: list[dict[str, object]] = []
-        blocker_list: list[str] = []
-        source_discovery_warning_list: list[str] = []
+
+        self.input_write_step(execution_context, workflow_input)
         try:
-            source_discovery_payload = self.source_discover_write_step(
-                brand_input.model_dump(mode="json"),
-                browser_runtime_mcp_url,
-                prompt_scope.model_dump(mode="json"),
-                result_dir,
-                source_type,
+            source_discovery_result = self.source_discover_write_step(
+                execution_context.for_step(
+                    runtime_capability=execution_context.runtime_capability,
+                    step_instance_key="source_discover",
+                ),
+                workflow_input,
             )
-            source_discovery_result = SourceDiscoveryResult.model_validate(source_discovery_payload)
-            source_discovery_warning_list = list(source_discovery_result.warning_list)
-            if source_discovery_result.source_discovery_list:
-                table_extraction_payload = self.table_extract_write_step(
-                    brand_input.model_dump(mode="json"),
-                    browser_runtime_mcp_url,
-                    prompt_scope.model_dump(mode="json"),
-                    result_dir,
-                    source_type,
-                    [
-                        source_discovery.model_dump(mode="json")
-                        for source_discovery in source_discovery_result.source_discovery_list
-                    ],
-                )
-                table_extraction_result = TableExtractionResult.model_validate(table_extraction_payload)
-                verified_table_extraction_payload_list.extend(
-                    [
-                        table_extraction.model_dump(mode="json")
-                        for table_extraction in table_extraction_result.table_extraction_list
-                    ]
-                )
-        except RuntimeError as exc:
-            blocker_list.append(f"{type(exc).__name__}: {exc}")
-        source_type_result_payload = self.result_write_step(
-            brand_input.model_dump(mode="json"),
-            result_dir,
-            source_type,
-            verified_table_extraction_payload_list,
-            blocker_list,
-            source_discovery_warning_list,
-        )
-        return source_type_result_payload
+        except StepResultValidationError as exc:
+            workflow_result = SourceTypeResult(
+                error_list=[f"{type(exc).__name__}: {exc}"],
+                source_discovery_result=None,
+                source_type=workflow_input.source_type,
+                status="failed",
+                warning_list=[],
+            )
+        else:
+            workflow_result = SourceTypeResult(
+                error_list=[_MARKET_CONFLICT_ERROR] if source_discovery_result.outcome == "market_conflict" else [],
+                source_discovery_result=source_discovery_result,
+                source_type=workflow_input.source_type,
+                status="failed" if source_discovery_result.outcome == "market_conflict" else "success",
+                warning_list=[],
+            )
+        return self.result_write_step(execution_context, workflow_input, workflow_result)
 
     @DBOS.step(name="source_discover_write_step")
     def source_discover_write_step(
         self,
-        brand_input_payload: dict[str, object],
-        browser_runtime_mcp_url: str,
-        prompt_scope_payload: dict[str, object],
-        result_dir: str,
-        source_type: str,
-    ) -> dict[str, object]:
-        """Write source discovery result and verification.
+        execution_context: WorkflowStepExecutionContext,
+        input_source: SourceTypeWorkflowInput,
+    ) -> SourceDiscoveryResult:
+        """Run the complete source-discovery lifecycle inside one durable DBOS step.
 
         Args:
-            brand_input_payload: Serialized brand input.
-            browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
-            prompt_scope_payload: Serialized prompt scope.
-            result_dir: Root result directory string.
-            source_type: Source type key.
+            execution_context: Current source-discovery step context.
+            input_source: Stable source-type workflow input.
 
         Returns:
-            Serialized source-discovery result.
-        """
-        brand_input = BrandInput.model_validate(brand_input_payload)
-        prompt_scope = PromptScope.model_validate(prompt_scope_payload)
-        result_dir_path = Path(result_dir)
-        source_discovery_result = SourceDiscoveryStep(
-            brand_input=brand_input,
-            browser_runtime_mcp_url=browser_runtime_mcp_url,
-            codex_stage_run_callable=self._codex_stage_runner.run,
-            prompt_scope=prompt_scope,
-            result_dir=result_dir_path,
-            source_type=source_type,
-        ).run()
-        return source_discovery_result.model_dump(mode="json")
-
-    @DBOS.step(name="table_extract_write_step")
-    def table_extract_write_step(
-        self,
-        brand_input_payload: dict[str, object],
-        browser_runtime_mcp_url: str,
-        prompt_scope_payload: dict[str, object],
-        result_dir: str,
-        source_type: str,
-        source_discovery_payload_list: list[dict[str, object]],
-    ) -> dict[str, object]:
-        """Write batch table extraction and chart artifacts.
-
-        Args:
-            brand_input_payload: Serialized brand input.
-            browser_runtime_mcp_url: Run-level browser/VPN runtime MCP URL.
-            prompt_scope_payload: Serialized prompt scope.
-            result_dir: Root result directory string.
-            source_type: Source type key.
-            source_discovery_payload_list: Serialized source discoveries.
-
-        Returns:
-            Serialized table-extraction result.
+            Verified source-discovery result.
         """
 
-        brand_input = BrandInput.model_validate(brand_input_payload)
-        prompt_scope = PromptScope.model_validate(prompt_scope_payload)
-        result_dir_path = Path(result_dir)
-        table_extraction_result = TableExtractionStep(
-            brand_input=brand_input,
-            browser_runtime_mcp_url=browser_runtime_mcp_url,
-            codex_stage_run_callable=self._codex_stage_runner.run,
-            prompt_scope=prompt_scope,
-            result_dir=result_dir_path,
-            source_discovery_list=[
-                SourceDiscovery.model_validate(source_discovery_payload)
-                for source_discovery_payload in source_discovery_payload_list
-            ],
-            source_type=source_type,
-        ).run()
-        return table_extraction_result.model_dump(mode="json")
-
-    @DBOS.step(name="source_type_result_write_step")
-    def result_write_step(
-        self,
-        brand_input_payload: dict[str, object],
-        result_dir: str,
-        source_type: str,
-        table_extraction_payload_list: list[dict[str, object]],
-        blocker_list: list[str],
-        source_discovery_warning_list: list[str],
-    ) -> dict[str, object]:
-        """Write source-type workflow result.
-
-        Args:
-            brand_input_payload: Serialized brand input.
-            result_dir: Root result directory string.
-            source_type: Source type key.
-            table_extraction_payload_list: Serialized verified table extractions.
-            blocker_list: Source-type blocker messages collected during discovery or extraction.
-            source_discovery_warning_list: Source-discovery no-table warning list.
-
-        Returns:
-            Serialized source-type result.
-        """
-        brand_input = BrandInput.model_validate(brand_input_payload)
-        result_dir_path = Path(result_dir)
-        artifact_layout = ArtifactLayout(result_dir_path)
-        table_extraction_list = [
-            TableExtractionArtifact.model_validate(table_extraction_payload)
-            for table_extraction_payload in table_extraction_payload_list
-        ]
-        source_type_result = SourceTypeResult(
-            blocker_list=blocker_list,
-            source_type=source_type,
-            table_extraction_list=table_extraction_list,
-            warning_list=[] if blocker_list or table_extraction_list else source_discovery_warning_list,
-        )
-        JsonArtifactWriter().write(
-            artifact_layout.source_type_result_path(brand_input, source_type),
-            source_type_result,
-        )
-        return source_type_result.model_dump(mode="json")
+        return self._source_discovery_step.run(execution_context, input_source)
 
 
-BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW = BrandSizeChartSourceTypeWorkflow()
-
-__all__ = [
-    "BRAND_SIZE_CHART_SOURCE_TYPE_WORKFLOW",
-    "BrandSizeChartSourceTypeWorkflow",
-]
+__all__ = ["BrandSizeChartSourceTypeWorkflow"]

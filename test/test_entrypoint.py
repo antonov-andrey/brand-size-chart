@@ -5,15 +5,18 @@ import os
 from pathlib import Path
 
 import pytest
+from workflow_container_runtime.step import BrowserRuntimeCapability
+from workflow_container_runtime.workflow import WorkflowExecutionContext, WorkflowRuntimeCapability
 
 from brand_size_chart.app import entrypoint
 from brand_size_chart.app import runtime_config
+from brand_size_chart.model import PromptScope, RunInput, RunResult
 
 
 class _FakeWorkflowHandle:
     """Minimal DBOS workflow handle test double."""
 
-    def __init__(self, event_list: list[tuple[str, object]], result_payload: dict[str, object] | None = None) -> None:
+    def __init__(self, event_list: list[tuple[str, object]], result_payload: RunResult | None = None) -> None:
         """Store the shared event log.
 
         Args:
@@ -21,9 +24,16 @@ class _FakeWorkflowHandle:
             result_payload: Workflow result payload returned by `get_result`.
         """
         self._event_list = event_list
-        self._result_payload = result_payload or {"status": "success"}
+        self._result_payload = result_payload or RunResult(
+            brand_list_parse_warning_list=[],
+            brand_result_list=[],
+            error_list=[],
+            prompt_scope=PromptScope(),
+            status="success",
+            warning_list=[],
+        )
 
-    def get_result(self) -> dict[str, object]:
+    def get_result(self) -> RunResult:
         """Record result wait and return a dummy workflow result.
 
         Returns:
@@ -114,6 +124,18 @@ class _FakeDBOS:
         cls.event_list.append(("register_queue", (queue_name, worker_concurrency)))
 
 
+class _FakeApplication:
+    """Composition-root double exposing one root workflow."""
+
+    event_list: list[tuple[str, object]] = []
+
+    def __init__(self) -> None:
+        """Record construction before DBOS launch."""
+
+        self.event_list.append(("application_construct", None))
+        self.root_workflow = type("RootWorkflow", (), {"run": object()})()
+
+
 def test_entrypoint_bootstraps_dbos_with_stable_ids_and_worker_concurrency(monkeypatch: object, tmp_path: Path) -> None:
     """Configure DBOS with stable identifiers and register the one workflow-run queue."""
     brand_list_path = tmp_path / "brand_list.txt"
@@ -123,8 +145,10 @@ def test_entrypoint_bootstraps_dbos_with_stable_ids_and_worker_concurrency(monke
     event_list: list[tuple[str, object]] = []
     _FakeDBOS.event_list = event_list
     _FakeSetWorkflowID.event_list = event_list
+    _FakeApplication.event_list = event_list
 
     monkeypatch.setattr(entrypoint, "DBOS", _FakeDBOS)
+    monkeypatch.setattr(entrypoint, "BrandSizeChartApplication", _FakeApplication)
     monkeypatch.setattr(entrypoint, "SetWorkflowID", _FakeSetWorkflowID)
     monkeypatch.setattr(
         runtime_config,
@@ -149,10 +173,12 @@ def test_entrypoint_bootstraps_dbos_with_stable_ids_and_worker_concurrency(monke
             "configure",
             {
                 "executor_id": "antonov-andrey__brand-size-chart.run_01",
+                "application_version": "0.3.0",
                 "name": "brand_size_chart",
                 "system_database_url": "postgresql://dbos:secret@localhost:5432/brand_size_chart",
             },
         ),
+        ("application_construct", None),
         ("listen_queues", ["queue/run_01"]),
         ("launch", None),
         ("register_queue", ("queue/run_01", 4)),
@@ -162,11 +188,17 @@ def test_entrypoint_bootstraps_dbos_with_stable_ids_and_worker_concurrency(monke
             (
                 "queue/run_01",
                 (
-                    "Run 01",
-                    "Mavi\n",
-                    str(output_dir),
-                    "official_brand_size_guide only",
-                    "http://browser-runtime:8931/mcp",
+                    WorkflowExecutionContext(
+                        result_dir=output_dir.resolve(),
+                        runtime_capability=WorkflowRuntimeCapability(
+                            browser=BrowserRuntimeCapability(mcp_url="http://browser-runtime:8931/mcp")
+                        ),
+                        workflow_instance_dir=output_dir.resolve() / "workflow" / "run",
+                    ),
+                    RunInput(
+                        brand_list_text="Mavi\n",
+                        workflow_run_prompt="official_brand_size_guide only",
+                    ),
                 ),
             ),
         ),
@@ -184,6 +216,7 @@ def test_entrypoint_returns_failed_exit_code_for_failed_root_result(monkeypatch:
     event_list: list[tuple[str, object]] = []
     _FakeDBOS.event_list = event_list
     _FakeSetWorkflowID.event_list = event_list
+    _FakeApplication.event_list = event_list
 
     class FakeFailedDBOS(_FakeDBOS):
         """DBOS double that returns a failed workflow result."""
@@ -201,9 +234,20 @@ def test_entrypoint_returns_failed_exit_code_for_failed_root_result(monkeypatch:
                 Fake workflow handle with failed root result.
             """
             cls.event_list.append(("enqueue_workflow", (queue_name, args)))
-            return _FakeWorkflowHandle(cls.event_list, {"status": "failed"})
+            return _FakeWorkflowHandle(
+                cls.event_list,
+                RunResult(
+                    brand_list_parse_warning_list=[],
+                    brand_result_list=[],
+                    error_list=["root failure"],
+                    prompt_scope=None,
+                    status="failed",
+                    warning_list=[],
+                ),
+            )
 
     monkeypatch.setattr(entrypoint, "DBOS", FakeFailedDBOS)
+    monkeypatch.setattr(entrypoint, "BrandSizeChartApplication", _FakeApplication)
     monkeypatch.setattr(entrypoint, "SetWorkflowID", _FakeSetWorkflowID)
     monkeypatch.setattr(
         runtime_config,
@@ -280,9 +324,27 @@ def test_entrypoint_rejects_missing_browser_runtime_mcp_url(monkeypatch: object,
         entrypoint.main()
 
 
-def test_entrypoint_parser_has_no_dry_run_flag(monkeypatch: object) -> None:
+def test_entrypoint_parser_rejects_dry_run_flag(monkeypatch: object, tmp_path: Path) -> None:
     """Expose exactly one production runtime path without a dry-run switch."""
-    assert "--dry-run" not in Path("brand_size_chart/app/runtime_config.py").read_text(encoding="utf-8")
+
+    brand_list_path = tmp_path / "brand_list.txt"
+    brand_list_path.write_text("Defacto\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "brand-size-chart-run",
+            "--workflow-run-id",
+            "local",
+            "--brand-list",
+            str(brand_list_path),
+            "--output-dir",
+            str(tmp_path / "out"),
+            "--dry-run",
+        ],
+    )
+
+    with pytest.raises(SystemExit):
+        runtime_config.args_parse()
 
 
 def test_entrypoint_parser_uses_project_secret_by_default(monkeypatch: object, tmp_path: Path) -> None:
@@ -322,8 +384,10 @@ def test_entrypoint_materializes_input_secret_before_workflow_start(
     event_list: list[tuple[str, object]] = []
     _FakeDBOS.event_list = event_list
     _FakeSetWorkflowID.event_list = event_list
+    _FakeApplication.event_list = event_list
 
     monkeypatch.setattr(entrypoint, "DBOS", _FakeDBOS)
+    monkeypatch.setattr(entrypoint, "BrandSizeChartApplication", _FakeApplication)
     monkeypatch.setattr(entrypoint, "SetWorkflowID", _FakeSetWorkflowID)
     monkeypatch.setattr(
         runtime_config,
@@ -347,16 +411,19 @@ def test_entrypoint_materializes_input_secret_before_workflow_start(
         input_codex_profile_path / "auth.json"
     ).read_text(encoding="utf-8")
     assert os.environ["CODEX_HOME"] == str(runtime_secret_path / "codex_profile")
-    assert event_list[5] == (
+    assert event_list[6] == (
         "enqueue_workflow",
         (
             "queue/run_01",
             (
-                "Run 01",
-                "Mavi\n",
-                str(tmp_path / "out"),
-                "",
-                "http://browser-runtime:8931/mcp",
+                WorkflowExecutionContext(
+                    result_dir=(tmp_path / "out").resolve(),
+                    runtime_capability=WorkflowRuntimeCapability(
+                        browser=BrowserRuntimeCapability(mcp_url="http://browser-runtime:8931/mcp")
+                    ),
+                    workflow_instance_dir=(tmp_path / "out").resolve() / "workflow" / "run",
+                ),
+                RunInput(brand_list_text="Mavi\n", workflow_run_prompt=""),
             ),
         ),
     )

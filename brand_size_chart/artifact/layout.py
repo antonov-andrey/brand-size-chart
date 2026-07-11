@@ -1,75 +1,40 @@
-"""Deterministic artifact path layout for brand size-chart workflow runs."""
+"""Domain artifact paths inside one brand size-chart result root."""
 
 from pathlib import Path
 
 from brand_size_chart.model import BrandInput
+from brand_size_chart.model.source import market_scope_key_validate, size_group_key_validate
 
 
 class ArtifactLayout:
-    """Build deterministic output and audit artifact paths."""
+    """Build final output paths and current-step declared artifact targets."""
 
     def __init__(self, result_dir: Path) -> None:
-        """Store the result root directory.
+        """Store one absolute result root.
 
         Args:
             result_dir: Root result directory.
         """
 
-        self.result_dir = result_dir
+        self.result_dir = result_dir.resolve()
 
     def artifact_path(self, path: Path) -> str:
-        """Return one result-dir-relative artifact path.
+        """Return one result-relative public artifact reference.
 
         Args:
-            path: Artifact path.
+            path: Artifact path inside the result root.
 
         Returns:
-            Relative artifact path as POSIX text.
+            Relative POSIX artifact path.
         """
 
-        return path.relative_to(self.result_dir).as_posix()
-
-    def filesystem_path_get(self, path: Path) -> str:
-        """Return one absolute filesystem path for runtime file writes.
-
-        Args:
-            path: Artifact path.
-
-        Returns:
-            Absolute filesystem path as POSIX text.
-        """
-
-        return path.resolve().as_posix()
-
-    def brand_audit_dir(self, brand_input: BrandInput) -> Path:
-        """Return audit directory for one brand.
-
-        Args:
-            brand_input: Parsed brand input.
-
-        Returns:
-            Brand audit directory.
-        """
-
-        return self.result_dir / "brand_size_chart_audit" / "brand" / brand_input.parsed_brand_key
-
-    def brand_manifest_path(self, brand_input: BrandInput) -> Path:
-        """Return final brand manifest path.
-
-        Args:
-            brand_input: Parsed brand input.
-
-        Returns:
-            Brand manifest artifact path.
-        """
-
-        return self.brand_output_dir(brand_input) / "manifest.json"
+        return path.resolve().relative_to(self.result_dir).as_posix()
 
     def brand_output_dir(self, brand_input: BrandInput) -> Path:
-        """Return canonical output directory for one brand.
+        """Return the final output directory for one brand.
 
         Args:
-            brand_input: Parsed brand input.
+            brand_input: Parsed brand identity.
 
         Returns:
             Brand output directory.
@@ -77,186 +42,94 @@ class ArtifactLayout:
 
         return self.result_dir / "brand_size_chart" / "brand" / brand_input.parsed_brand_key
 
-    def brand_result_path(self, brand_input: BrandInput) -> Path:
-        """Return final brand audit result path.
+    def brand_size_chart_path(self, brand_input: BrandInput, size_group_key: str, market_scope_key: str) -> Path:
+        """Return one final canonical size-chart path.
 
         Args:
-            brand_input: Parsed brand input.
+            brand_input: Parsed brand identity.
+            size_group_key: Manufacturer-derived physical table key.
+            market_scope_key: Deterministic market scope key.
 
         Returns:
-            Brand result artifact path.
-        """
-
-        return self.brand_audit_dir(brand_input) / "brand_result" / "result.json"
-
-    def brand_size_chart_path(self, brand_input: BrandInput, size_group_key: str) -> Path:
-        """Return final size-chart output path.
-
-        Args:
-            brand_input: Parsed brand input.
-            size_group_key: Size group key.
-
-        Returns:
-            Size-chart artifact path.
-        """
-
-        return self.brand_output_dir(brand_input) / "size_chart" / f"{size_group_key}.json"
-
-    def canonical_select_dir(self, brand_input: BrandInput) -> Path:
-        """Return canonical-selection audit directory for one brand.
-
-        Args:
-            brand_input: Parsed brand input.
-
-        Returns:
-            Canonical-selection stage directory.
-        """
-
-        return self.brand_audit_dir(brand_input) / "canonical_select"
-
-    def coverage_decide_dir(self, brand_input: BrandInput, source_type: str) -> Path:
-        """Return coverage-decision audit directory for one source type.
-
-        Args:
-            brand_input: Parsed brand input.
-            source_type: Source type key.
-
-        Returns:
-            Coverage-decision stage directory.
-        """
-
-        return self.source_type_dir(brand_input, source_type) / "coverage_decide"
-
-    def run_result_path(self) -> Path:
-        """Return root run result audit path.
-
-        Returns:
-            Run result artifact path.
-        """
-
-        return self.result_dir / "brand_size_chart_audit" / "run" / "result.json"
-
-    def source_discover_dir(self, brand_input: BrandInput, source_type: str) -> Path:
-        """Return source-discovery audit directory for one source type.
-
-        Args:
-            brand_input: Parsed brand input.
-            source_type: Source type key.
-
-        Returns:
-            Source-discovery stage directory.
-        """
-
-        return self.source_type_dir(brand_input, source_type) / "source_discover"
-
-    def source_discover_evidence_dir(self, brand_input: BrandInput, source_type: str) -> Path:
-        """Return source-discovery evidence directory for one source type.
-
-        Args:
-            brand_input: Parsed brand input.
-            source_type: Source type key.
-
-        Returns:
-            Source-discovery evidence directory.
+            Final size-chart artifact path.
         """
 
         return (
-            self.result_dir
-            / ".playwright-mcp"
-            / "current"
-            / "brand_size_chart_audit"
-            / "brand"
-            / brand_input.parsed_brand_key
-            / "source_type"
-            / source_type
-            / "source_discover"
-            / "evidence"
+            self.brand_output_dir(brand_input)
+            / "size_chart"
+            / (f"{size_group_key_validate(size_group_key)}__{market_scope_key_validate(market_scope_key)}.json")
         )
 
-    def source_type_dir(self, brand_input: BrandInput, source_type: str) -> Path:
-        """Return audit directory for one brand source type.
+    def source_discovery_chart_path(
+        self,
+        step_instance_dir: Path,
+        size_group_key: str,
+        market_scope_key: str,
+    ) -> Path:
+        """Return one current-step chart path from its two-component identity.
 
         Args:
-            brand_input: Parsed brand input.
-            source_type: Source type key.
+            step_instance_dir: Current source-discovery step directory.
+            size_group_key: Manufacturer-derived physical table key.
+            market_scope_key: Deterministic market scope key.
 
         Returns:
-            Source-type audit directory.
+            Current step chart artifact path.
         """
 
-        return self.brand_audit_dir(brand_input) / "source_type" / source_type
-
-    def source_type_result_path(self, brand_input: BrandInput, source_type: str) -> Path:
-        """Return source-type workflow result path.
-
-        Args:
-            brand_input: Parsed brand input.
-            source_type: Source type key.
-
-        Returns:
-            Source-type workflow result artifact path.
-        """
-
-        return self.source_type_dir(brand_input, source_type) / "source_type_result" / "result.json"
-
-    def table_extract_dir(self, brand_input: BrandInput, source_type: str) -> Path:
-        """Return batch table-extract audit directory for one source type.
-
-        Args:
-            brand_input: Parsed brand input.
-            source_type: Source type key.
-
-        Returns:
-            Batch table-extract stage directory.
-        """
-
-        return self.source_type_dir(brand_input, source_type) / "table_extract"
-
-    def table_extract_chart_path(self, brand_input: BrandInput, source_type: str, size_group_key: str) -> Path:
-        """Return generated batch chart artifact path.
-
-        Args:
-            brand_input: Parsed brand input.
-            source_type: Source type key.
-            size_group_key: Size group key.
-
-        Returns:
-            Batch chart artifact path.
-        """
-
-        return self.table_extract_dir(brand_input, source_type) / "chart" / f"{size_group_key}.json"
-
-    def table_extract_evidence_dir(self, brand_input: BrandInput, source_type: str, size_group_key: str) -> Path:
-        """Return batch table-extract evidence directory for one size group.
-
-        Args:
-            brand_input: Parsed brand input.
-            source_type: Source type key.
-            size_group_key: Size group key.
-
-        Returns:
-            Batch table-extract evidence directory.
-        """
-
-        return (
-            self.result_dir
-            / ".playwright-mcp"
-            / "current"
-            / "brand_size_chart_audit"
-            / "brand"
-            / brand_input.parsed_brand_key
-            / "source_type"
-            / source_type
-            / "table_extract"
-            / "evidence"
-            / size_group_key
+        return self.step_artifact_path(
+            step_instance_dir,
+            Path("chart")
+            / f"{size_group_key_validate(size_group_key)}__{market_scope_key_validate(market_scope_key)}.json",
         )
 
-    def workflow_run_prompt_apply_dir(self) -> Path:
-        """Return workflow-run prompt application audit directory.
+    def external_step_artifact_dir(self, step_instance_dir: Path, relative_dir: Path) -> Path:
+        """Return one external write directory mirrored to the current step.
+
+        Args:
+            step_instance_dir: Current canonical step directory.
+            relative_dir: Artifact directory relative to the step.
 
         Returns:
-            Workflow-run prompt application stage directory.
+            External artifact write directory.
+
+        Raises:
+            ValueError: If the step or relative directory escapes its owner.
         """
 
-        return self.result_dir / "brand_size_chart_audit" / "run" / "workflow_run_prompt_apply"
+        step_relative_path = step_instance_dir.resolve().relative_to(self.result_dir)
+        if relative_dir.is_absolute() or ".." in relative_dir.parts:
+            raise ValueError("relative_dir must stay inside the current step")
+        return self.result_dir / ".playwright-mcp" / "current" / step_relative_path / relative_dir
+
+    def filesystem_path_get(self, path: Path) -> str:
+        """Return one absolute filesystem path for a declared write target.
+
+        Args:
+            path: Artifact path.
+
+        Returns:
+            Absolute POSIX path.
+        """
+
+        return path.resolve().as_posix()
+
+    def step_artifact_path(self, step_instance_dir: Path, relative_path: Path) -> Path:
+        """Return one canonical artifact path inside the current step.
+
+        Args:
+            step_instance_dir: Current canonical step directory.
+            relative_path: Artifact path relative to the step.
+
+        Returns:
+            Canonical step artifact path.
+
+        Raises:
+            ValueError: If the step or relative path escapes its owner.
+        """
+
+        step_instance_dir = step_instance_dir.resolve()
+        step_instance_dir.relative_to(self.result_dir)
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            raise ValueError("relative_path must stay inside the current step")
+        return step_instance_dir / relative_path

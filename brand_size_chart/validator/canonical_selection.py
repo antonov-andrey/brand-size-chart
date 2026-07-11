@@ -1,174 +1,113 @@
-"""Canonical-selection mechanical validation."""
+"""Canonical-selection validation against read-only accepted source tables."""
+
+from workflow_container_runtime.step import StepResultValidationError, WorkflowStepExecutionContext
 
 from brand_size_chart.model import (
-    CanonicalSelectionCandidate,
-    CanonicalSelectionInput,
+    BrandSourceTypeResultStepInput,
     CanonicalSelectionResult,
+    canonical_selection_unresolved_size_group_gap_list_get,
 )
+from brand_size_chart.source.discovery_database import SourceDiscoveryDatabaseReader
 
 
 class CanonicalSelectionValidator:
-    """Validate canonical-selection structural consistency."""
+    """Validate physical canonical selections from accepted source-table query results."""
 
-    def __init__(self, *, stage_input: CanonicalSelectionInput) -> None:
-        """Store canonical-selection input.
-
-        Args:
-            stage_input: Canonical-selection input used by the action.
-        """
-
-        self._stage_input = stage_input
-
-    def validate(self, canonical_selection_result: CanonicalSelectionResult) -> None:
-        """Validate canonical-selection structural consistency.
+    def __init__(self, *, source_discovery_database_reader: SourceDiscoveryDatabaseReader) -> None:
+        """Store the shared read-only accepted-table boundary.
 
         Args:
-            canonical_selection_result: Verified canonical-selection result.
-
-        Raises:
-            RuntimeError: If selection points to missing or inconsistent table data.
+            source_discovery_database_reader: Shared validated source-discovery query boundary.
         """
 
-        candidate_list = self._stage_input.canonical_selection_candidate_list
-        candidate_by_chart_path_map = self._candidate_by_chart_path_map_get(candidate_list)
-        selected_size_group_key_set = self._selection_list_validate(
-            canonical_selection_result=canonical_selection_result,
-            candidate_by_chart_path_map=candidate_by_chart_path_map,
-            candidate_list=candidate_list,
-        )
-        self._missing_selection_validate(
-            candidate_list=candidate_list,
-            selected_size_group_key_set=selected_size_group_key_set,
-        )
+        self._source_discovery_database_reader = source_discovery_database_reader
 
-    def _candidate_by_chart_path_map_get(
-        self, candidate_list: list[CanonicalSelectionCandidate]
-    ) -> dict[str, CanonicalSelectionCandidate]:
-        """Return candidates keyed by unique chart path.
-
-        Args:
-            candidate_list: Verified candidates available for selection.
-
-        Returns:
-            Candidate map keyed by chart path.
-
-        Raises:
-            RuntimeError: If chart paths are duplicated.
-        """
-
-        candidate_by_chart_path_map = {
-            candidate.table_extraction_artifact.chart_path: candidate for candidate in candidate_list
-        }
-        if len(candidate_by_chart_path_map) != len(candidate_list):
-            raise RuntimeError("canonical_select candidate list contains duplicate chart_path values")
-        return candidate_by_chart_path_map
-
-    def _missing_selection_validate(
+    def validate(
         self,
-        *,
-        candidate_list: list[CanonicalSelectionCandidate],
-        selected_size_group_key_set: set[str],
+        execution_context: WorkflowStepExecutionContext,
+        step_input: BrandSourceTypeResultStepInput,
+        result: CanonicalSelectionResult,
     ) -> None:
-        """Validate that missing selections are only unresolved same-priority groups.
+        """Validate selection membership, priority, representative order, and derived gaps.
 
         Args:
-            candidate_list: Canonical-selection candidates available for selection.
-            selected_size_group_key_set: Size groups represented by canonical selections.
+            execution_context: Current step execution context.
+            step_input: Persisted complete source results and workflow input.
+            result: Candidate public canonical selection.
 
         Raises:
-            RuntimeError: If one candidate size group is missing without same-priority ambiguity.
+            StepResultValidationError: If selection violates accepted-row mechanics.
         """
 
-        candidate_size_group_key_set = {
-            candidate.table_extraction_artifact.size_group_key for candidate in candidate_list
-        }
-        missing_size_group_key_list: list[str] = []
-        for size_group_key in sorted(candidate_size_group_key_set - selected_size_group_key_set):
-            same_size_group_candidate_list = [
-                candidate
-                for candidate in candidate_list
-                if candidate.table_extraction_artifact.size_group_key == size_group_key
-            ]
-            max_priority = max(candidate.source_priority for candidate in same_size_group_candidate_list)
-            max_priority_candidate_list = [
-                candidate for candidate in same_size_group_candidate_list if candidate.source_priority == max_priority
-            ]
-            if len(max_priority_candidate_list) < 2:
-                missing_size_group_key_list.append(size_group_key)
-        if missing_size_group_key_list:
-            raise RuntimeError(
-                "canonical_select missing candidate size_group_key values: " + ", ".join(missing_size_group_key_list)
+        try:
+            accepted_table_list = (
+                self._source_discovery_database_reader.accepted_table_list_get_for_source_type_result_list(
+                    result_dir=execution_context.result_dir,
+                    source_type_result_list=step_input.source_type_result_list,
+                )
             )
+        except (OSError, RuntimeError, ValueError, KeyError) as exc:
+            raise StepResultValidationError(
+                feedback_list=[f"Read the declared accepted source tables without changing SQLite state: {exc}"]
+            ) from exc
+        accepted_by_chart_path_map = {item.chart_path: item for item in accepted_table_list}
+        selected_chart_path_set: set[str] = set()
+        selected_size_group_key_set: set[str] = set()
+        for selection in result.canonical_selection_list:
+            if selection.selected_chart_path in selected_chart_path_set:
+                self._fail(f"Return selected_chart_path {selection.selected_chart_path} exactly once.")
+            selected_chart_path_set.add(selection.selected_chart_path)
+            accepted_table = accepted_by_chart_path_map.get(selection.selected_chart_path)
+            if accepted_table is None:
+                self._fail(f"Choose only accepted source chart paths; unknown path: {selection.selected_chart_path}.")
+            size_group_key = accepted_table.source_table.size_group_key
+            if size_group_key in selected_size_group_key_set:
+                self._fail(f"Return exactly one canonical selection for size_group_key {size_group_key}.")
+            selected_size_group_key_set.add(size_group_key)
+            group_table_list = [
+                item for item in accepted_table_list if item.source_table.size_group_key == size_group_key
+            ]
+            max_priority = max(item.source_priority for item in group_table_list)
+            if accepted_table.source_priority != max_priority:
+                self._fail(f"Select highest source priority for size_group_key {size_group_key}.")
+            max_priority_table_list = [item for item in group_table_list if item.source_priority == max_priority]
+            if len(max_priority_table_list) > 1:
+                expected_chart_path = min(
+                    max_priority_table_list,
+                    key=lambda item: (
+                        item.source_table.market_scope_key,
+                        item.source_table.source_url,
+                        item.source_table.source_title,
+                    ),
+                ).chart_path
+                if selection.selected_chart_path != expected_chart_path:
+                    self._fail(
+                        f"Select deterministic equivalent representative for {size_group_key}: {expected_chart_path}."
+                    )
+        expected_unresolved_size_group_gap_list = canonical_selection_unresolved_size_group_gap_list_get(
+            canonical_selection_list=result.canonical_selection_list,
+            accepted_table_list=accepted_table_list,
+        )
+        if result.unresolved_size_group_gap_list != expected_unresolved_size_group_gap_list:
+            self._fail("Return unresolved_size_group_gap_list exactly from omitted accepted highest-priority groups.")
+        for size_group_key in {
+            item.source_table.size_group_key for item in accepted_table_list
+        } - selected_size_group_key_set:
+            group_table_list = [
+                item for item in accepted_table_list if item.source_table.size_group_key == size_group_key
+            ]
+            max_priority = max(item.source_priority for item in group_table_list)
+            if sum(item.source_priority == max_priority for item in group_table_list) == 1:
+                self._fail(f"Select the sole highest-priority accepted row for size_group_key {size_group_key}.")
 
-    def _selection_list_validate(
-        self,
-        *,
-        canonical_selection_result: CanonicalSelectionResult,
-        candidate_by_chart_path_map: dict[str, CanonicalSelectionCandidate],
-        candidate_list: list[CanonicalSelectionCandidate],
-    ) -> set[str]:
-        """Validate selected rows against candidate list.
+    def _fail(self, feedback: str) -> None:
+        """Raise one mechanical canonical-selection validation failure.
 
         Args:
-            canonical_selection_result: Candidate canonical-selection result.
-            candidate_by_chart_path_map: Canonical-selection candidates keyed by chart path.
-            candidate_list: Canonical-selection candidates available for selection.
+            feedback: Actionable correction text.
 
         Raises:
-            RuntimeError: If one selection is duplicated, missing, or lower priority than another candidate.
-
-        Returns:
-            Size groups represented by canonical selections.
+            StepResultValidationError: Always.
         """
 
-        seen_chart_path_set: set[str] = set()
-        seen_size_group_key_set: set[str] = set()
-        for selection in canonical_selection_result.canonical_selection_list:
-            if selection.selected_chart_path in seen_chart_path_set:
-                raise RuntimeError(f"canonical_select duplicate selected_chart_path: {selection.selected_chart_path}")
-            seen_chart_path_set.add(selection.selected_chart_path)
-
-            selected_candidate = candidate_by_chart_path_map.get(selection.selected_chart_path)
-            if selected_candidate is None:
-                raise RuntimeError(
-                    "canonical_select missing table extraction for selected_chart_path: "
-                    f"{selection.selected_chart_path}"
-                )
-            selected_table_extraction = selected_candidate.table_extraction_artifact
-            if selected_table_extraction.size_group_key in seen_size_group_key_set:
-                raise RuntimeError(
-                    f"canonical_select duplicate size_group_key: {selected_table_extraction.size_group_key}"
-                )
-            seen_size_group_key_set.add(selected_table_extraction.size_group_key)
-            same_size_group_candidate_list = [
-                candidate
-                for candidate in candidate_list
-                if candidate.table_extraction_artifact.size_group_key == selected_table_extraction.size_group_key
-            ]
-            max_priority = max(candidate.source_priority for candidate in same_size_group_candidate_list)
-            if selected_candidate.source_priority < max_priority:
-                raise RuntimeError(
-                    f"canonical_select selected lower priority for {selected_table_extraction.size_group_key}: "
-                    f"{selected_table_extraction.source_type} priority {selected_candidate.source_priority} "
-                    f"< {max_priority}"
-                )
-            max_priority_candidate_list = [
-                candidate for candidate in same_size_group_candidate_list if candidate.source_priority == max_priority
-            ]
-            if len(max_priority_candidate_list) > 1:
-                representative_candidate = sorted(
-                    max_priority_candidate_list,
-                    key=lambda candidate: (
-                        candidate.table_extraction_artifact.chart_path,
-                        candidate.table_extraction_artifact.source_url,
-                        candidate.table_extraction_artifact.source_title,
-                    ),
-                )[0]
-                if selection.selected_chart_path != representative_candidate.table_extraction_artifact.chart_path:
-                    raise RuntimeError(
-                        "canonical_select selected non-deterministic representative for "
-                        f"{selected_table_extraction.size_group_key}: expected "
-                        f"{representative_candidate.table_extraction_artifact.chart_path}, "
-                        f"got {selection.selected_chart_path}"
-                    )
-        return seen_size_group_key_set
+        raise StepResultValidationError(feedback_list=[feedback])
