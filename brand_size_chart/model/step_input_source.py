@@ -1,21 +1,27 @@
 """Public dependency sets selected for concrete workflow steps."""
 
-from brand_size_chart.model.base import StrictBaseModel
+from brand_size_chart.model.base import IdentifierComponent, StrictBaseModel
+from brand_size_chart.model.brand import BrandInput
 from brand_size_chart.model.selection import CanonicalSelectionResult
 from brand_size_chart.model.source import SourceTypeResultList
-from brand_size_chart.model.workflow_input import BrandWorkflowInput
-
-
-class BrandSourceTypeResultInputSource(StrictBaseModel):
-    """Brand input and complete source-type workflow results needed by brand steps."""
-
-    source_type_result_list: SourceTypeResultList
-    workflow_input: BrandWorkflowInput
 
 
 class BrandOutputInputSource(StrictBaseModel):
-    """Verified brand decisions and complete source-type workflow results."""
+    """Verified brand decisions, stable brand identity, and source results."""
 
+    brand_input: BrandInput
     canonical_selection_result: CanonicalSelectionResult
     source_type_result_list: SourceTypeResultList
-    workflow_input: BrandWorkflowInput
+
+
+class BrandSourceTypeResultInputSource(StrictBaseModel):
+    """Complete verified source-type results needed by one downstream decision."""
+
+    source_type_result_list: SourceTypeResultList
+
+
+class SourceDiscoveryInputSource(StrictBaseModel):
+    """Stable source-discovery domain objects selected by the brand workflow."""
+
+    brand_input: BrandInput
+    source_type: IdentifierComponent

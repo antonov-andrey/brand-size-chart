@@ -7,10 +7,10 @@ from workflow_container_runtime.artifact import (
     ArtifactMaterializer,
     JsonArtifactWriter,
 )
-from workflow_container_runtime.codex import CodexRunner, CodexRunnerConfig
+from workflow_container_runtime.codex import CodexRunner
 from workflow_container_runtime.prompt import PromptRenderer
 from workflow_container_runtime.state import SqliteStateStore
-from workflow_container_runtime.step import CodexExecutionRetryPolicy, WorkflowStepCodexConfig
+from workflow_container_runtime.step import CodexExecutionRetryPolicy, WorkflowStepCodexRuntimePolicy
 
 from brand_size_chart.step import (
     BrandOutputStep,
@@ -19,21 +19,17 @@ from brand_size_chart.step import (
     CoverageDecisionDefaultStep,
     CoverageDecisionStep,
     SourceDiscoveryStep,
-    WorkflowRunPromptApplyDefaultStep,
-    WorkflowRunPromptApplyStep,
 )
 from brand_size_chart.source.discovery_database import SourceDiscoveryDatabaseReader
 from brand_size_chart.validator import (
     BrandOutputValidator,
     CanonicalSelectionValidator,
     CoverageDecisionValidator,
-    PromptScopeValidator,
     SourceDiscoveryValidator,
 )
 from brand_size_chart.workflow import (
     BrandSizeChartBrandWorkflow,
     BrandSizeChartRunWorkflow,
-    BrandSizeChartSourceTypeWorkflow,
 )
 
 
@@ -50,23 +46,17 @@ class BrandSizeChartApplication:
         )
         codex_runner = CodexRunner(
             artifact_writer=artifact_writer,
-            config=CodexRunnerConfig(
-                model="gpt-5.6-terra",
-                model_reasoning_effort="high",
-            ),
             prompt_renderer=prompt_renderer,
             workflow_container_name="brand-size-chart",
         )
-        browser_step_config = WorkflowStepCodexConfig(
+        browser_step_runtime_policy = WorkflowStepCodexRuntimePolicy(
             artifact_materialization_policy=ArtifactMaterializationPolicy(
                 artifact_root_tuple=(Path(".playwright-mcp/current"),),
             ),
-            attempt_limit=3,
             execution_retry_policy=CodexExecutionRetryPolicy(attempt_limit=2),
         )
-        local_step_config = WorkflowStepCodexConfig(
+        local_step_runtime_policy = WorkflowStepCodexRuntimePolicy(
             artifact_materialization_policy=ArtifactMaterializationPolicy(artifact_root_tuple=()),
-            attempt_limit=3,
             execution_retry_policy=CodexExecutionRetryPolicy(attempt_limit=2),
         )
 
@@ -76,17 +66,11 @@ class BrandSizeChartApplication:
             artifact_materializer=artifact_materializer,
             artifact_writer=artifact_writer,
             codex_runner=codex_runner,
-            config=browser_step_config,
             prompt_renderer=prompt_renderer,
+            runtime_policy=browser_step_runtime_policy,
             sqlite_state_store=sqlite_state_store,
             validator=SourceDiscoveryValidator(sqlite_state_store=sqlite_state_store),
         )
-        source_type_workflow = BrandSizeChartSourceTypeWorkflow(
-            artifact_writer=artifact_writer,
-            config_name="source_type",
-            source_discovery_step=source_discovery_step,
-        )
-
         canonical_selection_validator = CanonicalSelectionValidator(
             source_discovery_database_reader=source_discovery_database_reader,
         )
@@ -108,8 +92,8 @@ class BrandSizeChartApplication:
                 artifact_materializer=artifact_materializer,
                 artifact_writer=artifact_writer,
                 codex_runner=codex_runner,
-                config=local_step_config,
                 prompt_renderer=prompt_renderer,
+                runtime_policy=local_step_runtime_policy,
                 source_discovery_database_reader=source_discovery_database_reader,
                 validator=canonical_selection_validator,
             ),
@@ -122,25 +106,14 @@ class BrandSizeChartApplication:
                 artifact_materializer=artifact_materializer,
                 artifact_writer=artifact_writer,
                 codex_runner=codex_runner,
-                config=local_step_config,
                 prompt_renderer=prompt_renderer,
+                runtime_policy=local_step_runtime_policy,
                 validator=coverage_decision_validator,
             ),
-            source_type_workflow=source_type_workflow,
+            source_discovery_step=source_discovery_step,
         )
         self.root_workflow = BrandSizeChartRunWorkflow(
             artifact_writer=artifact_writer,
             brand_workflow=brand_workflow,
             config_name="run",
-            workflow_run_prompt_apply_default_step=WorkflowRunPromptApplyDefaultStep(
-                artifact_writer=artifact_writer,
-            ),
-            workflow_run_prompt_apply_step=WorkflowRunPromptApplyStep(
-                artifact_materializer=artifact_materializer,
-                artifact_writer=artifact_writer,
-                codex_runner=codex_runner,
-                config=local_step_config,
-                prompt_renderer=prompt_renderer,
-                validator=PromptScopeValidator(),
-            ),
         )

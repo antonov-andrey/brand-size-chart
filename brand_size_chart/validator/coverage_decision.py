@@ -2,7 +2,7 @@
 
 from workflow_container_runtime.step import StepResultValidationError, WorkflowStepExecutionContext
 
-from brand_size_chart.model import BrandSourceTypeResultStepInput, CoverageDecisionResult
+from brand_size_chart.model import BrandSourceTypeResultStepInput, CoverageDecisionResult, WorkflowBrandSizeChartInput
 from brand_size_chart.source.discovery_database import SourceDiscoveryDatabaseReader
 
 
@@ -47,7 +47,11 @@ class CoverageDecisionValidator:
                 feedback_list=[f"Read the declared accepted source tables without changing SQLite state: {exc}"]
             ) from exc
         accepted_chart_path_set = {accepted_table.chart_path for accepted_table in accepted_table_list}
-        requested_product_type_set = set(step_input.workflow_input.prompt_scope.product_type_request_list)
+        requested_product_type_set = set(
+            WorkflowBrandSizeChartInput.model_validate_json(
+                (execution_context.result_dir / step_input.workflow_input_path).read_text(encoding="utf-8")
+            ).request.product_type_request_list
+        )
         covered_product_type_set: set[str] = set()
         for covered_product_type in result.covered_product_type_list:
             if not covered_product_type.reason.strip():

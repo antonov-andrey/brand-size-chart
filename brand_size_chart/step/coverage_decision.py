@@ -7,7 +7,7 @@ from workflow_container_runtime.codex import CodexRunner
 from workflow_container_runtime.prompt import PromptRenderer
 from workflow_container_runtime.step import (
     WorkflowStepCodexBase,
-    WorkflowStepCodexConfig,
+    WorkflowStepCodexRuntimePolicy,
     WorkflowStepCodexState,
     WorkflowStepDeterministicBase,
     WorkflowStepExecutionContext,
@@ -18,31 +18,29 @@ from brand_size_chart.model import (
     BrandSourceTypeResultStepInput,
     CoverageDecisionProductTypeGap,
     CoverageDecisionResult,
+    WorkflowBrandSizeChartInput,
+    WorkflowStepCoverageDecideConfig,
 )
-from brand_size_chart.step.instruction import step_instruction_list_get
 from brand_size_chart.validator import CoverageDecisionValidator
 
 
 def _coverage_decision_input_get(
+    execution_context: WorkflowStepExecutionContext,
     input_source: BrandSourceTypeResultInputSource,
 ) -> BrandSourceTypeResultStepInput:
     """Build persisted coverage input from complete source-type results.
 
     Args:
-        input_source: Brand workflow input and source-type results.
+        execution_context: Current step context.
+        input_source: Complete source-type results.
 
     Returns:
         Persisted coverage-decision input.
     """
 
-    prompt_scope = input_source.workflow_input.prompt_scope
     return BrandSourceTypeResultStepInput(
-        step_instruction_list=step_instruction_list_get(
-            prompt_scope=prompt_scope,
-            step_key="coverage_decide",
-        ),
         source_type_result_list=input_source.source_type_result_list,
-        workflow_input=input_source.workflow_input,
+        workflow_input_path=execution_context.workflow_input_path,
     )
 
 
@@ -83,8 +81,7 @@ class CoverageDecisionDefaultStep(
             Persisted coverage input.
         """
 
-        _ = execution_context
-        return _coverage_decision_input_get(input_source)
+        return _coverage_decision_input_get(execution_context, input_source)
 
     def result_build(
         self,
@@ -109,7 +106,9 @@ class CoverageDecisionDefaultStep(
                     product_type=product_type,
                     reason="No accepted source table is available for this requested product type.",
                 )
-                for product_type in step_input.workflow_input.prompt_scope.product_type_request_list
+                for product_type in WorkflowBrandSizeChartInput.model_validate_json(
+                    (execution_context.result_dir / step_input.workflow_input_path).read_text(encoding="utf-8")
+                ).request.product_type_request_list
             ],
         )
 
@@ -138,6 +137,7 @@ class CoverageDecisionStep(
     WorkflowStepCodexBase[
         BrandSourceTypeResultInputSource,
         BrandSourceTypeResultStepInput,
+        WorkflowStepCoverageDecideConfig,
         CoverageDecisionResult,
         CoverageDecisionResult,
     ]
@@ -145,6 +145,7 @@ class CoverageDecisionStep(
     """Decide product-type coverage from verified chart artifacts."""
 
     action_output_model: ClassVar[type[CoverageDecisionResult]] = CoverageDecisionResult
+    config_model: ClassVar[type[WorkflowStepCoverageDecideConfig]] = WorkflowStepCoverageDecideConfig
     result_model: ClassVar[type[CoverageDecisionResult]] = CoverageDecisionResult
     state_model: ClassVar[type[WorkflowStepCodexState]] = WorkflowStepCodexState
     step_key: ClassVar[str] = "coverage_decide"
@@ -155,8 +156,8 @@ class CoverageDecisionStep(
         artifact_materializer: ArtifactMaterializer,
         artifact_writer: JsonArtifactWriter,
         codex_runner: CodexRunner,
-        config: WorkflowStepCodexConfig,
         prompt_renderer: PromptRenderer,
+        runtime_policy: WorkflowStepCodexRuntimePolicy,
         validator: CoverageDecisionValidator,
     ) -> None:
         """Store reusable runtime and coverage-validation dependencies.
@@ -165,8 +166,8 @@ class CoverageDecisionStep(
             artifact_materializer: External artifact tree materializer.
             artifact_writer: Atomic standard-file writer.
             codex_runner: Low-level Codex runner.
-            config: Explicit Codex step config.
             prompt_renderer: Strict project prompt renderer.
+            runtime_policy: Source-owned materialization and retry policy.
             validator: Coverage mechanical validator.
         """
 
@@ -174,8 +175,8 @@ class CoverageDecisionStep(
             artifact_materializer=artifact_materializer,
             artifact_writer=artifact_writer,
             codex_runner=codex_runner,
-            config=config,
             prompt_renderer=prompt_renderer,
+            runtime_policy=runtime_policy,
         )
         self._validator = validator
 
@@ -194,8 +195,7 @@ class CoverageDecisionStep(
             Persisted coverage input.
         """
 
-        _ = execution_context
-        return _coverage_decision_input_get(input_source)
+        return _coverage_decision_input_get(execution_context, input_source)
 
     def result_from_action_build(
         self,

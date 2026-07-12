@@ -16,6 +16,7 @@ from brand_size_chart.model import (
     SourceDiscoveryTable,
     SourceDiscoveryUrl,
     SourceDiscoveryUrlProductSearch,
+    WorkflowBrandSizeChartInput,
 )
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
 from brand_size_chart.source.discovery_database import (
@@ -276,9 +277,7 @@ class SourceDiscoveryValidator:
             product_search_list: Persisted product search worklist rows.
         """
 
-        requires_product_type = SOURCE_TYPE_REGISTRY.source_type_requires_product_type(
-            step_input.workflow_input.source_type
-        )
+        requires_product_type = SOURCE_TYPE_REGISTRY.source_type_requires_product_type(step_input.source_type)
         if not requires_product_type:
             if product_search_list or url_product_search_list:
                 self._fail("Non-product-scoped source discovery must not persist product-search rows.")
@@ -286,7 +285,11 @@ class SourceDiscoveryValidator:
         for product_search in product_search_list:
             if not product_search.reason.strip() or not product_search.evidence_path_list:
                 self._fail("Every terminal product search row needs an evidence-backed reason.")
-        requested_product_type_set = set(step_input.workflow_input.prompt_scope.product_type_request_list)
+        requested_product_type_set = set(
+            WorkflowBrandSizeChartInput.model_validate_json(
+                (execution_context.result_dir / step_input.workflow_input_path).read_text(encoding="utf-8")
+            ).request.product_type_request_list
+        )
         represented_product_type_set = {row.product_type for row in product_search_list}
         if requested_product_type_set != represented_product_type_set:
             self._fail("Persist search rows for exactly the requested product type set.")

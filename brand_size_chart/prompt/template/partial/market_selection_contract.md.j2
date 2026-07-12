@@ -1,6 +1,6 @@
 ## Market Boundary And Selection Algorithm
 
-`workflow_input.prompt_scope.priority_country_code` is the single primary market explicitly selected from the user prompt, and source discovery is valid only when it is non-empty.
+`request.priority_country_code` in the complete workflow input is the single primary market explicitly selected by the user, and source discovery is valid only when it is non-empty.
 
 Before product or table discovery, select exactly one source market boundary. Inspect only the source's market selector or equivalent navigation needed to establish availability, then choose the first available boundary in this order:
 

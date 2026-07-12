@@ -1,0 +1,281 @@
+{
+  "$defs": {
+    "WorkflowBrandSizeChartConfig": {
+      "additionalProperties": false,
+      "description": "Define complete user-owned settings for one workflow run.",
+      "properties": {
+        "instruction": {
+          "default": "",
+          "description": "Additional instruction applied to every Codex step in this workflow.",
+          "title": "Workflow instruction",
+          "type": "string",
+          "x-ui-control": "textarea"
+        },
+        "step_map": {
+          "$ref": "#/$defs/WorkflowBrandSizeChartStepMap",
+          "description": "Exact configurations for every configurable workflow step.",
+          "title": "Step settings"
+        }
+      },
+      "required": [
+        "instruction",
+        "step_map"
+      ],
+      "title": "WorkflowBrandSizeChartConfig",
+      "type": "object"
+    },
+    "WorkflowBrandSizeChartRequest": {
+      "additionalProperties": false,
+      "description": "Define the complete domain work requested from one workflow run.",
+      "properties": {
+        "brand_list_text": {
+          "description": "Text with one requested brand name per line.",
+          "title": "Brand list",
+          "type": "string"
+        },
+        "priority_country_code": {
+          "description": "ISO 3166 alpha-2 country code preferred when selecting market coverage.",
+          "title": "Priority country code",
+          "type": "string"
+        },
+        "product_type_request_list": {
+          "description": "Requested product types that need verified size-chart coverage.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Requested product types",
+          "type": "array"
+        },
+        "source_type_allow_list": {
+          "description": "Allowed source types. An empty list permits every supported source type.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed source types",
+          "type": "array"
+        }
+      },
+      "required": [
+        "brand_list_text",
+        "priority_country_code",
+        "product_type_request_list",
+        "source_type_allow_list"
+      ],
+      "title": "WorkflowBrandSizeChartRequest",
+      "type": "object"
+    },
+    "WorkflowBrandSizeChartStepMap": {
+      "additionalProperties": false,
+      "description": "Bind every configurable step key to its exact concrete config.",
+      "properties": {
+        "canonical_select": {
+          "$ref": "#/$defs/WorkflowStepCanonicalSelectConfig",
+          "description": "Configuration for canonical chart selection.",
+          "title": "Canonical selection"
+        },
+        "coverage_decide": {
+          "$ref": "#/$defs/WorkflowStepCoverageDecideConfig",
+          "description": "Configuration for requested-product coverage decisions.",
+          "title": "Coverage decision"
+        },
+        "source_discover": {
+          "$ref": "#/$defs/WorkflowStepSourceDiscoverConfig",
+          "description": "Configuration for independent source discovery.",
+          "title": "Source discovery"
+        }
+      },
+      "required": [
+        "canonical_select",
+        "coverage_decide",
+        "source_discover"
+      ],
+      "title": "WorkflowBrandSizeChartStepMap",
+      "type": "object"
+    },
+    "WorkflowStepCanonicalSelectConfig": {
+      "additionalProperties": false,
+      "description": "Configure the Codex-backed canonical chart selection step.",
+      "properties": {
+        "correction_attempt_limit": {
+          "default": 3,
+          "description": "Maximum correction attempts after the initial action attempt.",
+          "minimum": 0,
+          "title": "Correction attempt limit",
+          "type": "integer"
+        },
+        "instruction": {
+          "default": "",
+          "description": "Additional instruction applied only to this step.",
+          "title": "Step instruction",
+          "type": "string",
+          "x-ui-control": "textarea"
+        },
+        "model": {
+          "default": "gpt-5.6-terra",
+          "description": "Codex model used by action and verifier.",
+          "enum": [
+            "gpt-5.6-luna",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra"
+          ],
+          "title": "Model",
+          "type": "string"
+        },
+        "reasoning_effort": {
+          "default": "high",
+          "description": "Reasoning effort used by action and verifier.",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "title": "Reasoning effort",
+          "type": "string"
+        }
+      },
+      "required": [
+        "correction_attempt_limit",
+        "instruction",
+        "model",
+        "reasoning_effort"
+      ],
+      "title": "WorkflowStepCanonicalSelectConfig",
+      "type": "object"
+    },
+    "WorkflowStepCoverageDecideConfig": {
+      "additionalProperties": false,
+      "description": "Configure the Codex-backed requested-product coverage step.",
+      "properties": {
+        "correction_attempt_limit": {
+          "default": 3,
+          "description": "Maximum correction attempts after the initial action attempt.",
+          "minimum": 0,
+          "title": "Correction attempt limit",
+          "type": "integer"
+        },
+        "instruction": {
+          "default": "",
+          "description": "Additional instruction applied only to this step.",
+          "title": "Step instruction",
+          "type": "string",
+          "x-ui-control": "textarea"
+        },
+        "model": {
+          "default": "gpt-5.6-terra",
+          "description": "Codex model used by action and verifier.",
+          "enum": [
+            "gpt-5.6-luna",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra"
+          ],
+          "title": "Model",
+          "type": "string"
+        },
+        "reasoning_effort": {
+          "default": "high",
+          "description": "Reasoning effort used by action and verifier.",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "title": "Reasoning effort",
+          "type": "string"
+        }
+      },
+      "required": [
+        "correction_attempt_limit",
+        "instruction",
+        "model",
+        "reasoning_effort"
+      ],
+      "title": "WorkflowStepCoverageDecideConfig",
+      "type": "object"
+    },
+    "WorkflowStepSourceDiscoverConfig": {
+      "additionalProperties": false,
+      "description": "Configure bounded concurrent Codex source-discovery invocations.",
+      "properties": {
+        "concurrency": {
+          "default": 1,
+          "description": "Maximum concurrent independent invocations of this step inside one workflow run.",
+          "minimum": 1,
+          "title": "Concurrency",
+          "type": "integer"
+        },
+        "correction_attempt_limit": {
+          "default": 3,
+          "description": "Maximum correction attempts after the initial action attempt.",
+          "minimum": 0,
+          "title": "Correction attempt limit",
+          "type": "integer"
+        },
+        "instruction": {
+          "default": "",
+          "description": "Additional instruction applied only to this step.",
+          "title": "Step instruction",
+          "type": "string",
+          "x-ui-control": "textarea"
+        },
+        "model": {
+          "default": "gpt-5.6-terra",
+          "description": "Codex model used by action and verifier.",
+          "enum": [
+            "gpt-5.6-luna",
+            "gpt-5.6-sol",
+            "gpt-5.6-terra"
+          ],
+          "title": "Model",
+          "type": "string"
+        },
+        "reasoning_effort": {
+          "default": "high",
+          "description": "Reasoning effort used by action and verifier.",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "title": "Reasoning effort",
+          "type": "string"
+        }
+      },
+      "required": [
+        "concurrency",
+        "correction_attempt_limit",
+        "instruction",
+        "model",
+        "reasoning_effort"
+      ],
+      "title": "WorkflowStepSourceDiscoverConfig",
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Bind the full brand size-chart request to exact workflow settings.",
+  "properties": {
+    "config": {
+      "$ref": "#/$defs/WorkflowBrandSizeChartConfig",
+      "description": "Complete settings for this run.",
+      "title": "Configuration"
+    },
+    "request": {
+      "$ref": "#/$defs/WorkflowBrandSizeChartRequest",
+      "description": "Domain work requested from the workflow.",
+      "title": "Request"
+    }
+  },
+  "required": [
+    "config",
+    "request"
+  ],
+  "title": "WorkflowBrandSizeChartInput",
+  "type": "object"
+}

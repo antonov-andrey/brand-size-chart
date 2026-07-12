@@ -10,7 +10,6 @@ from brand_size_chart.model.brand import (
     SourceTypeSkip,
 )
 from brand_size_chart.model.chart import BrandSizeChart, BrandSizeChartMeasurement, BrandSizeChartRow
-from brand_size_chart.model.prompt import PromptScope, PromptStepInstruction
 from brand_size_chart.model.run import RunResult
 from brand_size_chart.model.selection import (
     CanonicalSelection,
@@ -41,11 +40,21 @@ from brand_size_chart.model.step_input import (
     BrandOutputItem,
     BrandSourceTypeResultStepInput,
     SourceDiscoveryInput,
-    SourceTypeCatalogItem,
-    WorkflowRunPromptApplyInput,
 )
-from brand_size_chart.model.step_input_source import BrandOutputInputSource, BrandSourceTypeResultInputSource
-from brand_size_chart.model.workflow_input import BrandWorkflowInput, RunInput, SourceTypeWorkflowInput
+from brand_size_chart.model.step_input_source import (
+    BrandOutputInputSource,
+    BrandSourceTypeResultInputSource,
+    SourceDiscoveryInputSource,
+)
+from brand_size_chart.model.workflow_input import (
+    WorkflowBrandSizeChartConfig,
+    WorkflowBrandSizeChartInput,
+    WorkflowBrandSizeChartRequest,
+    WorkflowBrandSizeChartStepMap,
+    WorkflowStepCanonicalSelectConfig,
+    WorkflowStepCoverageDecideConfig,
+    WorkflowStepSourceDiscoverConfig,
+)
 
 __all__ = [
     "ArtifactWriteTarget",
@@ -62,7 +71,6 @@ __all__ = [
     "BrandSizeChart",
     "BrandSizeChartMeasurement",
     "BrandSizeChartRow",
-    "BrandWorkflowInput",
     "CanonicalSelection",
     "CanonicalSelectionActionOutput",
     "CanonicalSelectionGap",
@@ -72,13 +80,11 @@ __all__ = [
     "CoverageDecisionResult",
     "CoveredProductType",
     "IdentifierComponent",
-    "PromptScope",
-    "PromptStepInstruction",
-    "RunInput",
     "RunResult",
     "SourceDiscoveryAcceptedTable",
     "SourceDiscoveryChartWriteResult",
     "SourceDiscoveryInput",
+    "SourceDiscoveryInputSource",
     "SourceDiscoveryMarketBoundary",
     "SourceDiscoveryOutcome",
     "SourceDiscoveryProductSearch",
@@ -87,10 +93,14 @@ __all__ = [
     "SourceDiscoveryTable",
     "SourceDiscoveryUrl",
     "SourceDiscoveryUrlProductSearch",
-    "SourceTypeCatalogItem",
     "SourceTypeResult",
     "SourceTypeSkip",
-    "SourceTypeWorkflowInput",
     "StrictBaseModel",
-    "WorkflowRunPromptApplyInput",
+    "WorkflowBrandSizeChartConfig",
+    "WorkflowBrandSizeChartInput",
+    "WorkflowBrandSizeChartRequest",
+    "WorkflowBrandSizeChartStepMap",
+    "WorkflowStepCanonicalSelectConfig",
+    "WorkflowStepCoverageDecideConfig",
+    "WorkflowStepSourceDiscoverConfig",
 ]

@@ -14,7 +14,7 @@ Read the current `input.json`, `result.json`, sibling `state.sqlite3` through `b
 
 Verify semantic source-boundary completeness only:
 
-1. Discovery stayed within the source authority selected by `workflow_input.source_type`.
+1. Discovery stayed within the source authority selected by `input.json.source_type`.
 2. Product-scoped discovery applied the semantic product-search expansion to every requested product in order; non-product discovery created no product-search worklist.
 3. Discovery selected one market boundary according to the shared policy, did not traverse table surfaces in other market boundaries, and persisted every visible physical table encountered inside the selected boundary independently of the search request.
 4. Table identity comes from visible table heading and scope rather than product or search wording.

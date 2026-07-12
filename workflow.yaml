@@ -1,14 +1,10 @@
 name: brand_size_chart
-image: "brand-size-chart:0.3.0"
+image: "brand-size-chart:0.4.0"
+input_schema_path: input.schema.json
 command:
   - "brand-size-chart-run"
 
 data_source_list:
-  - name: brand_list
-    is_private: false
-    mutable_prefix_list: []
-    prompt: "Text file with one brand name per line."
-
   - name: secret
     is_private: true
     mutable_prefix_list:

@@ -7,7 +7,7 @@ from workflow_container_runtime.codex import CodexRunner
 from workflow_container_runtime.prompt import PromptRenderer
 from workflow_container_runtime.step import (
     WorkflowStepCodexBase,
-    WorkflowStepCodexConfig,
+    WorkflowStepCodexRuntimePolicy,
     WorkflowStepCodexState,
     WorkflowStepDeterministicBase,
     WorkflowStepExecutionContext,
@@ -19,32 +19,29 @@ from brand_size_chart.model import (
     BrandSourceTypeResultStepInput,
     CanonicalSelectionResult,
     canonical_selection_unresolved_size_group_gap_list_get,
+    WorkflowStepCanonicalSelectConfig,
 )
 from brand_size_chart.source.discovery_database import SourceDiscoveryDatabaseReader
-from brand_size_chart.step.instruction import step_instruction_list_get
 from brand_size_chart.validator import CanonicalSelectionValidator
 
 
 def _canonical_selection_input_get(
+    execution_context: WorkflowStepExecutionContext,
     input_source: BrandSourceTypeResultInputSource,
 ) -> BrandSourceTypeResultStepInput:
     """Build persisted canonical candidates from complete source-type results.
 
     Args:
-        input_source: Brand workflow input and source-type results.
+        execution_context: Current step context.
+        input_source: Complete source-type results.
 
     Returns:
         Persisted canonical-selection input.
     """
 
-    prompt_scope = input_source.workflow_input.prompt_scope
     return BrandSourceTypeResultStepInput(
         source_type_result_list=input_source.source_type_result_list,
-        step_instruction_list=step_instruction_list_get(
-            prompt_scope=prompt_scope,
-            step_key="canonical_select",
-        ),
-        workflow_input=input_source.workflow_input,
+        workflow_input_path=execution_context.workflow_input_path,
     )
 
 
@@ -85,8 +82,7 @@ class CanonicalSelectionDefaultStep(
             Persisted canonical-selection input.
         """
 
-        _ = execution_context
-        return _canonical_selection_input_get(input_source)
+        return _canonical_selection_input_get(execution_context, input_source)
 
     def result_build(
         self,
@@ -135,6 +131,7 @@ class CanonicalSelectionStep(
     WorkflowStepCodexBase[
         BrandSourceTypeResultInputSource,
         BrandSourceTypeResultStepInput,
+        WorkflowStepCanonicalSelectConfig,
         CanonicalSelectionActionOutput,
         CanonicalSelectionResult,
     ]
@@ -142,6 +139,7 @@ class CanonicalSelectionStep(
     """Select canonical chart artifacts from eligible candidates."""
 
     action_output_model: ClassVar[type[CanonicalSelectionActionOutput]] = CanonicalSelectionActionOutput
+    config_model: ClassVar[type[WorkflowStepCanonicalSelectConfig]] = WorkflowStepCanonicalSelectConfig
     result_model: ClassVar[type[CanonicalSelectionResult]] = CanonicalSelectionResult
     state_model: ClassVar[type[WorkflowStepCodexState]] = WorkflowStepCodexState
     step_key: ClassVar[str] = "canonical_select"
@@ -152,8 +150,8 @@ class CanonicalSelectionStep(
         artifact_materializer: ArtifactMaterializer,
         artifact_writer: JsonArtifactWriter,
         codex_runner: CodexRunner,
-        config: WorkflowStepCodexConfig,
         prompt_renderer: PromptRenderer,
+        runtime_policy: WorkflowStepCodexRuntimePolicy,
         source_discovery_database_reader: SourceDiscoveryDatabaseReader,
         validator: CanonicalSelectionValidator,
     ) -> None:
@@ -163,8 +161,8 @@ class CanonicalSelectionStep(
             artifact_materializer: External artifact tree materializer.
             artifact_writer: Atomic standard-file writer.
             codex_runner: Low-level Codex runner.
-            config: Explicit Codex step config.
             prompt_renderer: Strict project prompt renderer.
+            runtime_policy: Source-owned materialization and retry policy.
             source_discovery_database_reader: Shared accepted-table query boundary.
             validator: Canonical-selection mechanical validator.
         """
@@ -173,8 +171,8 @@ class CanonicalSelectionStep(
             artifact_materializer=artifact_materializer,
             artifact_writer=artifact_writer,
             codex_runner=codex_runner,
-            config=config,
             prompt_renderer=prompt_renderer,
+            runtime_policy=runtime_policy,
         )
         self._source_discovery_database_reader = source_discovery_database_reader
         self._validator = validator
@@ -194,8 +192,7 @@ class CanonicalSelectionStep(
             Persisted canonical-selection input.
         """
 
-        _ = execution_context
-        return _canonical_selection_input_get(input_source)
+        return _canonical_selection_input_get(execution_context, input_source)
 
     def have_candidate(self, input_source: BrandSourceTypeResultInputSource) -> bool:
         """Return whether semantic canonical selection has any candidate.

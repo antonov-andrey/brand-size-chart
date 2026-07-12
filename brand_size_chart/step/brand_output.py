@@ -86,7 +86,7 @@ class BrandOutputStep(
                     f"Canonical selection references unknown accepted chart: {selection.selected_chart_path}"
                 )
             output_path = layout.brand_size_chart_path(
-                input_source.workflow_input.brand_input,
+                input_source.brand_input,
                 accepted_table.source_table.size_group_key,
                 accepted_table.source_table.market_scope_key,
             )

@@ -1,10 +1,10 @@
 """Typed persisted inputs for workflow steps."""
 
-from pydantic import Field
+from pathlib import Path
 
 from brand_size_chart.model.base import IdentifierComponent, StrictBaseModel
+from brand_size_chart.model.brand import BrandInput
 from brand_size_chart.model.source import SourceTypeResultList
-from brand_size_chart.model.workflow_input import BrandWorkflowInput, RunInput, SourceTypeWorkflowInput
 
 
 class ArtifactWriteTarget(StrictBaseModel):
@@ -27,35 +27,17 @@ class BrandOutputInput(StrictBaseModel):
     output_item_list: list[BrandOutputItem]
 
 
-class SourceTypeCatalogItem(StrictBaseModel):
-    """Prompt-application context for one supported source type."""
-
-    requires_product_type: bool
-    source_type: IdentifierComponent
-
-
-class StepInputBase(StrictBaseModel):
-    """Common step-local instruction fields for one persisted step input."""
-
-    step_instruction_list: list[str] = Field(default_factory=list)
-
-
-class BrandSourceTypeResultStepInput(StepInputBase):
-    """Persisted complete source results for brand-level downstream decisions."""
+class BrandSourceTypeResultStepInput(StrictBaseModel):
+    """Persist source results and the exact complete workflow-input identity."""
 
     source_type_result_list: SourceTypeResultList
-    workflow_input: BrandWorkflowInput
+    workflow_input_path: Path
 
 
-class SourceDiscoveryInput(StepInputBase):
-    """Persisted input for source discovery."""
+class SourceDiscoveryInput(StrictBaseModel):
+    """Persist stable source-discovery domain data and workflow-input identity."""
 
+    brand_input: BrandInput
     evidence_write_target: ArtifactWriteTarget
-    workflow_input: SourceTypeWorkflowInput
-
-
-class WorkflowRunPromptApplyInput(StrictBaseModel):
-    """Persisted input for workflow-run prompt parsing."""
-
-    source_type_catalog_list: list[SourceTypeCatalogItem]
-    workflow_input: RunInput
+    source_type: IdentifierComponent
+    workflow_input_path: Path

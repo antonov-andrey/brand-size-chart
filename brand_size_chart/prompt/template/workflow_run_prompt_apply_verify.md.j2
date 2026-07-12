@@ -1,9 +1,0 @@
-# Workflow Run Prompt Application Verification
-
-{% include "runtime/partial/step_verification_contract.md.j2" %}
-
-Read the current input and result without writing artifacts. Verify the result against `workflow_input.workflow_run_prompt`, using `source_type_catalog_list` as the only source-type authority.
-
-Verify that restricted and unrestricted source scope, the explicit priority market, requested product types, and step-specific instructions preserve the request's meaning in their owning `PromptScope` fields. `shared_instruction` must contain only residual cross-step instructions and must not retain semantic duplicates of values moved to dedicated fields. Do not accept an invented priority country or a step-specific instruction left only in shared text.
-
-Do not repeat schema, supported-key membership, ISO code-shape, or field-duplication checks owned by the mechanical validator.

@@ -4,7 +4,7 @@
 
 - `official_brand_size_guide`: brand-owned non-product size-guide surfaces, including site navigation, dedicated size guides, help content, and FAQs; ordinary product pages are outside the boundary.
 - `official_seller_size_guide`: non-product size-guide surfaces owned by an official or authorized reseller or distributor whose relationship to the brand is established by evidence; ordinary product pages are outside the boundary.
-- `official_brand_product_page`: brand-owned product pages for the complete `workflow_input.prompt_scope.product_type_request_list`, including product details, questions and answers, recommendation areas, and product-linked size evidence.
+- `official_brand_product_page`: brand-owned product pages for the complete `request.product_type_request_list`, including product details, questions and answers, recommendation areas, and product-linked size evidence.
 - `official_marketplace_product_page`: marketplace product pages for the complete product list where evidence establishes that the seller is the brand or an authorized official seller.
 - `official_marketplace_store`: one actual official or authorized marketplace seller storefront and its store-linked products for the complete product list.
   - The selected root is one seller-owned storefront with a stable browser-visible seller identity and catalog; a generic brand or category landing page is navigation evidence only.
@@ -12,4 +12,4 @@
   - The selected storefront identity is invariant for the complete source-discovery step. Every worklist product URL and accepted table is linked by evidence to that identity; mixed or switched stores are invalid.
   - Exact candidate inventory and exhaustion belong inside the selected store or its exact stable seller identity. Public or global search results and generic brand or category pages are navigation evidence only. A `rejected` outcome requires exhaustion of the selected store's exact requested-product and current `search_sex` inventory.
 
-For a product-scoped source type, `workflow_input.prompt_scope.product_type_request_list` is the exact parent-selected scope. For a non-product source type, every table inside the selected boundary belongs to the inventory, independently of requested product types.
+For a product-scoped source type, `request.product_type_request_list` is the exact parent-selected scope. For a non-product source type, every table inside the selected boundary belongs to the inventory, independently of requested product types.

@@ -4,7 +4,7 @@
 
 Read only the current `input.json`, its generated row schemas, sibling `chart.schema.json`, sibling `state.sqlite3` through `brand-size-chart-source-discovery-state`, and declared evidence and chart artifacts. `state.json` is runtime-owned: do not read, write, or infer domain data from it.
 
-`workflow_input.prompt_scope.product_type_request_list` is ordered. Process each requested product completely before the next one. Derive the applicable `search_sex` branches semantically from the shared product-search contract; Python does not classify products or sexes.
+Read the complete workflow input through `workflow_input_path`. Its `request.product_type_request_list` is ordered. Process each requested product completely before the next one. Derive the applicable `search_sex` branches semantically from the shared product-search contract; Python does not classify products or sexes.
 
 {% include "partial/source_type_contract.md.j2" %}
 

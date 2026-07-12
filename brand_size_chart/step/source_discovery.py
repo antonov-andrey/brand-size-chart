@@ -13,8 +13,8 @@ from workflow_container_runtime.prompt import PromptRenderer
 from workflow_container_runtime.state import SqliteStateStore, state_database_path_get
 from workflow_container_runtime.step import (
     BrowserActionResult,
-    WorkflowStepCodexBase,
-    WorkflowStepCodexConfig,
+    WorkflowStepCodexConcurrentBase,
+    WorkflowStepCodexRuntimePolicy,
     WorkflowStepCodexState,
     WorkflowStepExecutionContext,
 )
@@ -25,17 +25,18 @@ from brand_size_chart.model import (
     BrandSizeChart,
     SourceDiscoveryInput,
     SourceDiscoveryResult,
-    SourceTypeWorkflowInput,
+    SourceDiscoveryInputSource,
+    WorkflowStepSourceDiscoverConfig,
 )
 from brand_size_chart.source.discovery_database import SOURCE_DISCOVERY_TABLE, SOURCE_DISCOVERY_TABLE_BY_NAME_MAP
-from brand_size_chart.step.instruction import step_instruction_list_get
 from brand_size_chart.validator import SourceDiscoveryValidator
 
 
 class SourceDiscoveryStep(
-    WorkflowStepCodexBase[
-        SourceTypeWorkflowInput,
+    WorkflowStepCodexConcurrentBase[
+        SourceDiscoveryInputSource,
         SourceDiscoveryInput,
+        WorkflowStepSourceDiscoverConfig,
         BrowserActionResult,
         SourceDiscoveryResult,
     ]
@@ -43,6 +44,7 @@ class SourceDiscoveryStep(
     """Discover, extract, and finalize source tables in one current-state database."""
 
     action_output_model: ClassVar[type[BrowserActionResult]] = BrowserActionResult
+    config_model: ClassVar[type[WorkflowStepSourceDiscoverConfig]] = WorkflowStepSourceDiscoverConfig
     result_model: ClassVar[type[SourceDiscoveryResult]] = SourceDiscoveryResult
     state_model: ClassVar[type[WorkflowStepCodexState]] = WorkflowStepCodexState
     step_key: ClassVar[str] = "source_discover"
@@ -53,8 +55,8 @@ class SourceDiscoveryStep(
         artifact_materializer: ArtifactMaterializer,
         artifact_writer: JsonArtifactWriter,
         codex_runner: CodexRunner,
-        config: WorkflowStepCodexConfig,
         prompt_renderer: PromptRenderer,
+        runtime_policy: WorkflowStepCodexRuntimePolicy,
         sqlite_state_store: SqliteStateStore,
         validator: SourceDiscoveryValidator,
     ) -> None:
@@ -64,8 +66,8 @@ class SourceDiscoveryStep(
             artifact_materializer: External artifact tree materializer.
             artifact_writer: Atomic JSON artifact writer.
             codex_runner: Low-level Codex runner.
-            config: Explicit Codex step config.
             prompt_renderer: Strict project prompt renderer.
+            runtime_policy: Source-owned materialization and retry policy.
             sqlite_state_store: Shared current-state store.
             validator: Source-discovery mechanical validator.
         """
@@ -74,8 +76,8 @@ class SourceDiscoveryStep(
             artifact_materializer=artifact_materializer,
             artifact_writer=artifact_writer,
             codex_runner=codex_runner,
-            config=config,
             prompt_renderer=prompt_renderer,
+            runtime_policy=runtime_policy,
         )
         self._sqlite_state_store = sqlite_state_store
         self._validator = validator
@@ -105,7 +107,7 @@ class SourceDiscoveryStep(
     def input_build(
         self,
         execution_context: WorkflowStepExecutionContext,
-        input_source: SourceTypeWorkflowInput,
+        input_source: SourceDiscoveryInputSource,
     ) -> SourceDiscoveryInput:
         """Build the immutable source-discovery input and evidence target.
 
@@ -121,15 +123,13 @@ class SourceDiscoveryStep(
         canonical_evidence_dir = layout.step_artifact_path(execution_context.step_instance_dir, Path("evidence"))
         external_evidence_dir = layout.external_step_artifact_dir(execution_context.step_instance_dir, Path("evidence"))
         return SourceDiscoveryInput(
+            brand_input=input_source.brand_input,
             evidence_write_target=ArtifactWriteTarget(
                 artifact_path=layout.artifact_path(canonical_evidence_dir),
                 filesystem_path=layout.filesystem_path_get(external_evidence_dir),
             ),
-            step_instruction_list=step_instruction_list_get(
-                prompt_scope=input_source.prompt_scope,
-                step_key=self.step_key,
-            ),
-            workflow_input=input_source,
+            source_type=input_source.source_type,
+            workflow_input_path=execution_context.workflow_input_path,
         )
 
     def result_from_action_build(

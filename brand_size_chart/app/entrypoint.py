@@ -11,7 +11,7 @@ from workflow_container_runtime.workflow import WorkflowExecutionContext, Workfl
 from brand_size_chart.app import runtime_config
 from brand_size_chart.app.application import BrandSizeChartApplication
 from brand_size_chart.identifier import dbos_identifier, dbos_identifier_component, workflow_project_name
-from brand_size_chart.model import RunInput, RunResult
+from brand_size_chart.model import RunResult, WorkflowBrandSizeChartInput
 
 
 def main() -> int:
@@ -26,7 +26,7 @@ def main() -> int:
         raise RuntimeError(
             f"{runtime_config.DEFAULT_BROWSER_RUNTIME_MCP_URL_ENV} or --browser-runtime-mcp-url must be set."
         )
-    brand_list_text = args.brand_list.read_text(encoding="utf-8")
+    workflow_input = WorkflowBrandSizeChartInput.model_validate_json(args.input.read_text(encoding="utf-8"))
     secret_path = Path(args.secret)
     if args.input_secret is not None:
         runtime_config.secret_runtime_materialize(Path(args.input_secret), secret_path)
@@ -58,10 +58,6 @@ def main() -> int:
             browser=BrowserRuntimeCapability(mcp_url=browser_runtime_mcp_url),
         ),
         workflow_instance_dir=result_dir / "workflow" / "run",
-    )
-    workflow_input = RunInput(
-        brand_list_text=brand_list_text,
-        workflow_run_prompt=args.workflow_run_prompt,
     )
     with SetWorkflowID(workflow_id):
         workflow_handle = DBOS.enqueue_workflow(

@@ -20,11 +20,10 @@ def args_parse() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the brand size-chart DBOS workflow.")
     parser.add_argument("--browser-runtime-mcp-url", default=os.environ.get(DEFAULT_BROWSER_RUNTIME_MCP_URL_ENV, ""))
     parser.add_argument("--workflow-run-id", required=True)
-    parser.add_argument("--brand-list", required=True, type=Path)
+    parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--input-secret", default=None, type=Path)
     parser.add_argument("--secret", default=Path(".secret"), type=Path)
     parser.add_argument("--output-dir", required=True, type=Path)
-    parser.add_argument("--workflow-run-prompt", default="")
     parser.add_argument("--workflow-git-url", default=os.environ.get("WORKFLOW_GIT_URL", ""))
     return parser.parse_args()
 
