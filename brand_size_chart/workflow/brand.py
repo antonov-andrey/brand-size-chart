@@ -180,7 +180,6 @@ class BrandSizeChartBrandWorkflow(
             coverage_decision_result=coverage_decision_result,
             error_list=error_list,
             source_type_result_list=source_type_result_list,
-            source_type_skip_list=[],
             status="failed" if error_list else "success",
             warning_list=[],
         )

@@ -27,6 +27,7 @@ class WorkflowBrandSizeChartRequest(StrictBaseModel):
     )
     source_type_allow_list: list[str] = Field(
         description="Allowed source types. An empty list permits every supported source type.",
+        json_schema_extra={"uniqueItems": True},
         title="Allowed source types",
     )
 

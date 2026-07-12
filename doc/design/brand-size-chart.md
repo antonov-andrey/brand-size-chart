@@ -8,7 +8,7 @@
 
 ## Runtime Tree
 
-The root workflow writes the complete input and starts one brand workflow per parsed brand. Every brand workflow writes the same complete input into its own instance, then creates registry-ordered independent `SourceDiscoveryInputSource` invocations. `SourceDiscoveryStep.run_list(...)` receives the exact `WorkflowStepSourceDiscoverConfig`; its runtime scheduler uses `concurrency` and returns results in invocation order.
+The root workflow writes the complete input and starts one brand workflow per parsed brand. Every brand workflow writes the same complete input into its own instance, then creates registry-ordered independent `SourceDiscoveryInputSource` invocations. `SourceDiscoveryStep.run_outcome_list(...)` receives the exact `WorkflowStepSourceDiscoverConfig`; its runtime scheduler uses `concurrency` and returns ordered outcomes in invocation order. Exhausted validation feedback becomes the matching failed `SourceTypeResult`, while Codex infrastructure errors propagate for DBOS recovery.
 
 `BrandSizeChartSourceTypeWorkflow` is intentionally absent. It was a one-step proxy with a duplicate child-input contract.
 

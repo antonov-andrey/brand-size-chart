@@ -10,6 +10,7 @@ from workflow_container_runtime.codex import CodexExecutionError
 from workflow_container_runtime.step import WorkflowStepInvocation, WorkflowStepInvocationOutcome
 from workflow_container_runtime.workflow import WorkflowExecutionContext, WorkflowRuntimeCapability
 
+import brand_size_chart.model as brand_size_chart_model
 from brand_size_chart.model import (
     BrandInput,
     BrandOutputResult,
@@ -162,6 +163,14 @@ def test_brand_workflow_runs_source_discovery_directly_with_exact_config_and_res
         "official_seller_size_guide",
     ]
     assert [result.source_discovery_result for result in workflow_result.source_type_result_list] == _result_list_get()
+    assert "source_type_skip_list" not in type(workflow_result).model_fields
+
+
+def test_brand_model_excludes_sequential_source_skip_contract() -> None:
+    """Expose only results for source types started by the concurrent runtime plan."""
+
+    assert "SourceTypeSkip" not in brand_size_chart_model.__all__
+    assert not hasattr(brand_size_chart_model, "SourceTypeSkip")
 
 
 def test_brand_workflow_preserves_exhausted_validation_feedback(tmp_path: Path) -> None:

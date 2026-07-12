@@ -7,7 +7,6 @@ from brand_size_chart.model.brand import (
     BrandListParseWarning,
     BrandOutputResult,
     BrandResult,
-    SourceTypeSkip,
 )
 from brand_size_chart.model.chart import BrandSizeChart, BrandSizeChartMeasurement, BrandSizeChartRow
 from brand_size_chart.model.run import RunResult
@@ -94,7 +93,6 @@ __all__ = [
     "SourceDiscoveryUrl",
     "SourceDiscoveryUrlProductSearch",
     "SourceTypeResult",
-    "SourceTypeSkip",
     "StrictBaseModel",
     "WorkflowBrandSizeChartConfig",
     "WorkflowBrandSizeChartInput",

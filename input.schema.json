@@ -53,7 +53,8 @@
             "type": "string"
           },
           "title": "Allowed source types",
-          "type": "array"
+          "type": "array",
+          "uniqueItems": true
         }
       },
       "required": [
@@ -201,6 +202,13 @@
       "additionalProperties": false,
       "description": "Configure bounded concurrent Codex source-discovery invocations.",
       "properties": {
+        "concurrency": {
+          "default": 1,
+          "description": "Maximum concurrent independent invocations of this step inside one workflow run.",
+          "minimum": 1,
+          "title": "Concurrency",
+          "type": "integer"
+        },
         "correction_attempt_limit": {
           "default": 3,
           "description": "Maximum correction attempts after the initial action attempt.",
@@ -238,21 +246,14 @@
           ],
           "title": "Reasoning effort",
           "type": "string"
-        },
-        "concurrency": {
-          "default": 1,
-          "description": "Maximum concurrent independent invocations of this step inside one workflow run.",
-          "minimum": 1,
-          "title": "Concurrency",
-          "type": "integer"
         }
       },
       "required": [
+        "concurrency",
         "correction_attempt_limit",
         "instruction",
         "model",
-        "reasoning_effort",
-        "concurrency"
+        "reasoning_effort"
       ],
       "title": "WorkflowStepSourceDiscoverConfig",
       "type": "object"
@@ -262,20 +263,20 @@
   "additionalProperties": false,
   "description": "Bind the full brand size-chart request to exact workflow settings.",
   "properties": {
-    "request": {
-      "$ref": "#/$defs/WorkflowBrandSizeChartRequest",
-      "description": "Domain work requested from the workflow.",
-      "title": "Request"
-    },
     "config": {
       "$ref": "#/$defs/WorkflowBrandSizeChartConfig",
       "description": "Complete settings for this run.",
       "title": "Configuration"
+    },
+    "request": {
+      "$ref": "#/$defs/WorkflowBrandSizeChartRequest",
+      "description": "Domain work requested from the workflow.",
+      "title": "Request"
     }
   },
   "required": [
-    "request",
-    "config"
+    "config",
+    "request"
   ],
   "title": "WorkflowBrandSizeChartInput",
   "type": "object"

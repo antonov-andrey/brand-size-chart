@@ -10,7 +10,7 @@ from brand_size_chart.model import WorkflowBrandSizeChartInput, WorkflowBrandSiz
 
 
 def test_priority_country_code_has_identical_schema_and_model_contract() -> None:
-    """Accept uppercase ISO alpha-2 input unchanged and reject normalization candidates at both boundaries."""
+    """Keep public country and source-type identity constraints equal at both input boundaries."""
 
     schema = WorkflowInputSchema.from_path(Path("input.schema.json"))
     valid_payload = _input_payload_get()
@@ -24,6 +24,15 @@ def test_priority_country_code_has_identical_schema_and_model_contract() -> None
             schema.input_validate(invalid_payload)
         with pytest.raises(ValueError):
             WorkflowBrandSizeChartInput.model_validate(invalid_payload)
+    duplicate_source_type_payload = deepcopy(valid_payload)
+    duplicate_source_type_payload["request"]["source_type_allow_list"] = [
+        "official_brand_size_guide",
+        "official_brand_size_guide",
+    ]
+    with pytest.raises(WorkflowContractError):
+        schema.input_validate(duplicate_source_type_payload)
+    with pytest.raises(ValueError):
+        WorkflowBrandSizeChartInput.model_validate(duplicate_source_type_payload)
 
 
 def test_request_rejects_duplicate_source_types() -> None:
