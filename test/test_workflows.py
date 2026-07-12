@@ -24,7 +24,7 @@ def test_source_discovery_wrapper_passes_exact_config_and_preserves_result_order
     class SourceDiscoveryStep:
         """Record the concurrent runtime request without DBOS execution."""
 
-        async def run_list(
+        async def source_type_result_list_get(
             self,
             invocation_list: list[WorkflowStepInvocation[SourceDiscoveryInputSource]],
             workflow_step_config: WorkflowStepSourceDiscoverConfig,

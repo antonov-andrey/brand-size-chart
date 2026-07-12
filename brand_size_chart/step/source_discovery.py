@@ -1,8 +1,10 @@
 """SQLite-backed browser source-discovery step."""
 
+import asyncio
 from pathlib import Path
 from typing import ClassVar
 
+from dbos import DBOS
 from workflow_container_runtime.artifact import (
     ArtifactMaterializer,
     JsonArtifactWriter,
@@ -13,10 +15,12 @@ from workflow_container_runtime.prompt import PromptRenderer
 from workflow_container_runtime.state import SqliteStateStore, state_database_path_get
 from workflow_container_runtime.step import (
     BrowserActionResult,
+    StepResultValidationError,
     WorkflowStepCodexConcurrentBase,
     WorkflowStepCodexRuntimePolicy,
     WorkflowStepCodexState,
     WorkflowStepExecutionContext,
+    WorkflowStepInvocation,
 )
 
 from brand_size_chart.artifact import ArtifactLayout
@@ -26,6 +30,7 @@ from brand_size_chart.model import (
     SourceDiscoveryInput,
     SourceDiscoveryResult,
     SourceDiscoveryInputSource,
+    SourceTypeResult,
     WorkflowStepSourceDiscoverConfig,
 )
 from brand_size_chart.source.discovery_database import SOURCE_DISCOVERY_TABLE, SOURCE_DISCOVERY_TABLE_BY_NAME_MAP
@@ -181,3 +186,80 @@ class SourceDiscoveryStep(
         """
 
         self._validator.validate(execution_context=execution_context, step_input=step_input, result=result)
+
+    async def source_type_result_list_get(
+        self,
+        invocation_list: list[WorkflowStepInvocation[SourceDiscoveryInputSource]],
+        workflow_step_config: WorkflowStepSourceDiscoverConfig,
+    ) -> list[SourceTypeResult]:
+        """Run independent discovery work and retain validation failures per source.
+
+        Args:
+            invocation_list: Registry-ordered independent source invocations.
+            workflow_step_config: Exact concurrent configuration selected by the workflow.
+
+        Returns:
+            One source-type result per invocation in registry order.
+
+        Raises:
+            BaseException: The first non-validation invocation failure in registry order.
+        """
+
+        if not invocation_list:
+            raise ValueError("invocation_list must not be empty")
+        self._workflow_step_config_type_validate(workflow_step_config)
+        semaphore = asyncio.Semaphore(workflow_step_config.concurrency)
+
+        async def source_discovery_result_get(
+            invocation: WorkflowStepInvocation[SourceDiscoveryInputSource],
+        ) -> SourceDiscoveryResult:
+            """Run one independent DBOS source-discovery step under the configured bound.
+
+            Args:
+                invocation: One source-specific execution context and stable input source.
+
+            Returns:
+                Accepted source-discovery result.
+            """
+
+            async with semaphore:
+                return await DBOS.run_step_async(
+                    {"name": f"{type(self).__name__}.run"},
+                    self.run,
+                    invocation.execution_context,
+                    invocation.input_source,
+                    workflow_step_config,
+                )
+
+        result_or_error_list = await asyncio.gather(
+            *(asyncio.create_task(source_discovery_result_get(invocation)) for invocation in invocation_list),
+            return_exceptions=True,
+        )
+        source_type_result_list: list[SourceTypeResult] = []
+        for invocation, result_or_error in zip(invocation_list, result_or_error_list, strict=True):
+            source_type = invocation.input_source.source_type
+            if isinstance(result_or_error, StepResultValidationError):
+                source_type_result_list.append(
+                    SourceTypeResult(
+                        error_list=[f"{type(result_or_error).__name__}: {result_or_error}"],
+                        source_discovery_result=None,
+                        source_type=source_type,
+                        status="failed",
+                        warning_list=[],
+                    )
+                )
+                continue
+            if isinstance(result_or_error, BaseException):
+                raise result_or_error
+            source_type_result_list.append(
+                SourceTypeResult(
+                    error_list=(
+                        ["Source discovery market conflict."] if result_or_error.outcome == "market_conflict" else []
+                    ),
+                    source_discovery_result=result_or_error,
+                    source_type=source_type,
+                    status="failed" if result_or_error.outcome == "market_conflict" else "success",
+                    warning_list=[],
+                )
+            )
+        return source_type_result_list

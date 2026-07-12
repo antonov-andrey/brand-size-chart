@@ -23,7 +23,6 @@ from brand_size_chart.model import (
     CanonicalSelectionResult,
     CoverageDecisionResult,
     SourceDiscoveryInputSource,
-    SourceDiscoveryResult,
     SourceTypeResult,
     WorkflowBrandSizeChartInput,
     WorkflowBrandSizeChartRequest,
@@ -103,7 +102,7 @@ class BrandSizeChartBrandWorkflow(
 
         self.input_write_step(execution_context, workflow_input)
         source_type_list = self.source_type_list_get(workflow_input.request)
-        source_discovery_result_list = await self.source_discover_write_step_list(
+        source_type_result_list = await self.source_discover_write_step_list(
             [
                 WorkflowStepInvocation(
                     execution_context=execution_context.for_step(
@@ -119,20 +118,6 @@ class BrandSizeChartBrandWorkflow(
             ],
             workflow_input.config.step_map.source_discover,
         )
-        source_type_result_list = [
-            SourceTypeResult(
-                error_list=(
-                    ["Source discovery market conflict."]
-                    if source_discovery_result.outcome == "market_conflict"
-                    else []
-                ),
-                source_discovery_result=source_discovery_result,
-                source_type=source_type,
-                status="failed" if source_discovery_result.outcome == "market_conflict" else "success",
-                warning_list=[],
-            )
-            for source_type, source_discovery_result in zip(source_type_list, source_discovery_result_list, strict=True)
-        ]
         decision_input_source = BrandSourceTypeResultInputSource(source_type_result_list=source_type_result_list)
         error_list: list[str] = []
         coverage_decision_result: CoverageDecisionResult | None = None
@@ -254,7 +239,7 @@ class BrandSizeChartBrandWorkflow(
         self,
         invocation_list: list[WorkflowStepInvocation[SourceDiscoveryInputSource]],
         workflow_step_config: WorkflowStepSourceDiscoverConfig,
-    ) -> list[SourceDiscoveryResult]:
+    ) -> list[SourceTypeResult]:
         """Run independent source discovery with bounded concurrency.
 
         Args:
@@ -262,10 +247,10 @@ class BrandSizeChartBrandWorkflow(
             workflow_step_config: Exact selected source-discovery config.
 
         Returns:
-            Source-discovery results in the registry invocation order.
+            Source-type results in the registry invocation order.
         """
 
-        return await self._source_discovery_step.run_list(invocation_list, workflow_step_config)
+        return await self._source_discovery_step.source_type_result_list_get(invocation_list, workflow_step_config)
 
     def source_type_list_get(self, request: WorkflowBrandSizeChartRequest) -> list[str]:
         """Return source types in deterministic registry order.

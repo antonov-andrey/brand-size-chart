@@ -106,11 +106,10 @@ services:
         && brand-size-chart-run
         --browser-runtime-mcp-url "$${BROWSER_RUNTIME_MCP_URL}"
         --workflow-run-id "$${WORKFLOW_RUN_ID:-local}"
-        --brand-list /input/brand_list.txt
+        --input /input/input.json
         --input-secret /input/.secret
         --secret /runtime/.secret
         --output-dir /output
-        --workflow-run-prompt "$${WORKFLOW_RUN_PROMPT:-}"
     depends_on:
       playwright-mcp:
         condition: service_healthy
@@ -125,7 +124,6 @@ services:
       OUTPUT_DIR: ${OUTPUT_DIR:-./out}
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       WORKFLOW_RUN_ID: ${WORKFLOW_RUN_ID:-local}
-      WORKFLOW_RUN_PROMPT: ${WORKFLOW_RUN_PROMPT:-}
     profiles:
       - vpn
     networks:
@@ -134,8 +132,8 @@ services:
     volumes:
       - ./.secret:/input/.secret:ro
       - type: bind
-        source: ${BRAND_LIST:?Set BRAND_LIST to a brand list file path}
-        target: /input/brand_list.txt
+        source: ${INPUT_JSON:?Set INPUT_JSON to a complete workflow input JSON file path}
+        target: /input/input.json
         read_only: true
         bind:
           create_host_path: false
