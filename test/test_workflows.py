@@ -3,7 +3,7 @@
 import asyncio
 from pathlib import Path
 
-from workflow_container_runtime.step import WorkflowStepInvocation
+from workflow_container_runtime.step import WorkflowStepInvocation, WorkflowStepInvocationOutcome
 from workflow_container_runtime.workflow import WorkflowExecutionContext, WorkflowRuntimeCapability
 
 from brand_size_chart.model import (
@@ -24,15 +24,17 @@ def test_source_discovery_wrapper_passes_exact_config_and_preserves_result_order
     class SourceDiscoveryStep:
         """Record the concurrent runtime request without DBOS execution."""
 
-        async def source_type_result_list_get(
+        async def run_outcome_list(
             self,
             invocation_list: list[WorkflowStepInvocation[SourceDiscoveryInputSource]],
             workflow_step_config: WorkflowStepSourceDiscoverConfig,
-        ) -> list[SourceDiscoveryResult]:
+        ) -> list[WorkflowStepInvocationOutcome[SourceDiscoveryResult]]:
             """Record the exact typed concurrent work request."""
 
             received.update(invocation_list=invocation_list, workflow_step_config=workflow_step_config)
-            return _result_list_get()
+            return [
+                WorkflowStepInvocationOutcome(result=result, validation_error=None) for result in _result_list_get()
+            ]
 
     workflow._source_discovery_step = SourceDiscoveryStep()
     context = WorkflowExecutionContext(
@@ -68,7 +70,7 @@ def test_source_discovery_wrapper_passes_exact_config_and_preserves_result_order
     )
 
     assert received == {"invocation_list": invocation_list, "workflow_step_config": config}
-    assert result_list == _result_list_get()
+    assert [result.source_discovery_result for result in result_list] == _result_list_get()
 
 
 def _result_list_get() -> list[SourceDiscoveryResult]:

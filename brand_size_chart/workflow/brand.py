@@ -250,7 +250,25 @@ class BrandSizeChartBrandWorkflow(
             Source-type results in the registry invocation order.
         """
 
-        return await self._source_discovery_step.source_type_result_list_get(invocation_list, workflow_step_config)
+        outcome_list = await self._source_discovery_step.run_outcome_list(invocation_list, workflow_step_config)
+        return [
+            SourceTypeResult(
+                error_list=(
+                    [f"{type(outcome.validation_error).__name__}: {outcome.validation_error}"]
+                    if outcome.validation_error is not None
+                    else ["Source discovery market conflict."] if outcome.result.outcome == "market_conflict" else []
+                ),
+                source_discovery_result=outcome.result,
+                source_type=invocation.input_source.source_type,
+                status=(
+                    "failed"
+                    if outcome.validation_error is not None or outcome.result.outcome == "market_conflict"
+                    else "success"
+                ),
+                warning_list=[],
+            )
+            for invocation, outcome in zip(invocation_list, outcome_list, strict=True)
+        ]
 
     def source_type_list_get(self, request: WorkflowBrandSizeChartRequest) -> list[str]:
         """Return source types in deterministic registry order.
