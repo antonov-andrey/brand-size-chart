@@ -15,34 +15,14 @@ from workflow_container_runtime.step import (
 
 from brand_size_chart.model import (
     BrandSourceTypeResultInputSource,
-    CanonicalSelectionActionOutput,
     BrandSourceTypeResultStepInput,
+    CanonicalSelectionActionOutput,
     CanonicalSelectionResult,
-    canonical_selection_unresolved_size_group_gap_list_get,
     WorkflowStepCanonicalSelectConfig,
+    canonical_selection_unresolved_size_group_gap_list_get,
 )
 from brand_size_chart.source.discovery_database import SourceDiscoveryDatabaseReader
 from brand_size_chart.validator import CanonicalSelectionValidator
-
-
-def _canonical_selection_input_get(
-    execution_context: WorkflowStepExecutionContext,
-    input_source: BrandSourceTypeResultInputSource,
-) -> BrandSourceTypeResultStepInput:
-    """Build persisted canonical candidates from complete source-type results.
-
-    Args:
-        execution_context: Current step context.
-        input_source: Complete source-type results.
-
-    Returns:
-        Persisted canonical-selection input.
-    """
-
-    return BrandSourceTypeResultStepInput(
-        source_type_result_list=input_source.source_type_result_list,
-        workflow_input_path=execution_context.workflow_input_path,
-    )
 
 
 class CanonicalSelectionDefaultStep(
@@ -82,7 +62,7 @@ class CanonicalSelectionDefaultStep(
             Persisted canonical-selection input.
         """
 
-        return _canonical_selection_input_get(execution_context, input_source)
+        return BrandSourceTypeResultStepInput.from_execution_context_input_source(execution_context, input_source)
 
     def result_build(
         self,
@@ -192,7 +172,7 @@ class CanonicalSelectionStep(
             Persisted canonical-selection input.
         """
 
-        return _canonical_selection_input_get(execution_context, input_source)
+        return BrandSourceTypeResultStepInput.from_execution_context_input_source(execution_context, input_source)
 
     def have_candidate(self, input_source: BrandSourceTypeResultInputSource) -> bool:
         """Return whether semantic canonical selection has any candidate.

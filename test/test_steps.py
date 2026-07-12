@@ -7,9 +7,21 @@ from workflow_container_runtime.state import SqliteStateStore, state_database_pa
 from workflow_container_runtime.step import WorkflowStepExecutionContext
 from workflow_container_runtime.workflow import WorkflowRuntimeCapability
 
-from brand_size_chart.model import ArtifactWriteTarget, BrandInput, SourceDiscoveryInput
+from brand_size_chart.model import (
+    ArtifactWriteTarget,
+    BrandInput,
+    BrandSourceTypeResultInputSource,
+    BrandSourceTypeResultStepInput,
+    SourceDiscoveryInput,
+)
 from brand_size_chart.source.discovery_database import SOURCE_DISCOVERY_TABLE_BY_NAME_MAP
-from brand_size_chart.step import SourceDiscoveryStep
+from brand_size_chart.step import (
+    CanonicalSelectionDefaultStep,
+    CanonicalSelectionStep,
+    CoverageDecisionDefaultStep,
+    CoverageDecisionStep,
+    SourceDiscoveryStep,
+)
 from brand_size_chart.validator import SourceDiscoveryValidator
 
 
@@ -50,6 +62,24 @@ def test_source_discovery_step_and_validator_share_one_sqlite_store(tmp_path: Pa
         )
         == []
     )
+
+
+def test_downstream_steps_build_source_result_input_from_the_model_owner(tmp_path: Path) -> None:
+    """Build the same persisted handoff through each downstream step boundary."""
+
+    context = _context_get(tmp_path)
+    input_source = BrandSourceTypeResultInputSource(source_type_result_list=[])
+    expected_input = BrandSourceTypeResultStepInput.from_execution_context_input_source(context, input_source)
+
+    for step_class in (
+        CanonicalSelectionDefaultStep,
+        CanonicalSelectionStep,
+        CoverageDecisionDefaultStep,
+        CoverageDecisionStep,
+    ):
+        step = step_class.__new__(step_class)
+
+        assert step.input_build(context, input_source) == expected_input
 
 
 def _context_get(tmp_path: Path) -> WorkflowStepExecutionContext:

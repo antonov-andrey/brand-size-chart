@@ -24,26 +24,6 @@ from brand_size_chart.model import (
 from brand_size_chart.validator import CoverageDecisionValidator
 
 
-def _coverage_decision_input_get(
-    execution_context: WorkflowStepExecutionContext,
-    input_source: BrandSourceTypeResultInputSource,
-) -> BrandSourceTypeResultStepInput:
-    """Build persisted coverage input from complete source-type results.
-
-    Args:
-        execution_context: Current step context.
-        input_source: Complete source-type results.
-
-    Returns:
-        Persisted coverage-decision input.
-    """
-
-    return BrandSourceTypeResultStepInput(
-        source_type_result_list=input_source.source_type_result_list,
-        workflow_input_path=execution_context.workflow_input_path,
-    )
-
-
 class CoverageDecisionDefaultStep(
     WorkflowStepDeterministicBase[
         BrandSourceTypeResultInputSource,
@@ -81,7 +61,7 @@ class CoverageDecisionDefaultStep(
             Persisted coverage input.
         """
 
-        return _coverage_decision_input_get(execution_context, input_source)
+        return BrandSourceTypeResultStepInput.from_execution_context_input_source(execution_context, input_source)
 
     def result_build(
         self,
@@ -195,7 +175,7 @@ class CoverageDecisionStep(
             Persisted coverage input.
         """
 
-        return _coverage_decision_input_get(execution_context, input_source)
+        return BrandSourceTypeResultStepInput.from_execution_context_input_source(execution_context, input_source)
 
     def result_from_action_build(
         self,
