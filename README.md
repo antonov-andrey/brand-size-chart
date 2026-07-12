@@ -4,7 +4,7 @@ Executable DBOS workflow for collecting brand-level size-chart artifacts.
 
 The container accepts one complete workflow input JSON and a `secret` DataSource path, starts one DBOS process for one workflow run, and writes a typed workflow result tree plus canonical `brand_size_chart` artifacts. One browser-backed `source_discover` step opens source pages and assets through the configured browser, writes evidence and charts, and persists its declared SQLite inventory. Downstream typed coverage, canonical-selection, and publication boundaries read that declared artifact without copying its rows into workflow handoffs.
 
-The application composition root configures every Codex action and verification call with model `gpt-5.6-terra` and reasoning effort `high`.
+The complete input selects the model and reasoning effort for each Codex-backed step through `config.step_map`. The application composition root owns only source-defined runtime policy such as low-level execution retries and artifact materialization.
 
 ## Run
 
