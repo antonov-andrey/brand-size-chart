@@ -94,6 +94,7 @@ class SourceDiscoveryValidator:
         self._url_list_validate(url_list)
         self._market_boundary_list_validate(market_boundary_list=market_boundary_list, url_list=url_list)
         self._product_search_list_validate(
+            execution_context=execution_context,
             step_input=step_input,
             url_list=url_list,
             url_product_search_list=url_product_search_list,
@@ -262,6 +263,7 @@ class SourceDiscoveryValidator:
     def _product_search_list_validate(
         self,
         *,
+        execution_context: WorkflowStepExecutionContext,
         step_input: SourceDiscoveryInput,
         url_list: list[SourceDiscoveryUrl],
         url_product_search_list: list[SourceDiscoveryUrlProductSearch],
@@ -270,6 +272,7 @@ class SourceDiscoveryValidator:
         """Validate product search worklist and URL relation closure.
 
         Args:
+            execution_context: Current step context that owns the public workflow input.
             step_input: Persisted discovery input.
             url_list: Persisted source URL rows.
             url_product_search_list: Persisted URL-to-product-search relation rows.

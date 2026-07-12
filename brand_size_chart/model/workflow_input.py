@@ -6,7 +6,7 @@ from pydantic import ConfigDict, Field, field_validator
 from workflow_container_runtime.step import WorkflowStepCodexConcurrentConfigBase, WorkflowStepCodexConfigBase
 from workflow_container_runtime.workflow import WorkflowConfigBase, WorkflowInputBase
 
-from brand_size_chart.model.base import COUNTRY_CODE_PATTERN, StrictBaseModel
+from brand_size_chart.model.base import StrictBaseModel
 
 
 class WorkflowBrandSizeChartRequest(StrictBaseModel):
@@ -18,6 +18,7 @@ class WorkflowBrandSizeChartRequest(StrictBaseModel):
     )
     priority_country_code: str = Field(
         description="ISO 3166 alpha-2 country code preferred when selecting market coverage.",
+        pattern=r"^[A-Z]{2}$",
         title="Priority country code",
     )
     product_type_request_list: list[str] = Field(
@@ -28,26 +29,6 @@ class WorkflowBrandSizeChartRequest(StrictBaseModel):
         description="Allowed source types. An empty list permits every supported source type.",
         title="Allowed source types",
     )
-
-    @field_validator("priority_country_code")
-    @classmethod
-    def priority_country_code_validate(cls, value: str) -> str:
-        """Normalize and validate the requested priority country.
-
-        Args:
-            value: Candidate ISO 3166 alpha-2 country code.
-
-        Returns:
-            Normalized uppercase country code.
-
-        Raises:
-            ValueError: If the candidate is not one country code.
-        """
-
-        priority_country_code = value.strip().upper()
-        if not COUNTRY_CODE_PATTERN.match(priority_country_code):
-            raise ValueError("priority_country_code must be one ISO 3166 alpha-2 country code")
-        return priority_country_code
 
     @field_validator("source_type_allow_list")
     @classmethod

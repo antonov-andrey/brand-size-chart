@@ -1,29 +1,94 @@
-"""Model contracts for persisted downstream workflow inputs."""
+"""Persisted downstream workflow-input behavior tests."""
 
+import json
 from pathlib import Path
 
 import pytest
 
-from brand_size_chart.model import BrandSourceTypeResultStepInput, SourceDiscoveryInput
+from brand_size_chart.model import (
+    BrandSourceTypeResultStepInput,
+    SourceDiscoveryAcceptedTable,
+    SourceDiscoveryResult,
+    SourceDiscoveryTable,
+    SourceTypeResult,
+)
 
 
-def test_configurable_step_inputs_require_only_workflow_input_identity() -> None:
-    """Reject old copied workflow configuration and prompt instruction fields."""
+def test_downstream_steps_accept_complete_source_results_and_reject_copied_config() -> None:
+    """Persist only complete source result handoffs plus the public workflow input identity."""
 
-    for model in (BrandSourceTypeResultStepInput, SourceDiscoveryInput):
-        assert "workflow_input_path" in model.model_fields
-        assert "workflow_input" not in model.model_fields
-        assert "step_instruction_list" not in model.model_fields
+    source_type_result = _source_type_result_get()
+    persisted_payload = BrandSourceTypeResultStepInput(
+        source_type_result_list=[source_type_result],
+        workflow_input_path=Path("workflow/run/input.json"),
+    ).model_dump(mode="json")
+
+    restored_input = BrandSourceTypeResultStepInput.model_validate_json(json.dumps(persisted_payload))
+    assert restored_input.source_type_result_list == [source_type_result]
+    assert restored_input.workflow_input_path == Path("workflow/run/input.json")
+    persisted_payload["workflow_config"] = {}
+    with pytest.raises(ValueError):
+        BrandSourceTypeResultStepInput.model_validate_json(json.dumps(persisted_payload))
 
 
-def test_downstream_input_rejects_unknown_config_copy() -> None:
-    """Keep downstream input closed around results and the workflow input path."""
+def test_accepted_table_remains_transient_and_cannot_enter_persisted_downstream_input() -> None:
+    """Reject a reader-only accepted table when it is injected into persisted handoff JSON."""
+
+    accepted_table = SourceDiscoveryAcceptedTable(
+        chart_path="workflow/run/source/source_discover/chart/women_dress__tr.json",
+        source_priority=600,
+        source_table=SourceDiscoveryTable(
+            evidence_path_list=["workflow/run/source/evidence/table.json"],
+            market_scope_key="tr",
+            reason="Official chart.",
+            size_group_key="women_dress",
+            source_title="Women dress chart",
+            source_url="https://brand.example/size",
+            state="accepted",
+        ),
+        source_type="official_brand_size_guide",
+    )
+    payload = {
+        "accepted_table_list": [accepted_table.model_dump(mode="json")],
+        "source_type_result_list": [_source_type_result_get().model_dump(mode="json")],
+        "workflow_input_path": "workflow/run/input.json",
+    }
 
     with pytest.raises(ValueError):
-        BrandSourceTypeResultStepInput.model_validate(
-            {
-                "source_type_result_list": [],
-                "workflow_input_path": Path("workflow/brand/input.json"),
-                "workflow_config": {},
-            }
-        )
+        BrandSourceTypeResultStepInput.model_validate(payload)
+
+
+def test_downstream_input_rejects_duplicate_source_type_and_database_handoffs() -> None:
+    """Reject duplicate source and SQLite identities before downstream read behavior starts."""
+
+    source_type_result = _source_type_result_get()
+    duplicate_source_payload = source_type_result.model_dump(mode="json")
+    duplicate_database_payload = source_type_result.model_dump(mode="json")
+    duplicate_database_payload["source_type"] = "official_seller_size_guide"
+    for source_type_result_payload_list in (
+        [source_type_result.model_dump(mode="json"), duplicate_source_payload],
+        [source_type_result.model_dump(mode="json"), duplicate_database_payload],
+    ):
+        with pytest.raises(ValueError):
+            BrandSourceTypeResultStepInput.model_validate(
+                {
+                    "source_type_result_list": source_type_result_payload_list,
+                    "workflow_input_path": "workflow/run/input.json",
+                }
+            )
+
+
+def _source_type_result_get() -> SourceTypeResult:
+    """Build one successful complete source result with a declared SQLite handoff."""
+
+    return SourceTypeResult(
+        error_list=[],
+        source_discovery_result=SourceDiscoveryResult(
+            browsing_error_list=[],
+            outcome="table_available",
+            source_discovery_database_path="workflow/run/source/source_discover/state.sqlite3",
+        ),
+        source_type="official_brand_size_guide",
+        status="success",
+        warning_list=[],
+    )
