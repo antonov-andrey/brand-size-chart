@@ -5,6 +5,8 @@ import inspect
 
 from pathlib import Path
 
+import pytest
+from workflow_container_runtime.codex import CodexExecutionError
 from workflow_container_runtime.step import WorkflowStepInvocation, WorkflowStepInvocationOutcome
 from workflow_container_runtime.workflow import WorkflowExecutionContext, WorkflowRuntimeCapability
 
@@ -139,7 +141,7 @@ def test_brand_workflow_runs_source_discovery_directly_with_exact_config_and_res
 
     received: dict[str, object] = {}
     workflow = _workflow_get(
-        [WorkflowStepInvocationOutcome(result=result, validation_feedback_list=[]) for result in _result_list_get()],
+        [WorkflowStepInvocationOutcome(result=result, validation_feedback_tuple=()) for result in _result_list_get()],
         received,
     )
     workflow_input = _workflow_input_get(concurrency=2)
@@ -169,9 +171,9 @@ def test_brand_workflow_preserves_exhausted_validation_feedback(tmp_path: Path) 
         [
             WorkflowStepInvocationOutcome(
                 result=None,
-                validation_feedback_list=["Use one accepted source table."],
+                validation_feedback_tuple=("Use one accepted source table.",),
             ),
-            WorkflowStepInvocationOutcome(result=_result_list_get()[1], validation_feedback_list=[]),
+            WorkflowStepInvocationOutcome(result=_result_list_get()[1], validation_feedback_tuple=()),
         ],
         {},
     )
@@ -192,6 +194,72 @@ def test_brand_workflow_preserves_exhausted_validation_feedback(tmp_path: Path) 
     ]
     assert workflow_result.source_type_result_list[0].source_discovery_result is None
     assert workflow_result.source_type_result_list[0].status == "failed"
+
+
+@pytest.mark.parametrize(
+    ("outcome", "status", "error_list"),
+    [
+        ("table_available", "success", []),
+        ("no_table", "success", []),
+        ("market_conflict", "failed", ["Source discovery market conflict."]),
+    ],
+)
+def test_brand_workflow_maps_verified_discovery_terminal_outcomes(
+    tmp_path: Path, outcome: str, status: str, error_list: list[str]
+) -> None:
+    """Map each verified terminal discovery result into its source-type handoff."""
+
+    result = SourceDiscoveryResult(
+        browsing_error_list=[], outcome=outcome, source_discovery_database_path="workflow/brand/source/state.sqlite3"
+    )
+    workflow = _workflow_get([WorkflowStepInvocationOutcome(result=result, validation_feedback_tuple=())], {})
+    workflow.source_type_list_get = lambda request: ["official_brand_size_guide"]
+    workflow_result = asyncio.run(
+        inspect.unwrap(BrandSizeChartBrandWorkflow.run)(
+            workflow,
+            WorkflowExecutionContext(
+                result_dir=tmp_path,
+                runtime_capability=WorkflowRuntimeCapability(browser=None),
+                workflow_instance_dir=tmp_path / "workflow" / "brand",
+            ),
+            _workflow_input_get(concurrency=1),
+            _brand_input_get(),
+        )
+    )
+
+    assert workflow_result.source_type_result_list[0].status == status
+    assert workflow_result.source_type_result_list[0].error_list == error_list
+
+
+def test_brand_workflow_propagates_codex_infrastructure_errors(tmp_path: Path) -> None:
+    """Leave Codex transport failures to DBOS recovery instead of converting them to domain results."""
+
+    workflow = _workflow_get([], {})
+
+    class FailingSourceDiscoveryStep:
+        """Raise one infrastructure failure from the concurrent runtime boundary."""
+
+        async def run_outcome_list(self, invocation_list: object, workflow_step_config: object) -> object:
+            """Raise the transport failure without domain translation."""
+
+            _ = invocation_list
+            _ = workflow_step_config
+            raise CodexExecutionError("Codex unavailable")
+
+    workflow._source_discovery_step = FailingSourceDiscoveryStep()
+    with pytest.raises(CodexExecutionError, match="Codex unavailable"):
+        asyncio.run(
+            inspect.unwrap(BrandSizeChartBrandWorkflow.run)(
+                workflow,
+                WorkflowExecutionContext(
+                    result_dir=tmp_path,
+                    runtime_capability=WorkflowRuntimeCapability(browser=None),
+                    workflow_instance_dir=tmp_path / "workflow" / "brand",
+                ),
+                _workflow_input_get(concurrency=1),
+                _brand_input_get(),
+            )
+        )
 
 
 def _result_list_get() -> list[SourceDiscoveryResult]:

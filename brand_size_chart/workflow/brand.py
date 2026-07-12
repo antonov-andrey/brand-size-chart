@@ -122,15 +122,15 @@ class BrandSizeChartBrandWorkflow(
         source_type_result_list = [
             SourceTypeResult(
                 error_list=(
-                    [f"{StepResultValidationError.__name__}: {'; '.join(outcome.validation_feedback_list)}"]
-                    if outcome.validation_feedback_list
+                    [f"{StepResultValidationError.__name__}: {'; '.join(list(outcome.validation_feedback_tuple))}"]
+                    if outcome.validation_feedback_tuple
                     else ["Source discovery market conflict."] if outcome.result.outcome == "market_conflict" else []
                 ),
                 source_discovery_result=outcome.result,
                 source_type=invocation.input_source.source_type,
                 status=(
                     "failed"
-                    if outcome.validation_feedback_list or outcome.result.outcome == "market_conflict"
+                    if outcome.validation_feedback_tuple or outcome.result.outcome == "market_conflict"
                     else "success"
                 ),
                 warning_list=[],
