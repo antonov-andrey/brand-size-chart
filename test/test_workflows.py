@@ -1,6 +1,8 @@
 """Behavior tests for typed DBOS workflow wrappers."""
 
 import asyncio
+import inspect
+
 from pathlib import Path
 
 from workflow_container_runtime.step import WorkflowStepInvocation, WorkflowStepInvocationOutcome
@@ -8,73 +10,196 @@ from workflow_container_runtime.workflow import WorkflowExecutionContext, Workfl
 
 from brand_size_chart.model import (
     BrandInput,
+    BrandOutputResult,
+    CanonicalSelectionResult,
+    CoverageDecisionResult,
     SourceDiscoveryInputSource,
     SourceDiscoveryResult,
+    WorkflowBrandSizeChartConfig,
+    WorkflowBrandSizeChartInput,
+    WorkflowBrandSizeChartRequest,
+    WorkflowBrandSizeChartStepMap,
+    WorkflowStepCanonicalSelectConfig,
+    WorkflowStepCoverageDecideConfig,
     WorkflowStepSourceDiscoverConfig,
 )
 from brand_size_chart.workflow.brand import BrandSizeChartBrandWorkflow
 
 
-def test_source_discovery_wrapper_passes_exact_config_and_preserves_result_order(tmp_path: Path) -> None:
-    """Delegate independently runnable sources to the concurrent runtime in registry order."""
+def _brand_input_get() -> BrandInput:
+    """Build one stable brand selected by the parent workflow.
 
-    received: dict[str, object] = {}
+    Returns:
+        Brand input used by every source-discovery invocation.
+    """
+
+    return BrandInput(
+        parsed_brand_key="brand",
+        parsed_brand_name="Brand",
+        raw_brand_name="Brand",
+        source_line_number=1,
+    )
+
+
+def _workflow_input_get(concurrency: int) -> WorkflowBrandSizeChartInput:
+    """Build the complete typed workflow input for a concurrent source-discovery run.
+
+    Args:
+        concurrency: Maximum number of source-discovery invocations owned by runtime.
+
+    Returns:
+        Complete workflow input with exact step configurations.
+    """
+
+    return WorkflowBrandSizeChartInput(
+        config=WorkflowBrandSizeChartConfig(
+            instruction="",
+            step_map=WorkflowBrandSizeChartStepMap(
+                canonical_select=WorkflowStepCanonicalSelectConfig(
+                    correction_attempt_limit=1,
+                    instruction="",
+                    model="gpt-5.6-terra",
+                    reasoning_effort="high",
+                ),
+                coverage_decide=WorkflowStepCoverageDecideConfig(
+                    correction_attempt_limit=1,
+                    instruction="",
+                    model="gpt-5.6-terra",
+                    reasoning_effort="high",
+                ),
+                source_discover=WorkflowStepSourceDiscoverConfig(
+                    concurrency=concurrency,
+                    correction_attempt_limit=1,
+                    instruction="",
+                    model="gpt-5.6-terra",
+                    reasoning_effort="high",
+                ),
+            ),
+        ),
+        request=WorkflowBrandSizeChartRequest(
+            brand_list_text="Brand",
+            priority_country_code="TR",
+            product_type_request_list=[],
+            source_type_allow_list=[],
+        ),
+    )
+
+
+def _workflow_get(
+    outcome_list: list[WorkflowStepInvocationOutcome[SourceDiscoveryResult]],
+    received: dict[str, object],
+) -> BrandSizeChartBrandWorkflow:
+    """Build one workflow that executes source discovery through the real workflow method.
+
+    Args:
+        outcome_list: Ordered runtime outcomes returned by the concurrent step fake.
+        received: Mutable recording target for the runtime call arguments.
+
+    Returns:
+        Workflow whose unrelated downstream steps return minimal typed results.
+    """
+
     workflow = BrandSizeChartBrandWorkflow.__new__(BrandSizeChartBrandWorkflow)
 
     class SourceDiscoveryStep:
-        """Record the concurrent runtime request without DBOS execution."""
+        """Record the runtime request without a DBOS source-discovery execution."""
 
         async def run_outcome_list(
             self,
             invocation_list: list[WorkflowStepInvocation[SourceDiscoveryInputSource]],
             workflow_step_config: WorkflowStepSourceDiscoverConfig,
         ) -> list[WorkflowStepInvocationOutcome[SourceDiscoveryResult]]:
-            """Record the exact typed concurrent work request."""
+            """Return scripted outcomes through the inherited scheduler public boundary."""
 
             received.update(invocation_list=invocation_list, workflow_step_config=workflow_step_config)
-            return [
-                WorkflowStepInvocationOutcome(result=result, validation_error=None) for result in _result_list_get()
-            ]
+            return outcome_list
 
     workflow._source_discovery_step = SourceDiscoveryStep()
+    workflow.brand_output_write_step = lambda execution_context, input_source: BrandOutputResult(
+        size_chart_path_list=[]
+    )
+    workflow.canonical_select_write_step = (
+        lambda execution_context, input_source, workflow_step_config: CanonicalSelectionResult(
+            canonical_selection_list=[], unresolved_size_group_gap_list=[]
+        )
+    )
+    workflow.coverage_decide_write_step = (
+        lambda execution_context, input_source, workflow_step_config: CoverageDecisionResult(
+            covered_product_type_list=[]
+        )
+    )
+    workflow.input_write_step = lambda execution_context, workflow_input: None
+    workflow.result_write_step = lambda execution_context, workflow_input, workflow_result: workflow_result
+    workflow.source_type_list_get = lambda request: ["official_brand_size_guide", "official_seller_size_guide"]
+    return workflow
+
+
+def test_brand_workflow_runs_source_discovery_directly_with_exact_config_and_result_order(tmp_path: Path) -> None:
+    """Run the workflow path without an aggregate DBOS source-discovery step boundary."""
+
+    received: dict[str, object] = {}
+    workflow = _workflow_get(
+        [WorkflowStepInvocationOutcome(result=result, validation_feedback_list=[]) for result in _result_list_get()],
+        received,
+    )
+    workflow_input = _workflow_input_get(concurrency=2)
+    brand_input = _brand_input_get()
     context = WorkflowExecutionContext(
         result_dir=tmp_path,
         runtime_capability=WorkflowRuntimeCapability(browser=None),
         workflow_instance_dir=tmp_path / "workflow" / "brand",
     )
-    invocation_list = [
-        WorkflowStepInvocation(
-            execution_context=context.for_step(
-                runtime_capability=WorkflowRuntimeCapability(browser=None),
-                step_instance_key=f"source_discover_{source_type}",
-            ),
-            input_source=SourceDiscoveryInputSource(
-                brand_input=BrandInput(
-                    parsed_brand_key="brand", parsed_brand_name="Brand", raw_brand_name="Brand", source_line_number=1
-                ),
-                source_type=source_type,
-            ),
-        )
-        for source_type in ["official_brand_size_guide", "official_seller_size_guide"]
+
+    workflow_result = asyncio.run(
+        inspect.unwrap(BrandSizeChartBrandWorkflow.run)(workflow, context, workflow_input, brand_input)
+    )
+
+    assert received["workflow_step_config"] == workflow_input.config.step_map.source_discover
+    assert [invocation.input_source.source_type for invocation in received["invocation_list"]] == [
+        "official_brand_size_guide",
+        "official_seller_size_guide",
     ]
-    config = WorkflowStepSourceDiscoverConfig(
-        concurrency=2,
-        correction_attempt_limit=1,
-        instruction="",
-        model="gpt-5.6-terra",
-        reasoning_effort="high",
+    assert [result.source_discovery_result for result in workflow_result.source_type_result_list] == _result_list_get()
+
+
+def test_brand_workflow_preserves_exhausted_validation_feedback(tmp_path: Path) -> None:
+    """Expose runtime correction exhaustion as the existing failed source-type result."""
+
+    workflow = _workflow_get(
+        [
+            WorkflowStepInvocationOutcome(
+                result=None,
+                validation_feedback_list=["Use one accepted source table."],
+            ),
+            WorkflowStepInvocationOutcome(result=_result_list_get()[1], validation_feedback_list=[]),
+        ],
+        {},
+    )
+    context = WorkflowExecutionContext(
+        result_dir=tmp_path,
+        runtime_capability=WorkflowRuntimeCapability(browser=None),
+        workflow_instance_dir=tmp_path / "workflow" / "brand",
     )
 
-    result_list = asyncio.run(
-        BrandSizeChartBrandWorkflow.source_discover_write_step_list.__wrapped__(workflow, invocation_list, config)
+    workflow_result = asyncio.run(
+        inspect.unwrap(BrandSizeChartBrandWorkflow.run)(
+            workflow, context, _workflow_input_get(concurrency=2), _brand_input_get()
+        )
     )
 
-    assert received == {"invocation_list": invocation_list, "workflow_step_config": config}
-    assert [result.source_discovery_result for result in result_list] == _result_list_get()
+    assert workflow_result.source_type_result_list[0].error_list == [
+        "StepResultValidationError: Use one accepted source table."
+    ]
+    assert workflow_result.source_type_result_list[0].source_discovery_result is None
+    assert workflow_result.source_type_result_list[0].status == "failed"
 
 
 def _result_list_get() -> list[SourceDiscoveryResult]:
-    """Build distinct discovery results in input registry order."""
+    """Build distinct discovery results in input registry order.
+
+    Returns:
+        Source-discovery results for two independent source types.
+    """
 
     return [
         SourceDiscoveryResult(

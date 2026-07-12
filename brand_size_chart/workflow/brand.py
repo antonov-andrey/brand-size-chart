@@ -102,22 +102,41 @@ class BrandSizeChartBrandWorkflow(
 
         self.input_write_step(execution_context, workflow_input)
         source_type_list = self.source_type_list_get(workflow_input.request)
-        source_type_result_list = await self.source_discover_write_step_list(
-            [
-                WorkflowStepInvocation(
-                    execution_context=execution_context.for_step(
-                        runtime_capability=execution_context.runtime_capability,
-                        step_instance_key=f"source_discover_{source_type}",
-                    ),
-                    input_source=SourceDiscoveryInputSource(
-                        brand_input=brand_input,
-                        source_type=source_type,
-                    ),
-                )
-                for source_type in source_type_list
-            ],
+        invocation_list = [
+            WorkflowStepInvocation(
+                execution_context=execution_context.for_step(
+                    runtime_capability=execution_context.runtime_capability,
+                    step_instance_key=f"source_discover_{source_type}",
+                ),
+                input_source=SourceDiscoveryInputSource(
+                    brand_input=brand_input,
+                    source_type=source_type,
+                ),
+            )
+            for source_type in source_type_list
+        ]
+        outcome_list = await self._source_discovery_step.run_outcome_list(
+            invocation_list,
             workflow_input.config.step_map.source_discover,
         )
+        source_type_result_list = [
+            SourceTypeResult(
+                error_list=(
+                    [f"{StepResultValidationError.__name__}: {'; '.join(outcome.validation_feedback_list)}"]
+                    if outcome.validation_feedback_list
+                    else ["Source discovery market conflict."] if outcome.result.outcome == "market_conflict" else []
+                ),
+                source_discovery_result=outcome.result,
+                source_type=invocation.input_source.source_type,
+                status=(
+                    "failed"
+                    if outcome.validation_feedback_list or outcome.result.outcome == "market_conflict"
+                    else "success"
+                ),
+                warning_list=[],
+            )
+            for invocation, outcome in zip(invocation_list, outcome_list, strict=True)
+        ]
         decision_input_source = BrandSourceTypeResultInputSource(source_type_result_list=source_type_result_list)
         error_list: list[str] = []
         coverage_decision_result: CoverageDecisionResult | None = None
@@ -233,42 +252,6 @@ class BrandSizeChartBrandWorkflow(
         ):
             return self._coverage_decision_step.run(execution_context, input_source, workflow_step_config)
         return self._coverage_decision_default_step.run(execution_context, input_source)
-
-    @DBOS.step(name="source_discover_write_step_list")
-    async def source_discover_write_step_list(
-        self,
-        invocation_list: list[WorkflowStepInvocation[SourceDiscoveryInputSource]],
-        workflow_step_config: WorkflowStepSourceDiscoverConfig,
-    ) -> list[SourceTypeResult]:
-        """Run independent source discovery with bounded concurrency.
-
-        Args:
-            invocation_list: Registry-ordered independent source-discovery invocations.
-            workflow_step_config: Exact selected source-discovery config.
-
-        Returns:
-            Source-type results in the registry invocation order.
-        """
-
-        outcome_list = await self._source_discovery_step.run_outcome_list(invocation_list, workflow_step_config)
-        return [
-            SourceTypeResult(
-                error_list=(
-                    [f"{type(outcome.validation_error).__name__}: {outcome.validation_error}"]
-                    if outcome.validation_error is not None
-                    else ["Source discovery market conflict."] if outcome.result.outcome == "market_conflict" else []
-                ),
-                source_discovery_result=outcome.result,
-                source_type=invocation.input_source.source_type,
-                status=(
-                    "failed"
-                    if outcome.validation_error is not None or outcome.result.outcome == "market_conflict"
-                    else "success"
-                ),
-                warning_list=[],
-            )
-            for invocation, outcome in zip(invocation_list, outcome_list, strict=True)
-        ]
 
     def source_type_list_get(self, request: WorkflowBrandSizeChartRequest) -> list[str]:
         """Return source types in deterministic registry order.
