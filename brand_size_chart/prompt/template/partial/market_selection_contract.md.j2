@@ -1,6 +1,15 @@
-## Market Selection Algorithm
+## Market Boundary And Selection Algorithm
 
 `workflow_input.prompt_scope.priority_country_code` is the single primary market explicitly selected from the user prompt, and source discovery is valid only when it is non-empty.
+
+Before product or table discovery, select exactly one source market boundary. Inspect only the source's market selector or equivalent navigation needed to establish availability, then choose the first available boundary in this order:
+
+1. The exact priority-country boundary.
+2. The narrowest explicit country-group boundary containing the priority country, ordered by country count and then canonical scope key.
+3. A source-declared global boundary.
+4. A source-declared EU-wide boundary.
+
+Represent the selection by exactly one `market_boundary` row containing its canonical `market_scope_key`, opened source URL, evidence, and reason. Keep that row and boundary fixed for the rest of the step. Do not open product or table surfaces in any other country, locale, or market boundary. When the exact priority-country boundary exists, all discovery stays there. Within the selected boundary, persist every physical table encountered in an inspected source or product boundary; the search request and `search_sex` do not filter those tables.
 
 Each `market_scope_key` has exactly one canonical encoding:
 
@@ -9,12 +18,11 @@ Each `market_scope_key` has exactly one canonical encoding:
 - One global scope uses `global`.
 - One EU-wide scope uses `eu`.
 
-Selection is independent for each `size_group_key`. The exact five ordered tiers are:
+Final selection is independent for each `size_group_key`. The exact four ordered tiers are:
 
 1. An exact priority-country `market_scope_key`.
 2. The narrowest explicit country-group `market_scope_key` containing the priority country, ordered by country count and then lexical `market_scope_key`.
 3. `global`.
 4. `eu`.
-5. A deterministic representative of semantically equivalent European country-specific candidates, ordered by `(market_scope_key, source_url, source_title)`.
 
-The selected row of the first available verified tier has terminal state `accepted`. Candidate rows in every non-winning tier, including lower tiers, have terminal state `market_filtered`. Tier 5 is available only when current evidence proves all of its candidates equivalent. When tier-5 candidates differ, every conflicting candidate has terminal state `market_conflict`; no arbitrary locale is `accepted`, and the group is not a no-table result. A higher-tier `accepted` row is not widened or merged with a lower tier. The final state contains no `candidate` rows.
+The selected row of the first available verified tier has terminal state `accepted`. Candidate rows in every non-winning tier, including lower tiers, have terminal state `market_filtered`. A `market_conflict` is produced only when repeated source evidence claims the same physical `(size_group_key, market_scope_key)` identity with conflicting validated chart content. A higher-tier `accepted` row is not widened or merged with a lower tier. The final state contains no `candidate` rows.

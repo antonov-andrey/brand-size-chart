@@ -10,14 +10,15 @@ Read the current `input.json`, `result.json`, sibling `state.sqlite3` through `b
 
 {% include "partial/market_selection_contract.md.j2" %}
 
+{% include "partial/size_group_key_contract.md.j2" %}
+
 Verify semantic source-boundary completeness only:
 
 1. Discovery stayed within the source authority selected by `workflow_input.source_type`.
-2. Product-scoped discovery applied the semantic product/sex expansion to every requested product in order; non-product discovery created no product/sex worklist.
-3. Every inspected boundary has sufficient current evidence, and every visible physical source table in that boundary was handled independently of the search request.
+2. Product-scoped discovery applied the semantic product-search expansion to every requested product in order; non-product discovery created no product-search worklist.
+3. Discovery selected one market boundary according to the shared policy, did not traverse table surfaces in other market boundaries, and persisted every visible physical table encountered inside the selected boundary independently of the search request.
 4. Table identity comes from visible table heading and scope rather than product or search wording.
-5. Market scope and policy decisions follow the shared market ladder, including correctly evidenced terminal conflicts.
-6. Physical tables treated as equivalent are semantically equivalent in visible rows, measurements, scope, and authority.
+5. Market scope and policy decisions follow the shared market ladder, including correctly evidenced identity conflicts.
 
 Do not repeat mechanical schema, database-handle, path, evidence-existence, row-state, chart-path, relation, or public-outcome checks. Those belong to the mechanical validator.
 

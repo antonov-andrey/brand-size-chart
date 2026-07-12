@@ -80,17 +80,3 @@ class PromptScopeValidator:
             )
 
         _step_instruction_list_validate(result.step_instruction_list)
-        leaked_product_type_list = sorted(
-            {
-                product_type
-                for product_type in result.product_type_request_list
-                if product_type.casefold() in result.shared_instruction.casefold()
-            }
-        )
-        if leaked_product_type_list:
-            raise StepResultValidationError(
-                feedback_list=[
-                    "Remove product_type_request_list values from shared_instruction and keep them only in the typed "
-                    f"product-type field; repeated values: {leaked_product_type_list}."
-                ]
-            )

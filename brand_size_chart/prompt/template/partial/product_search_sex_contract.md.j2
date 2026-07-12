@@ -1,6 +1,6 @@
-## Product Search-Sex Algorithm
+## Product Search Branch Algorithm
 
-This algorithm applies only to product-scoped source types. `workflow_input.prompt_scope.product_type_request_list` is the ordered product worklist. The complete semantic meaning of each product, including age, sex, unisex, baby, child, and other modifiers, is the sole basis for its search-sex branches; Python rules, keyword matching, and predefined product taxonomies are not valid substitutes.
+This algorithm applies only to product-scoped source types. `workflow_input.prompt_scope.product_type_request_list` is the ordered product worklist. The complete semantic meaning of each product, including age, sex, unisex, baby, child, and other modifiers, is the sole basis for its `search_sex` branches; Python rules, keyword matching, and predefined product taxonomies are not valid substitutes.
 
 The required branch set for one product has these invariants:
 
@@ -10,4 +10,4 @@ The required branch set for one product has these invariants:
 4. An absent sex selects every semantically applicable branch, without adding an inapplicable branch merely to complete a pair.
 5. Multiple adult branches are ordered `men`, then `women`; multiple child/baby branches are ordered `boys`, then `girls`.
 
-Every selected branch is an independent required search rather than a fallback. A unisex table found through one branch does not satisfy another selected branch. A search branch identifies a product boundary only; it neither supplies nor filters physical table identity. Every physical table in that boundary retains the identity presented by the source, independently of the branch through which it was found.
+Every selected branch is an independent required search rather than a fallback. A unisex table found through one branch does not satisfy another selected branch. `search_sex` describes only how to locate and close one product boundary. It is never copied into `size_group_key`, never filters the tables visible inside an opened boundary, and never describes the table result. A physical table may be `unisex` or have any other source-evidenced group even when it was reached through a sex-specific search branch; preserve that physical identity exactly.

@@ -12,7 +12,7 @@ from workflow_container_runtime.step import BrowserActionResult
 from brand_size_chart.model.base import IdentifierComponent, StrictBaseModel, identifier_component_validate
 
 SourceDiscoveryQueryState = Literal["searched", "failed"]
-SourceDiscoveryProductTypeSexState = Literal["pending", "searched", "rejected"]
+SourceDiscoveryProductSearchState = Literal["pending", "searched", "rejected"]
 SourceDiscoveryUrlState = Literal["opened", "rejected"]
 SourceDiscoveryTableState = Literal["candidate", "accepted", "market_filtered", "market_conflict"]
 SourceDiscoveryOutcome = Literal["table_available", "no_table", "market_conflict"]
@@ -77,6 +77,9 @@ def market_scope_key_validate(value: str) -> str:
     return value
 
 
+_MarketScopeKey = Annotated[str, AfterValidator(market_scope_key_validate)]
+
+
 def size_group_key_validate(value: str) -> str:
     """Validate one source-derived physical chart identity component.
 
@@ -112,14 +115,23 @@ class SourceDiscoveryQuery(StrictBaseModel):
     state: SourceDiscoveryQueryState
 
 
-class SourceDiscoveryProductTypeSex(StrictBaseModel):
-    """Current product-type and sex discovery worklist row."""
+class SourceDiscoveryMarketBoundary(StrictBaseModel):
+    """Selected source market boundary persisted before table discovery."""
+
+    evidence_path_list: list[str]
+    market_scope_key: _MarketScopeKey
+    reason: str
+    source_url: BrowserUrl
+
+
+class SourceDiscoveryProductSearch(StrictBaseModel):
+    """Current product-type search-branch worklist row."""
 
     evidence_path_list: list[str]
     product_type: str
     reason: str
-    sex: str
-    state: SourceDiscoveryProductTypeSexState
+    search_sex: str
+    state: SourceDiscoveryProductSearchState
 
 
 class SourceDiscoveryUrl(StrictBaseModel):
@@ -131,11 +143,11 @@ class SourceDiscoveryUrl(StrictBaseModel):
     url: BrowserUrl
 
 
-class SourceDiscoveryUrlWorklist(StrictBaseModel):
-    """Persist one source URL to product-type and sex worklist relation."""
+class SourceDiscoveryUrlProductSearch(StrictBaseModel):
+    """Persist one source URL to one product search branch."""
 
     product_type: str
-    sex: str
+    search_sex: str
     url: BrowserUrl
 
 
@@ -143,26 +155,12 @@ class SourceDiscoveryTable(StrictBaseModel):
     """Current physical source-table row keyed by group and market scope."""
 
     evidence_path_list: list[str]
-    market_scope_key: IdentifierComponent
+    market_scope_key: _MarketScopeKey
     reason: str
     size_group_key: IdentifierComponent
     source_title: str
     source_url: BrowserUrl
     state: SourceDiscoveryTableState
-
-    @field_validator("market_scope_key")
-    @classmethod
-    def market_scope_key_validate(cls, value: str) -> str:
-        """Require one deterministic market scope key.
-
-        Args:
-            value: Candidate validated identifier component.
-
-        Returns:
-            Deterministic market scope key.
-        """
-
-        return market_scope_key_validate(value)
 
     @field_validator("size_group_key")
     @classmethod
@@ -191,7 +189,6 @@ class SourceDiscoveryAcceptedTable(StrictBaseModel):
 class SourceDiscoveryChartWriteResult(StrictBaseModel):
     """Outcome of one bounded source-discovery chart publication attempt."""
 
-    chart_filesystem_path: str
     status: Literal["created", "unchanged", "conflict"]
 
 

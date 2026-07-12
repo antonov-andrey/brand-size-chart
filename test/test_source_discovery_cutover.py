@@ -17,21 +17,23 @@ from brand_size_chart.model import (
     BrandSizeChartRow,
     PromptScope,
     SourceDiscoveryInput,
-    SourceDiscoveryProductTypeSex,
+    SourceDiscoveryMarketBoundary,
+    SourceDiscoveryProductSearch,
     SourceDiscoveryQuery,
     SourceDiscoveryResult,
     SourceDiscoveryTable,
     SourceDiscoveryUrl,
-    SourceDiscoveryUrlWorklist,
+    SourceDiscoveryUrlProductSearch,
     SourceTypeWorkflowInput,
 )
 from brand_size_chart.source.discovery_database import (
-    SOURCE_DISCOVERY_PRODUCT_TYPE_SEX_TABLE,
+    SOURCE_DISCOVERY_MARKET_BOUNDARY_TABLE,
+    SOURCE_DISCOVERY_PRODUCT_SEARCH_TABLE,
     SOURCE_DISCOVERY_QUERY_TABLE,
     SOURCE_DISCOVERY_TABLE,
     SOURCE_DISCOVERY_TABLE_BY_NAME_MAP,
     SOURCE_DISCOVERY_URL_TABLE,
-    SOURCE_DISCOVERY_URL_WORKLIST_TABLE,
+    SOURCE_DISCOVERY_URL_PRODUCT_SEARCH_TABLE,
 )
 from brand_size_chart.step.source_discovery import SourceDiscoveryStep
 from brand_size_chart.validator import SourceDiscoveryValidator
@@ -139,12 +141,12 @@ def _current_state_write(
     )
     store.upsert(
         database_path,
-        SOURCE_DISCOVERY_PRODUCT_TYPE_SEX_TABLE,
-        SourceDiscoveryProductTypeSex(
+        SOURCE_DISCOVERY_PRODUCT_SEARCH_TABLE,
+        SourceDiscoveryProductSearch(
             evidence_path_list=[evidence_reference],
             product_type="dress",
             reason="Product inspected.",
-            sex="women",
+            search_sex="women",
             state="searched",
         ),
     )
@@ -160,8 +162,18 @@ def _current_state_write(
     )
     store.upsert(
         database_path,
-        SOURCE_DISCOVERY_URL_WORKLIST_TABLE,
-        SourceDiscoveryUrlWorklist(product_type="dress", sex="women", url="https://brand.example/size"),
+        SOURCE_DISCOVERY_MARKET_BOUNDARY_TABLE,
+        SourceDiscoveryMarketBoundary(
+            evidence_path_list=[evidence_reference],
+            market_scope_key="tr",
+            reason="Selected the priority-country market.",
+            source_url="https://brand.example/size",
+        ),
+    )
+    store.upsert(
+        database_path,
+        SOURCE_DISCOVERY_URL_PRODUCT_SEARCH_TABLE,
+        SourceDiscoveryUrlProductSearch(product_type="dress", search_sex="women", url="https://brand.example/size"),
     )
     if table_state != "no_table":
         store.upsert(
@@ -287,11 +299,9 @@ def test_source_discovery_rejects_incomplete_or_wrong_current_state(tmp_path: Pa
             _chart_get(),
         )
     else:
-        row = store.get(database_path, SOURCE_DISCOVERY_PRODUCT_TYPE_SEX_TABLE, ("dress", "women"))
+        row = store.get(database_path, SOURCE_DISCOVERY_PRODUCT_SEARCH_TABLE, ("dress", "women"))
         assert row is not None
-        store.upsert(
-            database_path, SOURCE_DISCOVERY_PRODUCT_TYPE_SEX_TABLE, row.model_copy(update={"state": "pending"})
-        )
+        store.upsert(database_path, SOURCE_DISCOVERY_PRODUCT_SEARCH_TABLE, row.model_copy(update={"state": "pending"}))
 
     with pytest.raises(StepResultValidationError):
         SourceDiscoveryValidator(sqlite_state_store=store).validate(context, step_input, result)

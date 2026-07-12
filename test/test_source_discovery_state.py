@@ -30,9 +30,10 @@ def test_source_discovery_registry_has_exact_names_models_and_primary_key_order(
 
     assert list(SOURCE_DISCOVERY_TABLE_BY_NAME_MAP) == [
         "discovery_query",
-        "product_type_sex_worklist",
+        "market_boundary",
+        "product_search_worklist",
         "source_url",
-        "source_url_worklist",
+        "source_url_product_search",
         "source_table",
     ]
     assert {
@@ -40,9 +41,10 @@ def test_source_discovery_registry_has_exact_names_models_and_primary_key_order(
         for name, table in SOURCE_DISCOVERY_TABLE_BY_NAME_MAP.items()
     } == {
         "discovery_query": ("SourceDiscoveryQuery", ("query",)),
-        "product_type_sex_worklist": ("SourceDiscoveryProductTypeSex", ("product_type", "sex")),
+        "market_boundary": ("SourceDiscoveryMarketBoundary", ("market_scope_key",)),
+        "product_search_worklist": ("SourceDiscoveryProductSearch", ("product_type", "search_sex")),
         "source_url": ("SourceDiscoveryUrl", ("url",)),
-        "source_url_worklist": ("SourceDiscoveryUrlWorklist", ("url", "product_type", "sex")),
+        "source_url_product_search": ("SourceDiscoveryUrlProductSearch", ("url", "product_type", "search_sex")),
         "source_table": ("SourceDiscoveryTable", ("size_group_key", "market_scope_key")),
     }
 

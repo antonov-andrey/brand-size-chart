@@ -90,10 +90,7 @@ def test_chart_command_creates_validated_chart_at_derived_two_component_path(
 
     chart_path = input_path.parent / "chart" / "women_clothing__tr.json"
     assert json.loads(chart_path.read_text(encoding="utf-8")) == CHART_PAYLOAD
-    assert json.loads(capsys.readouterr().out) == {
-        "chart_filesystem_path": chart_path.resolve().as_posix(),
-        "status": "created",
-    }
+    assert json.loads(capsys.readouterr().out) == {"status": "created"}
 
 
 def test_chart_command_keeps_existing_equal_chart_bytes_unchanged(

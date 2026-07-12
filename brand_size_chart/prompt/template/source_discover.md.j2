@@ -4,7 +4,7 @@
 
 Read only the current `input.json`, its generated row schemas, sibling `chart.schema.json`, sibling `state.sqlite3` through `brand-size-chart-source-discovery-state`, and declared evidence and chart artifacts. `state.json` is runtime-owned: do not read, write, or infer domain data from it.
 
-`workflow_input.prompt_scope.product_type_request_list` is ordered. Process each requested product completely before the next one. Derive the applicable sex branches semantically from the shared product-search contract; Python does not classify products or sexes.
+`workflow_input.prompt_scope.product_type_request_list` is ordered. Process each requested product completely before the next one. Derive the applicable `search_sex` branches semantically from the shared product-search contract; Python does not classify products or sexes.
 
 {% include "partial/source_type_contract.md.j2" %}
 
@@ -12,17 +12,21 @@ Read only the current `input.json`, its generated row schemas, sibling `chart.sc
 
 {% include "partial/market_selection_contract.md.j2" %}
 
-Persist every query, URL, relation, physical table row, chart, and evidence before continuing. Use only this state command for SQLite reads and writes:
+{% include "partial/size_group_key_contract.md.j2" %}
+
+Select the one market boundary required by the shared market contract before processing the product worklist. Persist every completed query, URL decision, product-search transition, discovered physical table, chart, and evidence before continuing. Use only this state command for SQLite reads and writes:
 
 ```text
 brand-size-chart-source-discovery-state {{ input_path }} {initialize|upsert|get|list|list-prefix|delete} ...
 ```
 
-Pass exactly one schema-valid row to each `upsert` operation through standard input. Upsert a `pending` product/sex worklist row immediately before its search, then terminalize that same `(product_type, sex)` row as `searched` or `rejected` before starting another worklist row. A searched worklist row needs at least one opened URL relation. Non-product-scoped sources must not create product/sex worklist or relation rows.
+Pass exactly one schema-valid row to each `upsert` operation through standard input. Upsert one `product_search_worklist` row with state `pending` immediately before its search, then terminalize that same `(product_type, search_sex)` row as `searched` or `rejected` before starting another search row. A searched row needs at least one opened URL connected through `source_url_product_search`. Product-scoped discovery must create search rows for exactly the requested product-type set. Non-product-scoped sources must not create product-search or relation rows.
 
-Search every allowed browser-visible source surface: tables, text, tabs, modals, widgets, PDFs, images, help content, questions and answers, and linked assets. Save evidence in `evidence_write_target.filesystem_path` and reference it only through normalized paths below `evidence_write_target.artifact_path`. A request or product branch selects a boundary to inspect; it never provides table identity.
+Before the first product search, persist the selected market URL as `source_url` with state `opened`, then upsert the single `market_boundary` row. On retry, reuse that row unless current verification feedback specifically rejects the selected boundary. In that correction case, delete the rejected row before inserting its replacement so the table always returns to exactly one selected boundary.
 
-After inspecting a concrete physical table, derive `size_group_key`, `market_scope_key`, and `source_title` only from its visible heading and scope. Never derive them from the search request, product name, page category, source type, or brand. Write the chart before its matching table row:
+Inside the selected source authority and market boundary, search every browser-visible source surface: tables, text, tabs, modals, widgets, PDFs, images, help content, questions and answers, and linked assets. Save evidence in `evidence_write_target.filesystem_path` and reference it only through normalized paths below `evidence_write_target.artifact_path`. A request or product branch selects a product boundary to inspect; it never provides table identity.
+
+After inspecting a concrete physical table inside the selected market boundary, derive `size_group_key`, `market_scope_key`, and `source_title` only from its visible heading and scope. Never derive them from the search request, product name, page category, source type, brand, or `search_sex`. Save every such table; do not apply another product or market prefilter after it has been found. Write the chart before its matching table row:
 
 ```text
 brand-size-chart-source-discovery-chart-write {{ input_path }} <size_group_key> <market_scope_key>
@@ -30,7 +34,7 @@ brand-size-chart-source-discovery-chart-write {{ input_path }} <size_group_key> 
 
 Supply one `BrandSizeChart` object through standard input. Then upsert the matching `source_table` row as `candidate` or `market_conflict`. A chart identity is exactly `(size_group_key, market_scope_key)`; do not parse chart filenames to recover identity.
 
-After browser discovery, reread only SQLite, charts, and evidence. Finalize each `size_group_key` with the shared market ladder: upsert the selected row of the first available verified tier as `accepted`, and upsert every non-winning candidate, including lower-tier candidates, as `market_filtered`. When tier-5 candidates differ, upsert every conflicting candidate as terminal `market_conflict`; do not select an arbitrary locale or treat the group as no-table. Leave no `candidate` row. `market_conflict` is terminal data, not a correction failure. Return `BrowserActionResult` only after every current row and chart meets the terminal contract.
+After browser discovery, reread only SQLite, charts, and evidence. Finalize each `size_group_key` with the shared market ladder: upsert the selected row of the first available verified tier as `accepted`, and upsert every non-winning candidate as `market_filtered`. Preserve a chart-producer identity conflict as terminal `market_conflict`; do not overwrite it or treat it as no-table. Leave no `candidate` row. `market_conflict` is terminal data, not a correction failure. Return `BrowserActionResult` only after every current row and chart meets the terminal contract.
 
 On retry, reuse valid current rows and charts. Change only feedback-named or incomplete rows; do not recreate valid artifacts or invent alternate identity paths.
 

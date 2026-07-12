@@ -93,9 +93,6 @@ def main(argument_list: Sequence[str] | None = None) -> int:
             status = "created"
     except (OSError, ValidationError, ValueError) as exc:
         parser.error(str(exc))
-    result = SourceDiscoveryChartWriteResult(
-        chart_filesystem_path=chart_path.as_posix(),
-        status=status,
-    )
+    result = SourceDiscoveryChartWriteResult(status=status)
     sys.stdout.write(result.model_dump_json() + "\n")
     return 0

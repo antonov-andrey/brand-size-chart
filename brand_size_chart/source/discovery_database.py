@@ -8,11 +8,12 @@ from brand_size_chart.artifact.layout import ArtifactLayout
 from brand_size_chart.model.chart import BrandSizeChart
 from brand_size_chart.model.source import (
     SourceDiscoveryAcceptedTable,
-    SourceDiscoveryProductTypeSex,
+    SourceDiscoveryMarketBoundary,
+    SourceDiscoveryProductSearch,
     SourceDiscoveryQuery,
     SourceDiscoveryTable,
     SourceDiscoveryUrl,
-    SourceDiscoveryUrlWorklist,
+    SourceDiscoveryUrlProductSearch,
     SourceTypeResult,
     SourceTypeResultList,
     source_discovery_accepted_table_list_validate,
@@ -24,20 +25,25 @@ SOURCE_DISCOVERY_QUERY_TABLE = SqliteStateTable(
     record_model=SourceDiscoveryQuery,
     primary_key_field_name_tuple=("query",),
 )
-SOURCE_DISCOVERY_PRODUCT_TYPE_SEX_TABLE = SqliteStateTable(
-    name="product_type_sex_worklist",
-    record_model=SourceDiscoveryProductTypeSex,
-    primary_key_field_name_tuple=("product_type", "sex"),
+SOURCE_DISCOVERY_MARKET_BOUNDARY_TABLE = SqliteStateTable(
+    name="market_boundary",
+    record_model=SourceDiscoveryMarketBoundary,
+    primary_key_field_name_tuple=("market_scope_key",),
+)
+SOURCE_DISCOVERY_PRODUCT_SEARCH_TABLE = SqliteStateTable(
+    name="product_search_worklist",
+    record_model=SourceDiscoveryProductSearch,
+    primary_key_field_name_tuple=("product_type", "search_sex"),
 )
 SOURCE_DISCOVERY_URL_TABLE = SqliteStateTable(
     name="source_url",
     record_model=SourceDiscoveryUrl,
     primary_key_field_name_tuple=("url",),
 )
-SOURCE_DISCOVERY_URL_WORKLIST_TABLE = SqliteStateTable(
-    name="source_url_worklist",
-    record_model=SourceDiscoveryUrlWorklist,
-    primary_key_field_name_tuple=("url", "product_type", "sex"),
+SOURCE_DISCOVERY_URL_PRODUCT_SEARCH_TABLE = SqliteStateTable(
+    name="source_url_product_search",
+    record_model=SourceDiscoveryUrlProductSearch,
+    primary_key_field_name_tuple=("url", "product_type", "search_sex"),
 )
 SOURCE_DISCOVERY_TABLE = SqliteStateTable(
     name="source_table",
@@ -48,9 +54,10 @@ SOURCE_DISCOVERY_TABLE_BY_NAME_MAP = {
     table.name: table
     for table in (
         SOURCE_DISCOVERY_QUERY_TABLE,
-        SOURCE_DISCOVERY_PRODUCT_TYPE_SEX_TABLE,
+        SOURCE_DISCOVERY_MARKET_BOUNDARY_TABLE,
+        SOURCE_DISCOVERY_PRODUCT_SEARCH_TABLE,
         SOURCE_DISCOVERY_URL_TABLE,
-        SOURCE_DISCOVERY_URL_WORKLIST_TABLE,
+        SOURCE_DISCOVERY_URL_PRODUCT_SEARCH_TABLE,
         SOURCE_DISCOVERY_TABLE,
     )
 }

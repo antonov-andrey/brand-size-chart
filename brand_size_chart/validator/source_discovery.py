@@ -9,21 +9,23 @@ from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import (
     BrandSizeChart,
     SourceDiscoveryInput,
-    SourceDiscoveryProductTypeSex,
+    SourceDiscoveryMarketBoundary,
+    SourceDiscoveryProductSearch,
     SourceDiscoveryQuery,
     SourceDiscoveryResult,
     SourceDiscoveryTable,
     SourceDiscoveryUrl,
-    SourceDiscoveryUrlWorklist,
+    SourceDiscoveryUrlProductSearch,
 )
 from brand_size_chart.source import SOURCE_TYPE_REGISTRY
 from brand_size_chart.source.discovery_database import (
-    SOURCE_DISCOVERY_PRODUCT_TYPE_SEX_TABLE,
+    SOURCE_DISCOVERY_MARKET_BOUNDARY_TABLE,
+    SOURCE_DISCOVERY_PRODUCT_SEARCH_TABLE,
     SOURCE_DISCOVERY_QUERY_TABLE,
     SOURCE_DISCOVERY_TABLE,
     SOURCE_DISCOVERY_TABLE_BY_NAME_MAP,
     SOURCE_DISCOVERY_URL_TABLE,
-    SOURCE_DISCOVERY_URL_WORKLIST_TABLE,
+    SOURCE_DISCOVERY_URL_PRODUCT_SEARCH_TABLE,
 )
 
 
@@ -63,9 +65,18 @@ class SourceDiscoveryValidator:
 
         try:
             query_list = self._sqlite_state_store.list(state_database_path, SOURCE_DISCOVERY_QUERY_TABLE)
-            worklist_list = self._sqlite_state_store.list(state_database_path, SOURCE_DISCOVERY_PRODUCT_TYPE_SEX_TABLE)
+            market_boundary_list = self._sqlite_state_store.list(
+                state_database_path,
+                SOURCE_DISCOVERY_MARKET_BOUNDARY_TABLE,
+            )
+            product_search_list = self._sqlite_state_store.list(
+                state_database_path, SOURCE_DISCOVERY_PRODUCT_SEARCH_TABLE
+            )
             url_list = self._sqlite_state_store.list(state_database_path, SOURCE_DISCOVERY_URL_TABLE)
-            relation_list = self._sqlite_state_store.list(state_database_path, SOURCE_DISCOVERY_URL_WORKLIST_TABLE)
+            url_product_search_list = self._sqlite_state_store.list(
+                state_database_path,
+                SOURCE_DISCOVERY_URL_PRODUCT_SEARCH_TABLE,
+            )
             table_list = self._sqlite_state_store.list(state_database_path, SOURCE_DISCOVERY_TABLE)
         except (OSError, RuntimeError, ValueError) as exc:
             self._fail(f"Initialize every declared source-discovery table with its static schema: {exc}")
@@ -75,17 +86,18 @@ class SourceDiscoveryValidator:
             evidence_target_path=step_input.evidence_write_target.artifact_path,
             evidence_path_list=[
                 evidence_path
-                for record in [*query_list, *worklist_list, *url_list, *table_list]
+                for record in [*query_list, *market_boundary_list, *product_search_list, *url_list, *table_list]
                 for evidence_path in record.evidence_path_list
             ],
         )
         self._query_list_validate(query_list)
         self._url_list_validate(url_list)
-        self._worklist_validate(
+        self._market_boundary_list_validate(market_boundary_list=market_boundary_list, url_list=url_list)
+        self._product_search_list_validate(
             step_input=step_input,
             url_list=url_list,
-            relation_list=relation_list,
-            worklist_list=worklist_list,
+            url_product_search_list=url_product_search_list,
+            product_search_list=product_search_list,
         )
         self._table_list_validate(
             execution_context=execution_context,
@@ -212,6 +224,30 @@ class SourceDiscoveryValidator:
             if not query.reason.strip() or not query.evidence_path_list:
                 self._fail("Every terminal query row needs an evidence-backed reason.")
 
+    def _market_boundary_list_validate(
+        self,
+        *,
+        market_boundary_list: list[SourceDiscoveryMarketBoundary],
+        url_list: list[SourceDiscoveryUrl],
+    ) -> None:
+        """Require one evidence-backed selected source market boundary.
+
+        Args:
+            market_boundary_list: Persisted selected market rows.
+            url_list: Persisted source URL rows.
+        """
+
+        if len(market_boundary_list) != 1:
+            self._fail("Persist exactly one selected market boundary before table discovery.")
+        market_boundary = market_boundary_list[0]
+        opened_url_set = {url.url for url in url_list if url.state == "opened"}
+        if (
+            not market_boundary.reason.strip()
+            or not market_boundary.evidence_path_list
+            or market_boundary.source_url not in opened_url_set
+        ):
+            self._fail("The selected market boundary needs an evidence-backed reason and opened source URL.")
+
     def _url_list_validate(self, url_list: list[SourceDiscoveryUrl]) -> None:
         """Validate evidence-backed terminal source URL rows.
 
@@ -223,47 +259,49 @@ class SourceDiscoveryValidator:
             if not url.reason.strip() or not url.evidence_path_list:
                 self._fail("Every terminal source URL row needs an evidence-backed reason.")
 
-    def _worklist_validate(
+    def _product_search_list_validate(
         self,
         *,
         step_input: SourceDiscoveryInput,
         url_list: list[SourceDiscoveryUrl],
-        relation_list: list[SourceDiscoveryUrlWorklist],
-        worklist_list: list[SourceDiscoveryProductTypeSex],
+        url_product_search_list: list[SourceDiscoveryUrlProductSearch],
+        product_search_list: list[SourceDiscoveryProductSearch],
     ) -> None:
-        """Validate product worklist and URL relation closure.
+        """Validate product search worklist and URL relation closure.
 
         Args:
             step_input: Persisted discovery input.
             url_list: Persisted source URL rows.
-            relation_list: Persisted URL-to-worklist relation rows.
-            worklist_list: Persisted product/sex worklist rows.
+            url_product_search_list: Persisted URL-to-product-search relation rows.
+            product_search_list: Persisted product search worklist rows.
         """
 
         requires_product_type = SOURCE_TYPE_REGISTRY.source_type_requires_product_type(
             step_input.workflow_input.source_type
         )
         if not requires_product_type:
-            if worklist_list or relation_list:
-                self._fail("Non-product-scoped source discovery must not persist worklist or URL relation rows.")
+            if product_search_list or url_product_search_list:
+                self._fail("Non-product-scoped source discovery must not persist product-search rows.")
             return
-        for worklist in worklist_list:
-            if not worklist.reason.strip() or not worklist.evidence_path_list:
-                self._fail("Every terminal product/sex worklist row needs an evidence-backed reason.")
+        for product_search in product_search_list:
+            if not product_search.reason.strip() or not product_search.evidence_path_list:
+                self._fail("Every terminal product search row needs an evidence-backed reason.")
         requested_product_type_set = set(step_input.workflow_input.prompt_scope.product_type_request_list)
-        represented_product_type_set = {row.product_type for row in worklist_list}
-        if not requested_product_type_set.issubset(represented_product_type_set):
-            self._fail("Persist at least one worklist row for every requested product type.")
-        if any(row.state == "pending" for row in worklist_list):
-            self._fail("Terminal source discovery must not retain pending worklist rows.")
-        worklist_key_set = {(row.product_type, row.sex) for row in worklist_list}
+        represented_product_type_set = {row.product_type for row in product_search_list}
+        if requested_product_type_set != represented_product_type_set:
+            self._fail("Persist search rows for exactly the requested product type set.")
+        if any(row.state == "pending" for row in product_search_list):
+            self._fail("Terminal source discovery must not retain pending product search rows.")
+        product_search_key_set = {(row.product_type, row.search_sex) for row in product_search_list}
         url_by_key_map = {url.url: url for url in url_list}
-        opened_relation_worklist_key_set: set[tuple[str, str]] = set()
-        for relation in relation_list:
-            if (relation.product_type, relation.sex) not in worklist_key_set or relation.url not in url_by_key_map:
-                self._fail("Every URL relation must reference one persisted URL and worklist row.")
-            if url_by_key_map[relation.url].state == "opened":
-                opened_relation_worklist_key_set.add((relation.product_type, relation.sex))
-        for row in worklist_list:
-            if row.state == "searched" and (row.product_type, row.sex) not in opened_relation_worklist_key_set:
-                self._fail("Every searched worklist row needs at least one opened URL relation.")
+        opened_url_product_search_key_set: set[tuple[str, str]] = set()
+        for url_product_search in url_product_search_list:
+            product_search_key = (url_product_search.product_type, url_product_search.search_sex)
+            if product_search_key not in product_search_key_set or url_product_search.url not in url_by_key_map:
+                self._fail("Every URL product-search relation must reference one persisted URL and search row.")
+            if url_by_key_map[url_product_search.url].state == "opened":
+                opened_url_product_search_key_set.add(product_search_key)
+        for product_search in product_search_list:
+            product_search_key = (product_search.product_type, product_search.search_sex)
+            if product_search.state == "searched" and product_search_key not in opened_url_product_search_key_set:
+                self._fail("Every searched product row needs at least one opened URL relation.")
