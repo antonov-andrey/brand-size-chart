@@ -22,6 +22,7 @@ from brand_size_chart.model import (
     BrandOutputInputSource,
     BrandOutputItem,
     BrandOutputResult,
+    BrandResult,
     BrandSizeChart,
     BrandSizeChartMeasurement,
     BrandSizeChartRow,
@@ -475,8 +476,28 @@ def test_brand_workflow_keeps_coverage_gaps_out_of_error_list(tmp_path: Path) ->
             return [WorkflowStepInvocationOutcome(result=no_table_result, validation_feedback_tuple=())]
 
     workflow._source_discovery_step = SourceDiscoveryStep()
-    workflow.input_write_step = _workflow_input_write
-    workflow.result_write_step = lambda execution_context, workflow_input, workflow_result: workflow_result
+
+    async def input_write_step(
+        execution_context: WorkflowExecutionContext,
+        workflow_input: WorkflowBrandSizeChartInput,
+    ) -> None:
+        """Publish the workflow input through the async runtime boundary."""
+
+        _workflow_input_write(execution_context, workflow_input)
+
+    async def result_write_step(
+        execution_context: WorkflowExecutionContext,
+        workflow_input: WorkflowBrandSizeChartInput,
+        workflow_result: BrandResult,
+    ) -> BrandResult:
+        """Return the candidate workflow result through the async runtime boundary."""
+
+        _ = execution_context
+        _ = workflow_input
+        return workflow_result
+
+    workflow.input_write_step = input_write_step
+    workflow.result_write_step = result_write_step
     workflow.source_type_list_get = lambda request: ["official_brand_size_guide"]
     workflow.coverage_decide_write_step = (
         lambda execution_context, input_source, workflow_step_config: CoverageDecisionResult(

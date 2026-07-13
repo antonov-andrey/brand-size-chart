@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
-from pydantic import AfterValidator, ConfigDict, field_validator
+from pydantic import AfterValidator, ConfigDict, Field, field_validator
 from workflow_container_contract import WorkflowResult
 from workflow_container_runtime.step import BrowserActionResult
 
@@ -137,7 +137,7 @@ class SourceDiscoveryProductSearch(StrictBaseModel):
 class SourceDiscoveryUrl(StrictBaseModel):
     """Current opened or rejected source URL row."""
 
-    evidence_path_list: list[str]
+    evidence_path_list: list[str] = Field(min_length=1)
     reason: str
     state: SourceDiscoveryUrlState
     url: BrowserUrl

@@ -51,7 +51,7 @@ class BrandSizeChartRunWorkflow(
             Complete nested run result.
         """
 
-        self.input_write_step(execution_context, workflow_input)
+        await self.input_write_step(execution_context, workflow_input)
         brand_list_parse_result = brand_list_parse(workflow_input.request.brand_list_text)
         error_list: list[str] = []
         brand_result_list: list[BrandResult] = []
@@ -77,7 +77,7 @@ class BrandSizeChartRunWorkflow(
             status="failed" if error_list else "success",
             warning_list=[],
         )
-        return self.result_write_step(execution_context, workflow_input, workflow_result)
+        return await self.result_write_step(execution_context, workflow_input, workflow_result)
 
 
 __all__ = ["BrandSizeChartRunWorkflow"]

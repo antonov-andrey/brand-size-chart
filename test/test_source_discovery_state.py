@@ -4,8 +4,10 @@ import tomllib
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
+
 from brand_size_chart.app.source_discovery_state import main
-from brand_size_chart.model import SourceDiscoveryInput
+from brand_size_chart.model import SourceDiscoveryInput, SourceDiscoveryUrl
 from brand_size_chart.source.discovery_database import SOURCE_DISCOVERY_TABLE_BY_NAME_MAP
 
 
@@ -47,6 +49,18 @@ def test_source_discovery_registry_has_exact_names_models_and_primary_key_order(
         "source_url_product_search": ("SourceDiscoveryUrlProductSearch", ("url", "product_type", "search_sex")),
         "source_table": ("SourceDiscoveryTable", ("size_group_key", "market_scope_key")),
     }
+
+
+def test_source_discovery_url_rejects_terminal_row_without_evidence() -> None:
+    """Reject an opened or rejected URL before invalid state reaches SQLite."""
+
+    with pytest.raises(ValueError, match="evidence_path_list"):
+        SourceDiscoveryUrl(
+            evidence_path_list=[],
+            reason="The browser returned a not-found page.",
+            state="rejected",
+            url="https://brand.example/missing",
+        )
 
 
 def test_project_metadata_exposes_new_source_discovery_commands() -> None:

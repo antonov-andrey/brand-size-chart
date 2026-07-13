@@ -131,8 +131,26 @@ def _workflow_get(
             covered_product_type_list=[]
         )
     )
-    workflow.input_write_step = lambda execution_context, workflow_input: None
-    workflow.result_write_step = lambda execution_context, workflow_input, workflow_result: workflow_result
+
+    async def input_write_step(execution_context: object, workflow_input: object) -> None:
+        """Accept the publication call at the async runtime boundary."""
+
+        _ = execution_context
+        _ = workflow_input
+
+    async def result_write_step(
+        execution_context: object,
+        workflow_input: object,
+        workflow_result: object,
+    ) -> object:
+        """Return the candidate result at the async runtime boundary."""
+
+        _ = execution_context
+        _ = workflow_input
+        return workflow_result
+
+    workflow.input_write_step = input_write_step
+    workflow.result_write_step = result_write_step
     workflow.source_type_list_get = lambda request: ["official_brand_size_guide", "official_seller_size_guide"]
     return workflow
 

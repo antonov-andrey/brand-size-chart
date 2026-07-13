@@ -100,7 +100,7 @@ class BrandSizeChartBrandWorkflow(
             Complete brand result tree.
         """
 
-        self.input_write_step(execution_context, workflow_input)
+        await self.input_write_step(execution_context, workflow_input)
         source_type_list = self.source_type_list_get(workflow_input.request)
         invocation_list = [
             WorkflowStepInvocation(
@@ -183,7 +183,7 @@ class BrandSizeChartBrandWorkflow(
             status="failed" if error_list else "success",
             warning_list=[],
         )
-        return self.result_write_step(execution_context, workflow_input, workflow_result)
+        return await self.result_write_step(execution_context, workflow_input, workflow_result)
 
     @DBOS.step(name="brand_output_write_step")
     def brand_output_write_step(

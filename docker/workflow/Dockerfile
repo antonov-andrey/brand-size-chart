@@ -1,4 +1,4 @@
-FROM python:3.14-bookworm
+FROM python:3.14-trixie
 
 ENV NPM_CONFIG_UPDATE_NOTIFIER=false
 
