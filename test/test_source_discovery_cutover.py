@@ -293,9 +293,7 @@ def _input_get(context: WorkflowStepExecutionContext) -> SourceDiscoveryInput:
     """Build one current source-discovery input matching the persisted workflow identity."""
 
     return SourceDiscoveryInput(
-        brand_input=BrandInput(
-            parsed_brand_key="brand", parsed_brand_name="Brand", raw_brand_name="Brand", source_line_number=1
-        ),
+        brand_input=BrandInput(parsed_brand_key="brand", parsed_brand_name="Brand"),
         evidence_write_target=ArtifactWriteTarget(
             artifact_path="workflow/run/step/source_discover/evidence",
             filesystem_path=(context.result_dir / ".playwright-mcp" / "evidence").as_posix(),
@@ -322,24 +320,40 @@ def _workflow_input_get() -> WorkflowBrandSizeChartInput:
 
     return WorkflowBrandSizeChartInput(
         request=WorkflowBrandSizeChartRequest(
-            brand_list_text="Brand\\n",
+            brand_list=["Brand"],
             priority_country_code="TR",
             product_type_request_list=["dress"],
             source_type_allow_list=[],
         ),
         config=WorkflowBrandSizeChartConfig(
             instruction="",
+            mcp_playwright_profile_writeback_policy={
+                "mcp_playwright_profile_name_prefix": "",
+                "workflow_run_status_list": ["done"],
+            },
             step_map=WorkflowBrandSizeChartStepMap(
                 canonical_select=WorkflowStepCanonicalSelectConfig(
-                    correction_attempt_limit=1, instruction="", model="gpt-5.6-terra", reasoning_effort="high"
+                    correction_attempt_limit=1,
+                    instruction="",
+                    mcp_playwright_profile=None,
+                    mcp_playwright_profile_source=None,
+                    model="gpt-5.6-terra",
+                    reasoning_effort="high",
                 ),
                 coverage_decide=WorkflowStepCoverageDecideConfig(
-                    correction_attempt_limit=1, instruction="", model="gpt-5.6-terra", reasoning_effort="high"
+                    correction_attempt_limit=1,
+                    instruction="",
+                    mcp_playwright_profile=None,
+                    mcp_playwright_profile_source=None,
+                    model="gpt-5.6-terra",
+                    reasoning_effort="high",
                 ),
                 source_discover=WorkflowStepSourceDiscoverConfig(
                     concurrency=1,
                     correction_attempt_limit=1,
                     instruction="",
+                    mcp_playwright_profile="source-discover",
+                    mcp_playwright_profile_source=None,
                     model="gpt-5.6-terra",
                     reasoning_effort="high",
                 ),

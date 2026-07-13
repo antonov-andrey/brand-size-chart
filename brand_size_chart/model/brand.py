@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Literal
-
 from pydantic import ConfigDict, Field
 from workflow_container_contract import WorkflowResult
 
@@ -17,26 +15,6 @@ class BrandInput(StrictBaseModel):
 
     parsed_brand_key: str
     parsed_brand_name: str
-    raw_brand_name: str
-    source_line_number: int = Field(ge=1)
-
-
-class BrandListParseWarning(StrictBaseModel):
-    """Warning emitted while parsing `brand_list`."""
-
-    warning_type: Literal["duplicate_brand", "invalid_brand"]
-    message: str
-    raw_brand_name: str
-    raw_brand_name_list: list[str] = Field(default_factory=list)
-    source_line_number: int = Field(ge=1)
-    parsed_brand_key: str | None = None
-
-
-class BrandListParseResult(StrictBaseModel):
-    """Parsed `brand_list` result."""
-
-    brand_list: list[BrandInput]
-    warning_list: list[BrandListParseWarning]
 
 
 class BrandOutputResult(StrictBaseModel):

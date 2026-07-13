@@ -5,8 +5,8 @@ import os
 from pathlib import Path
 
 from dbos import DBOS, DBOSConfig, SetWorkflowID
-from workflow_container_runtime.step import BrowserRuntimeCapability
-from workflow_container_runtime.workflow import WorkflowExecutionContext, WorkflowRuntimeCapability
+from workflow_container_runtime.capability import BrowserRuntimeCapability, WorkflowRuntimeCapability
+from workflow_container_runtime.workflow import WorkflowExecutionContext
 
 from brand_size_chart.app import runtime_config
 from brand_size_chart.app.application import BrandSizeChartApplication
@@ -21,11 +21,14 @@ def main() -> int:
         Process exit code.
     """
     args = runtime_config.args_parse()
-    browser_runtime_mcp_url = args.browser_runtime_mcp_url.strip()
-    if not browser_runtime_mcp_url:
-        raise RuntimeError(
-            f"{runtime_config.DEFAULT_BROWSER_RUNTIME_MCP_URL_ENV} or --browser-runtime-mcp-url must be set."
-        )
+    runtime_value_by_name_map = {
+        "mcp_playwright_profile_source": args.mcp_playwright_profile_source,
+        "mcp_playwright_profile_writeback_candidate_url": args.mcp_playwright_profile_writeback_candidate_url,
+        "mcp_url": args.mcp_url,
+    }
+    for runtime_value_name, runtime_value in runtime_value_by_name_map.items():
+        if not runtime_value.strip():
+            raise RuntimeError(f"{runtime_value_name.upper()} or --{runtime_value_name.replace('_', '-')} must be set.")
     workflow_input = WorkflowBrandSizeChartInput.model_validate_json(args.input.read_text(encoding="utf-8"))
     secret_path = Path(args.secret)
     if args.input_secret is not None:
@@ -55,7 +58,11 @@ def main() -> int:
     execution_context = WorkflowExecutionContext(
         result_dir=result_dir,
         runtime_capability=WorkflowRuntimeCapability(
-            browser=BrowserRuntimeCapability(mcp_url=browser_runtime_mcp_url),
+            browser=BrowserRuntimeCapability(
+                mcp_playwright_profile_source=args.mcp_playwright_profile_source,
+                mcp_playwright_profile_writeback_candidate_url=args.mcp_playwright_profile_writeback_candidate_url,
+                mcp_url=args.mcp_url,
+            ),
         ),
         workflow_instance_dir=result_dir / "workflow" / "run",
     )

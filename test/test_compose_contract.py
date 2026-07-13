@@ -5,32 +5,25 @@ from pathlib import Path
 import yaml
 
 
-def test_compose_keeps_profile_runtime_durable_and_writeback_explicit() -> None:
-    """Keep mutable profile state in one volume and expose one writeback-only service."""
+def test_compose_uses_one_run_local_profile_router_and_direct_candidate_endpoint() -> None:
+    """Keep source immutable while routing profiles and candidate publication through one service."""
 
     compose = yaml.safe_load(Path("compose.yaml").read_text(encoding="utf-8"))
     service_by_name_map = compose["services"]
-    playwright_service = service_by_name_map["playwright-mcp"]
-    writeback_service = service_by_name_map["playwright-profile-writeback"]
+    router_service = service_by_name_map["playwright-mcp-router"]
 
-    assert "browser-profile-runtime:/runtime-profile" in playwright_service["volumes"]
-    assert "/runtime-profile/playwright_profile" in " ".join(playwright_service["command"])
-    assert writeback_service["profiles"] == ["writeback"]
-    assert writeback_service["command"][0] == "browser-vpn-runtime-playwright-profile-snapshot"
-    assert "browser-profile-runtime:/runtime-profile:ro" in writeback_service["volumes"]
-    assert "./.secret:/writeback" in writeback_service["volumes"]
-    assert "./.secret:/input/.secret:ro" in playwright_service["volumes"]
+    assert "playwright-mcp" not in service_by_name_map
+    assert "playwright-profile-writeback" not in service_by_name_map
+    assert router_service["command"][0] == "browser-vpn-runtime-playwright-mcp-router"
+    assert "browser-profile-runtime:/runtime/mcp_playwright_profile" in router_service["volumes"]
+    assert "./.secret:/input/.secret:ro" in router_service["volumes"]
     assert "./.secret:/input/.secret:ro" in service_by_name_map["workflow"]["volumes"]
-
-    for service_name, service in service_by_name_map.items():
-        writable_secret_mount_list = [
-            volume
-            for volume in service.get("volumes", [])
-            if isinstance(volume, str) and volume.startswith("./.secret:") and not volume.endswith(":ro")
-        ]
-        assert writable_secret_mount_list == (
-            ["./.secret:/writeback"] if service_name == "playwright-profile-writeback" else []
-        )
+    workflow_environment = service_by_name_map["workflow"]["environment"]
+    assert workflow_environment["MCP_PLAYWRIGHT_PROFILE_SOURCE"] == "/input/.secret/playwright_profile"
+    assert workflow_environment["MCP_PLAYWRIGHT_PROFILE_WRITEBACK_CANDIDATE_URL"] == (
+        "http://playwright-mcp-router:8931/runtime/mcp-playwright-profile/writeback-candidate"
+    )
+    assert workflow_environment["MCP_URL"] == "http://playwright-mcp-router:8931/mcp"
 
 
 def test_compose_isolates_browser_from_openvpn_tunnel_lifecycle() -> None:
@@ -39,7 +32,7 @@ def test_compose_isolates_browser_from_openvpn_tunnel_lifecycle() -> None:
     compose = yaml.safe_load(Path("compose.yaml").read_text(encoding="utf-8"))
     service_by_name_map = compose["services"]
     vpn_egress_service = service_by_name_map["vpn-egress"]
-    playwright_service = service_by_name_map["playwright-mcp"]
+    playwright_service = service_by_name_map["playwright-mcp-router"]
     workflow_service = service_by_name_map["workflow"]
 
     assert "entrypoint" not in playwright_service
@@ -50,4 +43,4 @@ def test_compose_isolates_browser_from_openvpn_tunnel_lifecycle() -> None:
     assert compose["networks"]["browser-control"]["internal"] is True
     assert compose["networks"]["vpn-uplink"]["internal"] is False
     assert "--vpn-proxy-server vpn-egress:1080" in " ".join(playwright_service["command"])
-    assert workflow_service["environment"]["BROWSER_RUNTIME_MCP_URL"] == "http://playwright-mcp:8931/mcp"
+    assert workflow_service["environment"]["MCP_URL"] == "http://playwright-mcp-router:8931/mcp"

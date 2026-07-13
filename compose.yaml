@@ -24,22 +24,24 @@ services:
       - ./.secret:/input/.secret:ro
       - vpn-egress-runtime:/runtime
 
-  playwright-mcp:
+  playwright-mcp-router:
     build:
       context: ${BROWSER_VPN_RUNTIME_CONTEXT:-../browser-vpn-runtime}
       dockerfile: docker/playwright/Dockerfile
     command:
-      - browser-vpn-runtime-playwright-mcp
+      - browser-vpn-runtime-playwright-mcp-router
       - --allowed-hosts
-      - localhost,127.0.0.1,playwright-mcp
+      - localhost,127.0.0.1,playwright-mcp-router
+      - --backend-runtime-root-path
+      - /runtime/playwright_mcp_backend
+      - --candidate-root-path
+      - /runtime/mcp_playwright_profile/writeback_candidate
       - --data-source-path
       - /input/.secret
-      - --persistent-profile-path
-      - /runtime-profile/playwright_profile
-      - --output-dir
-      - /output/.playwright-mcp/current
-      - --mcp-config-path
-      - /runtime/browser_vpn_runtime/playwright_mcp/config.json
+      - --output-root-path
+      - /output/.playwright-mcp
+      - --profile-root-path
+      - /runtime/mcp_playwright_profile/profile
       - --host
       - 0.0.0.0
       - --port
@@ -65,28 +67,8 @@ services:
       - vpn
     volumes:
       - ./.secret:/input/.secret:ro
-      - browser-profile-runtime:/runtime-profile
+      - browser-profile-runtime:/runtime/mcp_playwright_profile
       - ${OUTPUT_DIR:-./out}:/output
-
-  playwright-profile-writeback:
-    build:
-      context: ${BROWSER_VPN_RUNTIME_CONTEXT:-../browser-vpn-runtime}
-      dockerfile: docker/playwright/Dockerfile
-    command:
-      - browser-vpn-runtime-playwright-profile-snapshot
-      - --runtime-profile-path
-      - /runtime-profile/playwright_profile
-      - --writeback-root-path
-      - /writeback
-      - --owner-uid
-      - ${HOST_UID:-1000}
-      - --owner-gid
-      - ${HOST_GID:-1000}
-    profiles:
-      - writeback
-    volumes:
-      - browser-profile-runtime:/runtime-profile:ro
-      - ./.secret:/writeback
 
   workflow:
     build:
@@ -104,23 +86,27 @@ services:
         mkdir -p /runtime
         && cd /workspace/brand-size-chart
         && brand-size-chart-run
-        --browser-runtime-mcp-url "$${BROWSER_RUNTIME_MCP_URL}"
+        --mcp-playwright-profile-source "$${MCP_PLAYWRIGHT_PROFILE_SOURCE}"
+        --mcp-playwright-profile-writeback-candidate-url "$${MCP_PLAYWRIGHT_PROFILE_WRITEBACK_CANDIDATE_URL}"
+        --mcp-url "$${MCP_URL}"
         --workflow-run-id "$${WORKFLOW_RUN_ID:-local}"
         --input /input/input.json
         --input-secret /input/.secret
         --secret /runtime/.secret
         --output-dir /output
     depends_on:
-      playwright-mcp:
+      playwright-mcp-router:
         condition: service_healthy
     dns:
       - 1.1.1.1
       - 8.8.8.8
     environment:
-      BROWSER_RUNTIME_MCP_URL: http://playwright-mcp:8931/mcp
       DBOS_SYSTEM_DATABASE_URL: sqlite:////runtime/dbos.sqlite
       HOST_GID: ${HOST_GID:-1000}
       HOST_UID: ${HOST_UID:-1000}
+      MCP_PLAYWRIGHT_PROFILE_SOURCE: /input/.secret/playwright_profile
+      MCP_PLAYWRIGHT_PROFILE_WRITEBACK_CANDIDATE_URL: http://playwright-mcp-router:8931/runtime/mcp-playwright-profile/writeback-candidate
+      MCP_URL: http://playwright-mcp-router:8931/mcp
       OUTPUT_DIR: ${OUTPUT_DIR:-./out}
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
       WORKFLOW_RUN_ID: ${WORKFLOW_RUN_ID:-local}

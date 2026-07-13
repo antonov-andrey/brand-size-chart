@@ -4,8 +4,8 @@ from dbos import DBOS, DBOSConfiguredInstance, pydantic_args_validator
 from workflow_container_runtime.artifact import JsonArtifactWriter
 from workflow_container_runtime.workflow import WorkflowBase, WorkflowExecutionContext
 
-from brand_size_chart.io import brand_list_parse
-from brand_size_chart.model import BrandResult, RunResult, WorkflowBrandSizeChartInput
+from brand_size_chart.identifier import dbos_identifier_component
+from brand_size_chart.model import BrandInput, BrandResult, RunResult, WorkflowBrandSizeChartInput
 from brand_size_chart.workflow.brand import BrandSizeChartBrandWorkflow
 
 
@@ -52,29 +52,27 @@ class BrandSizeChartRunWorkflow(
         """
 
         await self.input_write_step(execution_context, workflow_input)
-        brand_list_parse_result = brand_list_parse(workflow_input.request.brand_list_text)
-        error_list: list[str] = []
         brand_result_list: list[BrandResult] = []
-        if not brand_list_parse_result.brand_list:
-            error_list.append("Brand list contains no valid brand names.")
-        else:
-            for brand_input in brand_list_parse_result.brand_list:
-                brand_result_list.append(
-                    await self._brand_workflow.run(
-                        execution_context.for_child_workflow(
-                            runtime_capability=execution_context.runtime_capability,
-                            workflow_instance_key=f"brand_{brand_input.parsed_brand_key}",
-                        ),
-                        workflow_input,
-                        brand_input,
-                    )
+        for parsed_brand_name in workflow_input.request.brand_list:
+            brand_input = BrandInput(
+                parsed_brand_key=dbos_identifier_component(parsed_brand_name),
+                parsed_brand_name=parsed_brand_name,
+            )
+            brand_result_list.append(
+                await self._brand_workflow.run(
+                    execution_context.for_child_workflow(
+                        runtime_capability=execution_context.runtime_capability,
+                        workflow_instance_key=f"brand_{brand_input.parsed_brand_key}",
+                    ),
+                    workflow_input,
+                    brand_input,
                 )
+            )
 
         workflow_result = RunResult(
-            brand_list_parse_warning_list=brand_list_parse_result.warning_list,
             brand_result_list=brand_result_list,
-            error_list=error_list,
-            status="failed" if error_list else "success",
+            error_list=[],
+            status="success",
             warning_list=[],
         )
         return await self.result_write_step(execution_context, workflow_input, workflow_result)

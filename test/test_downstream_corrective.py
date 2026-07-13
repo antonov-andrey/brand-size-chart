@@ -662,7 +662,7 @@ def _accepted_table_list_get(result_dir: Path, source_type_result_list: list[Sou
 def _brand_input_get() -> BrandInput:
     """Build one stable brand identity."""
 
-    return BrandInput(parsed_brand_key="brand", parsed_brand_name="Brand", raw_brand_name="Brand", source_line_number=1)
+    return BrandInput(parsed_brand_key="brand", parsed_brand_name="Brand")
 
 
 def _brand_output_step_get(reader: SourceDiscoveryDatabaseReader) -> BrandOutputStep:
@@ -788,24 +788,40 @@ def _workflow_input_get(product_type_request_list: list[str]) -> WorkflowBrandSi
     return WorkflowBrandSizeChartInput(
         config=WorkflowBrandSizeChartConfig(
             instruction="",
+            mcp_playwright_profile_writeback_policy={
+                "mcp_playwright_profile_name_prefix": "",
+                "workflow_run_status_list": ["done"],
+            },
             step_map=WorkflowBrandSizeChartStepMap(
                 canonical_select=WorkflowStepCanonicalSelectConfig(
-                    correction_attempt_limit=1, instruction="", model="gpt-5.6-terra", reasoning_effort="high"
+                    correction_attempt_limit=1,
+                    instruction="",
+                    mcp_playwright_profile=None,
+                    mcp_playwright_profile_source=None,
+                    model="gpt-5.6-terra",
+                    reasoning_effort="high",
                 ),
                 coverage_decide=WorkflowStepCoverageDecideConfig(
-                    correction_attempt_limit=1, instruction="", model="gpt-5.6-terra", reasoning_effort="high"
+                    correction_attempt_limit=1,
+                    instruction="",
+                    mcp_playwright_profile=None,
+                    mcp_playwright_profile_source=None,
+                    model="gpt-5.6-terra",
+                    reasoning_effort="high",
                 ),
                 source_discover=WorkflowStepSourceDiscoverConfig(
                     concurrency=1,
                     correction_attempt_limit=1,
                     instruction="",
+                    mcp_playwright_profile="source-discover",
+                    mcp_playwright_profile_source=None,
                     model="gpt-5.6-terra",
                     reasoning_effort="high",
                 ),
             ),
         ),
         request=WorkflowBrandSizeChartRequest(
-            brand_list_text="Brand\n",
+            brand_list=["Brand"],
             priority_country_code="TR",
             product_type_request_list=product_type_request_list,
             source_type_allow_list=[],

@@ -97,9 +97,7 @@ def _input_get(context: WorkflowStepExecutionContext) -> SourceDiscoveryInput:
     """Build a source-discovery input carrying its complete workflow-input identity."""
 
     return SourceDiscoveryInput(
-        brand_input=BrandInput(
-            parsed_brand_key="brand", parsed_brand_name="Brand", raw_brand_name="Brand", source_line_number=1
-        ),
+        brand_input=BrandInput(parsed_brand_key="brand", parsed_brand_name="Brand"),
         evidence_write_target=ArtifactWriteTarget(
             artifact_path="workflow/run/step/source_discover/evidence",
             filesystem_path=(context.result_dir / ".playwright-mcp" / "evidence").as_posix(),

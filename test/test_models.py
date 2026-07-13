@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from workflow_container_runtime.workflow import WorkflowBrowserConfigBase
 
 from brand_size_chart.model import (
     BrandSourceTypeResultStepInput,
@@ -11,7 +12,34 @@ from brand_size_chart.model import (
     SourceDiscoveryResult,
     SourceDiscoveryTable,
     SourceTypeResult,
+    WorkflowBrandSizeChartConfig,
+    WorkflowBrandSizeChartInput,
+    WorkflowStepCanonicalSelectConfig,
+    WorkflowStepCoverageDecideConfig,
+    WorkflowStepSourceDiscoverConfig,
 )
+
+
+def test_input_schema_is_generated_from_pydantic_owner() -> None:
+    """Keep the checked-in public schema identical to the concrete input model schema."""
+
+    assert json.loads(Path("input.schema.json").read_text(encoding="utf-8")) == (
+        WorkflowBrandSizeChartInput.model_json_schema()
+    )
+
+
+def test_workflow_config_uses_explicit_browser_profile_contract() -> None:
+    """Require the workflow policy and both nullable profile fields on every Codex step."""
+
+    assert issubclass(WorkflowBrandSizeChartConfig, WorkflowBrowserConfigBase)
+    for config_model in (
+        WorkflowStepCanonicalSelectConfig,
+        WorkflowStepCoverageDecideConfig,
+        WorkflowStepSourceDiscoverConfig,
+    ):
+        assert {"mcp_playwright_profile", "mcp_playwright_profile_source"} <= set(config_model.model_fields)
+        assert config_model.model_fields["mcp_playwright_profile"].is_required()
+        assert config_model.model_fields["mcp_playwright_profile_source"].is_required()
 
 
 def test_downstream_steps_accept_complete_source_results_and_reject_copied_config() -> None:

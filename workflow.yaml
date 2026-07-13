@@ -1,5 +1,5 @@
 name: brand_size_chart
-image: "brand-size-chart:0.4.0"
+image: "brand-size-chart:0.5.0"
 input_schema_path: input.schema.json
 command:
   - "brand-size-chart-run"

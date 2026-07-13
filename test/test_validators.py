@@ -40,7 +40,7 @@ def test_request_rejects_duplicate_source_types() -> None:
 
     with pytest.raises(ValueError, match="unique"):
         WorkflowBrandSizeChartRequest(
-            brand_list_text="Brand",
+            brand_list=["Brand"],
             priority_country_code="TR",
             product_type_request_list=[],
             source_type_allow_list=["official_brand_size_guide", "official_brand_size_guide"],
@@ -52,19 +52,25 @@ def _input_payload_get() -> dict[str, object]:
 
     return {
         "request": {
-            "brand_list_text": "Brand\\n",
+            "brand_list": ["Brand"],
             "priority_country_code": "TR",
             "product_type_request_list": [],
             "source_type_allow_list": [],
         },
         "config": {
             "instruction": "",
+            "mcp_playwright_profile_writeback_policy": {
+                "mcp_playwright_profile_name_prefix": "",
+                "workflow_run_status_list": ["done"],
+            },
             "step_map": {
                 step_key: (
                     {
                         "concurrency": 1,
                         "correction_attempt_limit": 1,
                         "instruction": "",
+                        "mcp_playwright_profile": "source-discover",
+                        "mcp_playwright_profile_source": None,
                         "model": "gpt-5.6-terra",
                         "reasoning_effort": "high",
                     }
@@ -72,6 +78,8 @@ def _input_payload_get() -> dict[str, object]:
                     else {
                         "correction_attempt_limit": 1,
                         "instruction": "",
+                        "mcp_playwright_profile": None,
+                        "mcp_playwright_profile_source": None,
                         "model": "gpt-5.6-terra",
                         "reasoning_effort": "high",
                     }

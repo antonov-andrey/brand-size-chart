@@ -6,7 +6,9 @@ import shutil
 import stat
 from pathlib import Path
 
-DEFAULT_BROWSER_RUNTIME_MCP_URL_ENV = "BROWSER_RUNTIME_MCP_URL"
+DEFAULT_MCP_PLAYWRIGHT_PROFILE_SOURCE_ENV = "MCP_PLAYWRIGHT_PROFILE_SOURCE"
+DEFAULT_MCP_PLAYWRIGHT_PROFILE_WRITEBACK_CANDIDATE_URL_ENV = "MCP_PLAYWRIGHT_PROFILE_WRITEBACK_CANDIDATE_URL"
+DEFAULT_MCP_URL_ENV = "MCP_URL"
 DEFAULT_QUEUE_WORKER_CONCURRENCY = 4
 SYSTEM_DATABASE_URL_PREFIX_TUPLE = ("postgresql://", "postgres://", "sqlite://")
 
@@ -18,7 +20,15 @@ def args_parse() -> argparse.Namespace:
         Parsed arguments.
     """
     parser = argparse.ArgumentParser(description="Run the brand size-chart DBOS workflow.")
-    parser.add_argument("--browser-runtime-mcp-url", default=os.environ.get(DEFAULT_BROWSER_RUNTIME_MCP_URL_ENV, ""))
+    parser.add_argument(
+        "--mcp-playwright-profile-source",
+        default=os.environ.get(DEFAULT_MCP_PLAYWRIGHT_PROFILE_SOURCE_ENV, ""),
+    )
+    parser.add_argument(
+        "--mcp-playwright-profile-writeback-candidate-url",
+        default=os.environ.get(DEFAULT_MCP_PLAYWRIGHT_PROFILE_WRITEBACK_CANDIDATE_URL_ENV, ""),
+    )
+    parser.add_argument("--mcp-url", default=os.environ.get(DEFAULT_MCP_URL_ENV, ""))
     parser.add_argument("--workflow-run-id", required=True)
     parser.add_argument("--input", required=True, type=Path)
     parser.add_argument("--input-secret", default=None, type=Path)

@@ -1,5 +1,37 @@
 {
   "$defs": {
+    "McpPlaywrightProfileWritebackPolicy": {
+      "additionalProperties": false,
+      "description": "Select named profiles and WorkflowRun states for profile writeback.",
+      "properties": {
+        "mcp_playwright_profile_name_prefix": {
+          "description": "Case-sensitive physical profile prefix eligible for writeback; an empty value permits every named profile.",
+          "title": "Mcp Playwright Profile Name Prefix",
+          "type": "string"
+        },
+        "workflow_run_status_list": {
+          "description": "Workflow run statuses that publish the current candidate to the input data source.",
+          "items": {
+            "enum": [
+              "created",
+              "working",
+              "done",
+              "failed",
+              "cancelled"
+            ],
+            "type": "string"
+          },
+          "title": "Workflow Run Status List",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mcp_playwright_profile_name_prefix",
+        "workflow_run_status_list"
+      ],
+      "title": "McpPlaywrightProfileWritebackPolicy",
+      "type": "object"
+    },
     "WorkflowBrandSizeChartConfig": {
       "additionalProperties": false,
       "description": "Define complete user-owned settings for one workflow run.",
@@ -11,6 +43,11 @@
           "type": "string",
           "x-ui-control": "textarea"
         },
+        "mcp_playwright_profile_writeback_policy": {
+          "$ref": "#/$defs/McpPlaywrightProfileWritebackPolicy",
+          "description": "Policy for publishing successful named Playwright profiles back to the input data source.",
+          "title": "Playwright profile writeback policy"
+        },
         "step_map": {
           "$ref": "#/$defs/WorkflowBrandSizeChartStepMap",
           "description": "Exact configurations for every configurable workflow step.",
@@ -19,6 +56,7 @@
       },
       "required": [
         "instruction",
+        "mcp_playwright_profile_writeback_policy",
         "step_map"
       ],
       "title": "WorkflowBrandSizeChartConfig",
@@ -28,10 +66,15 @@
       "additionalProperties": false,
       "description": "Define the complete domain work requested from one workflow run.",
       "properties": {
-        "brand_list_text": {
-          "description": "Text with one requested brand name per line.",
+        "brand_list": {
+          "description": "Ordered final brand names to process.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
           "title": "Brand list",
-          "type": "string"
+          "type": "array",
+          "uniqueItems": true
         },
         "priority_country_code": {
           "description": "ISO 3166 alpha-2 country code preferred when selecting market coverage.",
@@ -58,7 +101,7 @@
         }
       },
       "required": [
-        "brand_list_text",
+        "brand_list",
         "priority_country_code",
         "product_type_request_list",
         "source_type_allow_list"
@@ -112,6 +155,32 @@
           "type": "string",
           "x-ui-control": "textarea"
         },
+        "mcp_playwright_profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Run-local logical Playwright target profile, or null for isolated execution.",
+          "title": "Playwright profile"
+        },
+        "mcp_playwright_profile_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exact completed run-local physical profile copied into the target before every action call.",
+          "title": "Playwright profile source"
+        },
         "model": {
           "default": "gpt-5.6-terra",
           "description": "Codex model used by action and verifier.",
@@ -140,6 +209,8 @@
       "required": [
         "correction_attempt_limit",
         "instruction",
+        "mcp_playwright_profile",
+        "mcp_playwright_profile_source",
         "model",
         "reasoning_effort"
       ],
@@ -164,6 +235,32 @@
           "type": "string",
           "x-ui-control": "textarea"
         },
+        "mcp_playwright_profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Run-local logical Playwright target profile, or null for isolated execution.",
+          "title": "Playwright profile"
+        },
+        "mcp_playwright_profile_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exact completed run-local physical profile copied into the target before every action call.",
+          "title": "Playwright profile source"
+        },
         "model": {
           "default": "gpt-5.6-terra",
           "description": "Codex model used by action and verifier.",
@@ -192,6 +289,8 @@
       "required": [
         "correction_attempt_limit",
         "instruction",
+        "mcp_playwright_profile",
+        "mcp_playwright_profile_source",
         "model",
         "reasoning_effort"
       ],
@@ -223,6 +322,32 @@
           "type": "string",
           "x-ui-control": "textarea"
         },
+        "mcp_playwright_profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Run-local logical Playwright target profile, or null for isolated execution.",
+          "title": "Playwright profile"
+        },
+        "mcp_playwright_profile_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exact completed run-local physical profile copied into the target before every action call.",
+          "title": "Playwright profile source"
+        },
         "model": {
           "default": "gpt-5.6-terra",
           "description": "Codex model used by action and verifier.",
@@ -249,11 +374,13 @@
         }
       },
       "required": [
-        "concurrency",
         "correction_attempt_limit",
         "instruction",
+        "mcp_playwright_profile",
+        "mcp_playwright_profile_source",
         "model",
-        "reasoning_effort"
+        "reasoning_effort",
+        "concurrency"
       ],
       "title": "WorkflowStepSourceDiscoverConfig",
       "type": "object"
@@ -275,8 +402,8 @@
     }
   },
   "required": [
-    "config",
-    "request"
+    "request",
+    "config"
   ],
   "title": "WorkflowBrandSizeChartInput",
   "type": "object"

@@ -22,23 +22,31 @@ def _input_payload_get() -> dict[str, object]:
 
     return {
         "request": {
-            "brand_list_text": "Mavi\\n",
+            "brand_list": ["Mavi"],
             "priority_country_code": "TR",
             "product_type_request_list": ["dress"],
             "source_type_allow_list": ["official_brand_size_guide"],
         },
         "config": {
             "instruction": "Use Turkish sources first.",
+            "mcp_playwright_profile_writeback_policy": {
+                "mcp_playwright_profile_name_prefix": "",
+                "workflow_run_status_list": ["done"],
+            },
             "step_map": {
                 "canonical_select": {
                     "correction_attempt_limit": 3,
                     "instruction": "Keep one chart per group.",
+                    "mcp_playwright_profile": None,
+                    "mcp_playwright_profile_source": None,
                     "model": "gpt-5.6-terra",
                     "reasoning_effort": "high",
                 },
                 "coverage_decide": {
                     "correction_attempt_limit": 3,
                     "instruction": "Classify every requested product type.",
+                    "mcp_playwright_profile": None,
+                    "mcp_playwright_profile_source": None,
                     "model": "gpt-5.6-terra",
                     "reasoning_effort": "high",
                 },
@@ -46,6 +54,8 @@ def _input_payload_get() -> dict[str, object]:
                     "concurrency": 2,
                     "correction_attempt_limit": 3,
                     "instruction": "Collect verified size charts.",
+                    "mcp_playwright_profile": "source-discover",
+                    "mcp_playwright_profile_source": None,
                     "model": "gpt-5.6-terra",
                     "reasoning_effort": "high",
                 },
@@ -70,7 +80,7 @@ def test_public_input_owns_complete_request_and_closed_typed_step_map() -> None:
 
     assert isinstance(workflow_input, WorkflowInputBase)
     assert set(type(workflow_input.request).model_fields) == {
-        "brand_list_text",
+        "brand_list",
         "priority_country_code",
         "product_type_request_list",
         "source_type_allow_list",

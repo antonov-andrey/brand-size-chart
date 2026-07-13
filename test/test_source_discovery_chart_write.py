@@ -151,9 +151,7 @@ def _input_path_write(step_dir: Path) -> Path:
     input_path = step_dir / "input.json"
     input_path.write_text(
         SourceDiscoveryInput(
-            brand_input=BrandInput(
-                parsed_brand_key="brand", parsed_brand_name="Brand", raw_brand_name="Brand", source_line_number=1
-            ),
+            brand_input=BrandInput(parsed_brand_key="brand", parsed_brand_name="Brand"),
             evidence_write_target=ArtifactWriteTarget(
                 artifact_path="workflow/run/step/source_discover/evidence",
                 filesystem_path=(step_dir / "evidence").as_posix(),

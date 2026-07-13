@@ -8,6 +8,7 @@ from workflow_container_runtime.artifact import (
     JsonArtifactWriter,
 )
 from workflow_container_runtime.codex import CodexRunner
+from workflow_container_runtime.mcp_playwright_profile import McpPlaywrightProfileRuntime
 from workflow_container_runtime.prompt import PromptRenderer
 from workflow_container_runtime.state import SqliteStateStore
 from workflow_container_runtime.step import CodexExecutionRetryPolicy, WorkflowStepCodexRuntimePolicy
@@ -49,6 +50,7 @@ class BrandSizeChartApplication:
             prompt_renderer=prompt_renderer,
             workflow_container_name="brand-size-chart",
         )
+        mcp_playwright_profile_runtime = McpPlaywrightProfileRuntime()
         browser_step_runtime_policy = WorkflowStepCodexRuntimePolicy(
             artifact_materialization_policy=ArtifactMaterializationPolicy(
                 artifact_root_tuple=(Path(".playwright-mcp/current"),),
@@ -66,6 +68,7 @@ class BrandSizeChartApplication:
             artifact_materializer=artifact_materializer,
             artifact_writer=artifact_writer,
             codex_runner=codex_runner,
+            mcp_playwright_profile_runtime=mcp_playwright_profile_runtime,
             prompt_renderer=prompt_renderer,
             runtime_policy=browser_step_runtime_policy,
             sqlite_state_store=sqlite_state_store,
@@ -92,6 +95,7 @@ class BrandSizeChartApplication:
                 artifact_materializer=artifact_materializer,
                 artifact_writer=artifact_writer,
                 codex_runner=codex_runner,
+                mcp_playwright_profile_runtime=mcp_playwright_profile_runtime,
                 prompt_renderer=prompt_renderer,
                 runtime_policy=local_step_runtime_policy,
                 source_discovery_database_reader=source_discovery_database_reader,
@@ -106,6 +110,7 @@ class BrandSizeChartApplication:
                 artifact_materializer=artifact_materializer,
                 artifact_writer=artifact_writer,
                 codex_runner=codex_runner,
+                mcp_playwright_profile_runtime=mcp_playwright_profile_runtime,
                 prompt_renderer=prompt_renderer,
                 runtime_policy=local_step_runtime_policy,
                 validator=coverage_decision_validator,

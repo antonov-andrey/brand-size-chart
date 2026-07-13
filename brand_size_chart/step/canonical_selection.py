@@ -4,6 +4,7 @@ from typing import ClassVar
 
 from workflow_container_runtime.artifact import ArtifactMaterializer, JsonArtifactWriter
 from workflow_container_runtime.codex import CodexRunner
+from workflow_container_runtime.mcp_playwright_profile import McpPlaywrightProfileRuntime
 from workflow_container_runtime.prompt import PromptRenderer
 from workflow_container_runtime.step import (
     WorkflowStepCodexBase,
@@ -130,6 +131,7 @@ class CanonicalSelectionStep(
         artifact_materializer: ArtifactMaterializer,
         artifact_writer: JsonArtifactWriter,
         codex_runner: CodexRunner,
+        mcp_playwright_profile_runtime: McpPlaywrightProfileRuntime,
         prompt_renderer: PromptRenderer,
         runtime_policy: WorkflowStepCodexRuntimePolicy,
         source_discovery_database_reader: SourceDiscoveryDatabaseReader,
@@ -141,6 +143,7 @@ class CanonicalSelectionStep(
             artifact_materializer: External artifact tree materializer.
             artifact_writer: Atomic standard-file writer.
             codex_runner: Low-level Codex runner.
+            mcp_playwright_profile_runtime: Run-local browser profile lifecycle owner.
             prompt_renderer: Strict project prompt renderer.
             runtime_policy: Source-owned materialization and retry policy.
             source_discovery_database_reader: Shared accepted-table query boundary.
@@ -151,6 +154,7 @@ class CanonicalSelectionStep(
             artifact_materializer=artifact_materializer,
             artifact_writer=artifact_writer,
             codex_runner=codex_runner,
+            mcp_playwright_profile_runtime=mcp_playwright_profile_runtime,
             prompt_renderer=prompt_renderer,
             runtime_policy=runtime_policy,
         )

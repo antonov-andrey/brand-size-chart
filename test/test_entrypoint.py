@@ -6,8 +6,10 @@ import os
 from pathlib import Path
 
 import pytest
+from workflow_container_runtime.mcp_playwright_profile import McpPlaywrightProfileRuntime
 
 from brand_size_chart.app import entrypoint, runtime_config
+from brand_size_chart.app.application import BrandSizeChartApplication
 from brand_size_chart.model import RunResult
 
 
@@ -17,9 +19,7 @@ class _WorkflowHandle:
     def get_result(self) -> RunResult:
         """Return the fixed successful result."""
 
-        return RunResult(
-            brand_list_parse_warning_list=[], brand_result_list=[], error_list=[], status="success", warning_list=[]
-        )
+        return RunResult(brand_result_list=[], error_list=[], status="success", warning_list=[])
 
 
 class _FailedWorkflowHandle:
@@ -28,13 +28,7 @@ class _FailedWorkflowHandle:
     def get_result(self) -> RunResult:
         """Return the fixed failed result."""
 
-        return RunResult(
-            brand_list_parse_warning_list=[],
-            brand_result_list=[],
-            error_list=["root failure"],
-            status="failed",
-            warning_list=[],
-        )
+        return RunResult(brand_result_list=[], error_list=["root failure"], status="failed", warning_list=[])
 
 
 class _DBOS:
@@ -106,9 +100,13 @@ def test_entrypoint_loads_complete_typed_input(monkeypatch: object, tmp_path: Pa
         runtime_config,
         "args_parse",
         lambda: argparse.Namespace(
-            browser_runtime_mcp_url="http://browser:8931/mcp",
             input=input_path,
             input_secret=None,
+            mcp_playwright_profile_source="/input/.secret/playwright_profile",
+            mcp_playwright_profile_writeback_candidate_url=(
+                "http://playwright-mcp-router:8931/runtime/mcp-playwright-profile/writeback-candidate"
+            ),
+            mcp_url="http://playwright-mcp-router:8931/mcp",
             output_dir=tmp_path / "out",
             secret=tmp_path / "secret",
             workflow_git_url="",
@@ -131,6 +129,36 @@ def test_entrypoint_bootstraps_dbos_with_stable_ids_and_worker_concurrency(monke
     assert [event[0] for event in _DBOS.event_list] == ["configure", "listen", "launch", "register", "enqueue"]
     assert _DBOS.event_list[3] == ("register", ("queue/local", 4))
     assert _DBOS.enqueue_args[1].model_dump() == _input_payload_get()
+
+
+def test_application_injects_one_profile_runtime_into_every_codex_step() -> None:
+    """Share one run-local profile lease and candidate-publication owner across all Codex steps."""
+
+    application = BrandSizeChartApplication()
+    brand_workflow = application.root_workflow._brand_workflow
+    profile_runtime_list = [
+        brand_workflow._source_discovery_step._mcp_playwright_profile_runtime,
+        brand_workflow._coverage_decision_step._mcp_playwright_profile_runtime,
+        brand_workflow._canonical_selection_step._mcp_playwright_profile_runtime,
+    ]
+
+    assert all(isinstance(profile_runtime, McpPlaywrightProfileRuntime) for profile_runtime in profile_runtime_list)
+    assert len({id(profile_runtime) for profile_runtime in profile_runtime_list}) == 1
+
+
+def test_entrypoint_builds_exact_browser_runtime_capability(monkeypatch: object, tmp_path: Path) -> None:
+    """Pass only router URL, immutable source, and candidate endpoint into the runtime capability."""
+
+    _entrypoint_configure(monkeypatch, tmp_path)
+
+    assert entrypoint.main() == 0
+    assert _DBOS.enqueue_args[0].runtime_capability.browser.model_dump() == {
+        "mcp_playwright_profile_source": "/input/.secret/playwright_profile",
+        "mcp_playwright_profile_writeback_candidate_url": (
+            "http://playwright-mcp-router:8931/runtime/mcp-playwright-profile/writeback-candidate"
+        ),
+        "mcp_url": "http://playwright-mcp-router:8931/mcp",
+    }
 
 
 def test_entrypoint_returns_failed_exit_code_for_failed_root_result(monkeypatch: object, tmp_path: Path) -> None:
@@ -170,8 +198,8 @@ def test_entrypoint_rejects_hidden_sqlite_system_database_fallback(monkeypatch: 
 def test_entrypoint_rejects_missing_browser_runtime_mcp_url(monkeypatch: object, tmp_path: Path) -> None:
     """Reject the launch before DBOS setup when browser runtime is absent."""
 
-    _entrypoint_configure(monkeypatch, tmp_path, browser_runtime_mcp_url="")
-    with pytest.raises(RuntimeError, match="BROWSER_RUNTIME_MCP_URL"):
+    _entrypoint_configure(monkeypatch, tmp_path, mcp_url="")
+    with pytest.raises(RuntimeError, match="MCP_URL"):
         entrypoint.main()
 
 
@@ -231,7 +259,7 @@ def _entrypoint_configure(
     monkeypatch: object,
     tmp_path: Path,
     *,
-    browser_runtime_mcp_url: str = "http://browser:8931/mcp",
+    mcp_url: str = "http://playwright-mcp-router:8931/mcp",
     dbos_class: type[_DBOS] = _DBOS,
     input_secret: Path | None = None,
     secret: Path | None = None,
@@ -251,9 +279,13 @@ def _entrypoint_configure(
         runtime_config,
         "args_parse",
         lambda: argparse.Namespace(
-            browser_runtime_mcp_url=browser_runtime_mcp_url,
             input=input_path,
             input_secret=input_secret,
+            mcp_playwright_profile_source="/input/.secret/playwright_profile",
+            mcp_playwright_profile_writeback_candidate_url=(
+                "http://playwright-mcp-router:8931/runtime/mcp-playwright-profile/writeback-candidate"
+            ),
+            mcp_url=mcp_url,
             output_dir=tmp_path / "out",
             secret=secret or tmp_path / "secret",
             workflow_git_url="",
@@ -268,19 +300,25 @@ def _input_payload_get() -> dict[str, object]:
 
     return {
         "request": {
-            "brand_list_text": "Brand\\n",
+            "brand_list": ["Brand"],
             "priority_country_code": "TR",
             "product_type_request_list": [],
             "source_type_allow_list": [],
         },
         "config": {
             "instruction": "",
+            "mcp_playwright_profile_writeback_policy": {
+                "mcp_playwright_profile_name_prefix": "",
+                "workflow_run_status_list": ["done"],
+            },
             "step_map": {
                 step_key: (
                     {
                         "concurrency": 1,
                         "correction_attempt_limit": 1,
                         "instruction": "",
+                        "mcp_playwright_profile": "source-discover",
+                        "mcp_playwright_profile_source": None,
                         "model": "gpt-5.6-terra",
                         "reasoning_effort": "high",
                     }
@@ -288,6 +326,8 @@ def _input_payload_get() -> dict[str, object]:
                     else {
                         "correction_attempt_limit": 1,
                         "instruction": "",
+                        "mcp_playwright_profile": None,
+                        "mcp_playwright_profile_source": None,
                         "model": "gpt-5.6-terra",
                         "reasoning_effort": "high",
                     }

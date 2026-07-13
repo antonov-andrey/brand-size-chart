@@ -14,6 +14,7 @@ import brand_size_chart.model as brand_size_chart_model
 from brand_size_chart.model import (
     BrandInput,
     BrandOutputResult,
+    BrandResult,
     CanonicalSelectionResult,
     CoverageDecisionResult,
     SourceDiscoveryInputSource,
@@ -27,6 +28,7 @@ from brand_size_chart.model import (
     WorkflowStepSourceDiscoverConfig,
 )
 from brand_size_chart.workflow.brand import BrandSizeChartBrandWorkflow
+from brand_size_chart.workflow.root import BrandSizeChartRunWorkflow
 
 
 def _brand_input_get() -> BrandInput:
@@ -39,9 +41,74 @@ def _brand_input_get() -> BrandInput:
     return BrandInput(
         parsed_brand_key="brand",
         parsed_brand_name="Brand",
-        raw_brand_name="Brand",
-        source_line_number=1,
     )
+
+
+def test_root_workflow_builds_minimal_brand_input_in_request_order(tmp_path: Path) -> None:
+    """Construct one minimal brand handoff per strict request value in order."""
+
+    received_brand_input_list: list[BrandInput] = []
+    workflow = BrandSizeChartRunWorkflow.__new__(BrandSizeChartRunWorkflow)
+
+    class BrandWorkflow:
+        """Record each root-to-brand handoff."""
+
+        async def run(self, execution_context: object, workflow_input: object, brand_input: BrandInput) -> BrandResult:
+            """Record the brand and return one minimal successful result."""
+
+            _ = execution_context
+            _ = workflow_input
+            received_brand_input_list.append(brand_input)
+            return BrandResult(
+                brand_input=brand_input,
+                brand_output_result=None,
+                canonical_selection_result=None,
+                coverage_decision_result=None,
+                error_list=[],
+                source_type_result_list=[],
+                status="success",
+                warning_list=[],
+            )
+
+    async def artifact_write(*args: object) -> None:
+        """Accept one workflow publication boundary."""
+
+    async def result_write(*args: object) -> object:
+        """Return the candidate root result."""
+
+        return args[-1]
+
+    workflow._brand_workflow = BrandWorkflow()
+    workflow.input_write_step = artifact_write
+    workflow.result_write_step = result_write
+    workflow_input = _workflow_input_get(concurrency=1).model_copy(
+        update={
+            "request": WorkflowBrandSizeChartRequest(
+                brand_list=["LC Waikiki", "Mavi"],
+                priority_country_code="TR",
+                product_type_request_list=[],
+                source_type_allow_list=[],
+            )
+        }
+    )
+
+    workflow_result = asyncio.run(
+        inspect.unwrap(BrandSizeChartRunWorkflow.run)(
+            workflow,
+            WorkflowExecutionContext(
+                result_dir=tmp_path,
+                runtime_capability=WorkflowRuntimeCapability(browser=None),
+                workflow_instance_dir=tmp_path / "workflow" / "run",
+            ),
+            workflow_input,
+        )
+    )
+
+    assert received_brand_input_list == [
+        BrandInput(parsed_brand_key="lc_waikiki", parsed_brand_name="LC Waikiki"),
+        BrandInput(parsed_brand_key="mavi", parsed_brand_name="Mavi"),
+    ]
+    assert [result.brand_input for result in workflow_result.brand_result_list] == received_brand_input_list
 
 
 def _workflow_input_get(concurrency: int) -> WorkflowBrandSizeChartInput:
@@ -57,16 +124,24 @@ def _workflow_input_get(concurrency: int) -> WorkflowBrandSizeChartInput:
     return WorkflowBrandSizeChartInput(
         config=WorkflowBrandSizeChartConfig(
             instruction="",
+            mcp_playwright_profile_writeback_policy={
+                "mcp_playwright_profile_name_prefix": "",
+                "workflow_run_status_list": ["done"],
+            },
             step_map=WorkflowBrandSizeChartStepMap(
                 canonical_select=WorkflowStepCanonicalSelectConfig(
                     correction_attempt_limit=1,
                     instruction="",
+                    mcp_playwright_profile=None,
+                    mcp_playwright_profile_source=None,
                     model="gpt-5.6-terra",
                     reasoning_effort="high",
                 ),
                 coverage_decide=WorkflowStepCoverageDecideConfig(
                     correction_attempt_limit=1,
                     instruction="",
+                    mcp_playwright_profile=None,
+                    mcp_playwright_profile_source=None,
                     model="gpt-5.6-terra",
                     reasoning_effort="high",
                 ),
@@ -74,13 +149,15 @@ def _workflow_input_get(concurrency: int) -> WorkflowBrandSizeChartInput:
                     concurrency=concurrency,
                     correction_attempt_limit=1,
                     instruction="",
+                    mcp_playwright_profile="source-discover",
+                    mcp_playwright_profile_source=None,
                     model="gpt-5.6-terra",
                     reasoning_effort="high",
                 ),
             ),
         ),
         request=WorkflowBrandSizeChartRequest(
-            brand_list_text="Brand",
+            brand_list=["Brand"],
             priority_country_code="TR",
             product_type_request_list=[],
             source_type_allow_list=[],
