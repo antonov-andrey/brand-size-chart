@@ -15,7 +15,7 @@ Every step config uses the browser-profile fields from `WorkflowStepCodexConfigB
 }
 ```
 
-An empty prefix permits every named profile and does not disable writeback. The policy publishes the last successfully verified named profile once when the workflow run becomes `done`; `working` writeback remains an explicit user choice.
+An empty prefix permits every named profile and does not disable writeback. After every successfully verified named invocation, the runtime atomically replaces the single run-local writeback candidate with that profile. The platform publishes the current candidate to the input `DataSource` once when the workflow run becomes `done`; `working` writeback remains an explicit user choice.
 
 ## Public Input Migration
 
