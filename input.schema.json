@@ -5,12 +5,12 @@
       "description": "Select named profiles and WorkflowRun states for profile writeback.",
       "properties": {
         "mcp_playwright_profile_name_prefix": {
-          "description": "Case-sensitive physical profile prefix eligible for writeback; an empty value permits every named profile.",
-          "title": "Mcp Playwright Profile Name Prefix",
+          "description": "Case-sensitive profile name prefix eligible for writeback; an empty value permits every name.",
+          "title": "Profile name prefix",
           "type": "string"
         },
         "workflow_run_status_list": {
-          "description": "Workflow run statuses that publish the current candidate to the input data source.",
+          "description": "Workflow run statuses that permit profile writeback.",
           "items": {
             "enum": [
               "created",
@@ -21,7 +21,7 @@
             ],
             "type": "string"
           },
-          "title": "Workflow Run Status List",
+          "title": "Workflow run statuses",
           "type": "array"
         }
       },
@@ -45,7 +45,7 @@
         },
         "mcp_playwright_profile_writeback_policy": {
           "$ref": "#/$defs/McpPlaywrightProfileWritebackPolicy",
-          "description": "Policy for publishing successful named Playwright profiles back to the input data source.",
+          "description": "Policy for publishing named Playwright profiles back to the workflow input source.",
           "title": "Playwright profile writeback policy"
         },
         "step_map": {

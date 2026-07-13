@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from workflow_container_contract import WorkflowInputSchema
 from workflow_container_runtime.workflow import WorkflowBrowserConfigBase
 
 from brand_size_chart.model import (
@@ -23,9 +24,10 @@ from brand_size_chart.model import (
 def test_input_schema_is_generated_from_pydantic_owner() -> None:
     """Keep the checked-in public schema identical to the concrete input model schema."""
 
-    assert json.loads(Path("input.schema.json").read_text(encoding="utf-8")) == (
-        WorkflowBrandSizeChartInput.model_json_schema()
-    )
+    schema_path = Path("input.schema.json")
+
+    assert json.loads(schema_path.read_text(encoding="utf-8")) == WorkflowBrandSizeChartInput.model_json_schema()
+    WorkflowInputSchema.from_path(schema_path)
 
 
 def test_workflow_config_uses_explicit_browser_profile_contract() -> None:

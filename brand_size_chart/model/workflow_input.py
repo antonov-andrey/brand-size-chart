@@ -2,11 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
-
 from pydantic import ConfigDict, Field, field_validator
-from pydantic.json_schema import GenerateJsonSchema, JsonSchemaMode
-from workflow_container_contract import McpPlaywrightProfileWritebackPolicy
 from workflow_container_runtime.step import WorkflowStepCodexConcurrentConfigBase, WorkflowStepCodexConfigBase
 from workflow_container_runtime.workflow import WorkflowBrowserConfigBase, WorkflowInputBase
 
@@ -121,10 +117,6 @@ class WorkflowBrandSizeChartStepMap(StrictBaseModel):
 class WorkflowBrandSizeChartConfig(WorkflowBrowserConfigBase):
     """Define complete user-owned settings for one workflow run."""
 
-    mcp_playwright_profile_writeback_policy: McpPlaywrightProfileWritebackPolicy = Field(
-        description="Policy for publishing successful named Playwright profiles back to the input data source.",
-        title="Playwright profile writeback policy",
-    )
     step_map: WorkflowBrandSizeChartStepMap = Field(
         description="Exact configurations for every configurable workflow step.",
         title="Step settings",
@@ -142,42 +134,3 @@ class WorkflowBrandSizeChartInput(WorkflowInputBase[WorkflowBrandSizeChartReques
         validate_assignment=True,
         validate_default=True,
     )
-
-    @classmethod
-    def model_json_schema(
-        cls,
-        by_alias: bool = True,
-        ref_template: str = "#/$defs/{model}",
-        schema_generator: type[GenerateJsonSchema] = GenerateJsonSchema,
-        mode: JsonSchemaMode = "validation",
-        *,
-        union_format: Literal["any_of", "primitive_type_array"] = "any_of",
-    ) -> dict[str, Any]:
-        """Generate the complete input schema with labels for inherited policy fields.
-
-        Args:
-            by_alias: Whether field aliases are used in the schema.
-            ref_template: Template for generated definition references.
-            schema_generator: Pydantic schema generator implementation.
-            mode: Validation or serialization schema mode.
-            union_format: Pydantic union representation.
-
-        Returns:
-            Complete Draft 2020-12 input schema.
-        """
-
-        schema = super().model_json_schema(
-            by_alias=by_alias,
-            ref_template=ref_template,
-            schema_generator=schema_generator,
-            mode=mode,
-            union_format=union_format,
-        )
-        policy_property_by_name_map = schema["$defs"]["McpPlaywrightProfileWritebackPolicy"]["properties"]
-        policy_property_by_name_map["mcp_playwright_profile_name_prefix"][
-            "description"
-        ] = "Case-sensitive physical profile prefix eligible for writeback; an empty value permits every named profile."
-        policy_property_by_name_map["workflow_run_status_list"][
-            "description"
-        ] = "Workflow run statuses that publish the current candidate to the input data source."
-        return schema
