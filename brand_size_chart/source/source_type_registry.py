@@ -25,6 +25,12 @@ class SourceTypeRegistry:
                 "official_marketplace_store",
             }
         )
+        self.source_type_by_selector_map = MappingProxyType(
+            {
+                "brand": "official_brand_size_guide",
+                "product": "official_brand_product_page",
+            }
+        )
 
     def source_type_list_get(self, *, have_product_type_request: bool, source_type_allow_list: list[str]) -> list[str]:
         """Return source types in priority order with product-type gating applied.
@@ -46,7 +52,9 @@ class SourceTypeRegistry:
             )
         ]
         if source_type_allow_list:
-            source_type_allow_set = set(source_type_allow_list)
+            source_type_allow_set = {
+                self.source_type_by_selector_map.get(source_type, source_type) for source_type in source_type_allow_list
+            }
             source_type_list = [source_type for source_type in source_type_list if source_type in source_type_allow_set]
         if have_product_type_request:
             return source_type_list

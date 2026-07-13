@@ -9,6 +9,7 @@ import pytest
 from brand_size_chart.app.source_discovery_state import main
 from brand_size_chart.model import SourceDiscoveryInput, SourceDiscoveryUrl
 from brand_size_chart.source.discovery_database import SOURCE_DISCOVERY_TABLE_BY_NAME_MAP
+from brand_size_chart.source.source_type_registry import SOURCE_TYPE_REGISTRY
 
 
 def test_state_command_delegates_exact_input_model_and_static_registry() -> None:
@@ -49,6 +50,15 @@ def test_source_discovery_registry_has_exact_names_models_and_primary_key_order(
         "source_url_product_search": ("SourceDiscoveryUrlProductSearch", ("url", "product_type", "search_sex")),
         "source_table": ("SourceDiscoveryTable", ("size_group_key", "market_scope_key")),
     }
+
+
+def test_source_discovery_registry_resolves_approved_product_and_brand_selectors() -> None:
+    """Resolve the public smoke selectors to two canonical source boundaries."""
+
+    assert SOURCE_TYPE_REGISTRY.source_type_list_get(
+        have_product_type_request=True,
+        source_type_allow_list=["product", "brand"],
+    ) == ["official_brand_size_guide", "official_brand_product_page"]
 
 
 def test_source_discovery_url_rejects_terminal_row_without_evidence() -> None:
