@@ -116,7 +116,7 @@ def test_entrypoint_loads_complete_typed_input(monkeypatch: object, tmp_path: Pa
     monkeypatch.setenv("DBOS_SYSTEM_DATABASE_URL", "sqlite:///tmp/dbos.sqlite")
 
     assert entrypoint.main() == 0
-    assert _DBOS.enqueue_args[1].model_dump() == _input_payload_get()
+    assert _DBOS.enqueue_args[1].model_dump(mode="json") == _input_payload_get()
 
 
 def test_entrypoint_bootstraps_dbos_with_stable_ids_and_worker_concurrency(monkeypatch: object, tmp_path: Path) -> None:
@@ -128,7 +128,7 @@ def test_entrypoint_bootstraps_dbos_with_stable_ids_and_worker_concurrency(monke
     assert entrypoint.main() == 0
     assert [event[0] for event in _DBOS.event_list] == ["configure", "listen", "launch", "register", "enqueue"]
     assert _DBOS.event_list[3] == ("register", ("queue/local", 4))
-    assert _DBOS.enqueue_args[1].model_dump() == _input_payload_get()
+    assert _DBOS.enqueue_args[1].model_dump(mode="json") == _input_payload_get()
 
 
 def test_application_injects_one_profile_runtime_into_every_codex_step() -> None:

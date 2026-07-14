@@ -790,7 +790,7 @@ def _workflow_input_get(product_type_request_list: list[str]) -> WorkflowBrandSi
             instruction="",
             mcp_playwright_profile_writeback_policy={
                 "mcp_playwright_profile_name_prefix": "",
-                "workflow_run_status_list": ["done"],
+                "workflow_run_status_list": ("done",),
             },
             step_map=WorkflowBrandSizeChartStepMap(
                 canonical_select=WorkflowStepCanonicalSelectConfig(

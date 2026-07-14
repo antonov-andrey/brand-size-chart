@@ -1,6 +1,7 @@
 """Validation behavior for complete workflow input and request values."""
 
 from copy import deepcopy
+import json
 from pathlib import Path
 
 import pytest
@@ -16,14 +17,16 @@ def test_priority_country_code_has_identical_schema_and_model_contract() -> None
     valid_payload = _input_payload_get()
 
     assert schema.input_validate(valid_payload) == valid_payload
-    assert WorkflowBrandSizeChartInput.model_validate(valid_payload).request.priority_country_code == "TR"
+    assert (
+        WorkflowBrandSizeChartInput.model_validate_json(json.dumps(valid_payload)).request.priority_country_code == "TR"
+    )
     for invalid_value in ("tr", " TR", "TR "):
         invalid_payload = deepcopy(valid_payload)
         invalid_payload["request"]["priority_country_code"] = invalid_value
         with pytest.raises(WorkflowContractError):
             schema.input_validate(invalid_payload)
         with pytest.raises(ValueError):
-            WorkflowBrandSizeChartInput.model_validate(invalid_payload)
+            WorkflowBrandSizeChartInput.model_validate_json(json.dumps(invalid_payload))
     duplicate_source_type_payload = deepcopy(valid_payload)
     duplicate_source_type_payload["request"]["source_type_allow_list"] = [
         "official_brand_size_guide",
@@ -32,7 +35,7 @@ def test_priority_country_code_has_identical_schema_and_model_contract() -> None
     with pytest.raises(WorkflowContractError):
         schema.input_validate(duplicate_source_type_payload)
     with pytest.raises(ValueError):
-        WorkflowBrandSizeChartInput.model_validate(duplicate_source_type_payload)
+        WorkflowBrandSizeChartInput.model_validate_json(json.dumps(duplicate_source_type_payload))
 
 
 def test_request_rejects_duplicate_source_types() -> None:

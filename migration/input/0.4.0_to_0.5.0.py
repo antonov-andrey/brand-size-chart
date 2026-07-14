@@ -33,7 +33,7 @@ def main() -> int:
         step_config_payload["mcp_playwright_profile"] = "source-discover" if step_key == "source_discover" else None
         step_config_payload["mcp_playwright_profile_source"] = None
 
-    migrated_input = WorkflowBrandSizeChartInput.model_validate(input_payload)
+    migrated_input = WorkflowBrandSizeChartInput.model_validate_json(json.dumps(input_payload))
     print(json.dumps(migrated_input.model_dump(mode="json"), separators=(",", ":"), sort_keys=True))
     return 0
 

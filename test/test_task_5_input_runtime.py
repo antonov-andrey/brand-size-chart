@@ -1,6 +1,7 @@
 """TDD contracts for the concrete Task 5 workflow input and runtime migration."""
 
 import importlib
+import json
 from pathlib import Path
 
 import pytest
@@ -76,7 +77,7 @@ def test_public_input_owns_complete_request_and_closed_typed_step_map() -> None:
     assert hasattr(model, "WorkflowStepCoverageDecideConfig")
     assert hasattr(model, "WorkflowStepSourceDiscoverConfig")
 
-    workflow_input = model.WorkflowBrandSizeChartInput.model_validate(_input_payload_get())
+    workflow_input = model.WorkflowBrandSizeChartInput.model_validate_json(json.dumps(_input_payload_get()))
 
     assert isinstance(workflow_input, WorkflowInputBase)
     assert set(type(workflow_input.request).model_fields) == {
@@ -95,14 +96,16 @@ def test_public_input_owns_complete_request_and_closed_typed_step_map() -> None:
     assert isinstance(workflow_input.config.step_map.coverage_decide, WorkflowStepCodexConfigBase)
     assert isinstance(workflow_input.config.step_map.canonical_select, WorkflowStepCodexConfigBase)
     with pytest.raises(ValueError):
-        model.WorkflowBrandSizeChartInput.model_validate(
-            {
-                **_input_payload_get(),
-                "config": {
-                    **_input_payload_get()["config"],
-                    "step_map": {**_input_payload_get()["config"]["step_map"], "unknown": {}},
-                },
-            }
+        model.WorkflowBrandSizeChartInput.model_validate_json(
+            json.dumps(
+                {
+                    **_input_payload_get(),
+                    "config": {
+                        **_input_payload_get()["config"],
+                        "step_map": {**_input_payload_get()["config"]["step_map"], "unknown": {}},
+                    },
+                }
+            )
         )
 
 
