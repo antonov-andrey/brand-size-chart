@@ -25,7 +25,7 @@ The default local private DataSource path is `.secret` under the project root. C
 
 `MCP_URL` or `--mcp-url`, `MCP_PLAYWRIGHT_PROFILE_SOURCE` or `--mcp-playwright-profile-source`, and `MCP_PLAYWRIGHT_PROFILE_WRITEBACK_CANDIDATE_URL` or `--mcp-playwright-profile-writeback-candidate-url` are required. The workflow process does not start a local browser runtime and does not run in the OpenVPN network namespace.
 
-For standalone local execution with browser traffic through OpenVPN without `marketplace-automation`, put `openvpn/config.json` and the named `.ovpn` file under `.secret/openvpn/`, then run:
+For standalone local execution with browser traffic through OpenVPN without `workflow-control-center`, put `openvpn/config.json` and the named `.ovpn` file under `.secret/openvpn/`, then run:
 
 ```bash
 cat > /tmp/brand-size-chart-input.json <<'JSON'
