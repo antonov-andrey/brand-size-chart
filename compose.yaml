@@ -72,28 +72,12 @@ services:
 
   workflow:
     build:
-      additional_contexts:
-        workflow_container_contract: ${WORKFLOW_CONTAINER_CONTRACT_CONTEXT:-../workflow-container-contract}
-        workflow_container_runtime: ${WORKFLOW_CONTAINER_RUNTIME_CONTEXT:-../workflow-container-runtime}
+      args:
+        WORKFLOW_PLATFORM_BASE_IMAGE: ${WORKFLOW_PLATFORM_BASE_IMAGE:-127.0.0.1:5001/apwid-workflow-platform-base:0.5.3}
       context: .
       dockerfile: docker/workflow/Dockerfile
     command:
-      - bash
-      - -lc
-      - >
-        cleanup() { chown -R "$${HOST_UID}:$${HOST_GID}" /output 2>/dev/null || true; };
-        trap cleanup EXIT;
-        mkdir -p /runtime
-        && cd /workspace/brand-size-chart
-        && brand-size-chart-run
-        --mcp-playwright-profile-source "$${MCP_PLAYWRIGHT_PROFILE_SOURCE}"
-        --mcp-playwright-profile-writeback-candidate-url "$${MCP_PLAYWRIGHT_PROFILE_WRITEBACK_CANDIDATE_URL}"
-        --mcp-url "$${MCP_URL}"
-        --workflow-run-id "$${WORKFLOW_RUN_ID:-local}"
-        --input /input/input.json
-        --input-secret /input/.secret
-        --secret /runtime/.secret
-        --output-dir /output
+      - brand-size-chart-run
     depends_on:
       playwright-mcp-router:
         condition: service_healthy
@@ -102,14 +86,12 @@ services:
       - 8.8.8.8
     environment:
       DBOS_SYSTEM_DATABASE_URL: sqlite:////runtime/dbos.sqlite
-      HOST_GID: ${HOST_GID:-1000}
-      HOST_UID: ${HOST_UID:-1000}
-      MCP_PLAYWRIGHT_PROFILE_SOURCE: /input/.secret/playwright_profile
-      MCP_PLAYWRIGHT_PROFILE_WRITEBACK_CANDIDATE_URL: http://playwright-mcp-router:8931/runtime/mcp-playwright-profile/writeback-candidate
-      MCP_URL: http://playwright-mcp-router:8931/mcp
-      OUTPUT_DIR: ${OUTPUT_DIR:-./out}
       PIP_DISABLE_PIP_VERSION_CHECK: "1"
+      WORKFLOW_CAPABILITY_CONFIG_PATH: /input/capability.json
+      WORKFLOW_CONTROL_URL: ${WORKFLOW_CONTROL_URL:?Set WORKFLOW_CONTROL_URL to a v1 control proxy reachable from Compose}
+      WORKFLOW_INPUT_PATH: /input/input.json
       WORKFLOW_RUN_ID: ${WORKFLOW_RUN_ID:-local}
+      WORKFLOW_RUNTIME_PATH: /runtime
     profiles:
       - vpn
     networks:
@@ -117,17 +99,22 @@ services:
       - browser-control
     volumes:
       - ./.secret:/input/.secret:ro
+      - ./compose.capability.json:/input/capability.json:ro
       - type: bind
         source: ${INPUT_JSON:?Set INPUT_JSON to a complete workflow input JSON file path}
         target: /input/input.json
         read_only: true
         bind:
           create_host_path: false
-      - ${OUTPUT_DIR:-./out}:/output
+      - ${OUTPUT_DIR:-./out}:/result
+      - workflow-runtime:/runtime
+      - workflow-workspace:/workspace
 
 volumes:
   browser-profile-runtime:
   vpn-egress-runtime:
+  workflow-runtime:
+  workflow-workspace:
 
 networks:
   browser-control:

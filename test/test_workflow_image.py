@@ -3,9 +3,12 @@
 from pathlib import Path
 
 
-def test_workflow_image_installs_codex_cli_release_required_by_selected_model() -> None:
-    """Keep the image Codex CLI compatible with the configured model."""
+def test_workflow_image_uses_platform_base_and_only_its_source_context() -> None:
+    """Consume the shared runtime release without sibling build contexts."""
 
     dockerfile_text = (Path(__file__).resolve().parents[1] / "docker/workflow/Dockerfile").read_text(encoding="utf-8")
 
-    assert "@openai/codex@0.144.1" in dockerfile_text
+    assert "apwid-workflow-platform-base:0.5.3" in dockerfile_text
+    assert "COPY . ." in dockerfile_text
+    assert "workflow_container_contract" not in dockerfile_text
+    assert "workflow_container_runtime" not in dockerfile_text

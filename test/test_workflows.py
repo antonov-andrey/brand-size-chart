@@ -2,10 +2,12 @@
 
 import asyncio
 import inspect
-
+import json
 from pathlib import Path
 
 import pytest
+from workflow_container_contract import WorkflowControlSafepointRequest, WorkflowControlTerminalRequest
+from workflow_container_runtime.artifact import JsonArtifactWriter
 from workflow_container_runtime.codex import CodexExecutionError
 from workflow_container_runtime.step import WorkflowStepInvocation, WorkflowStepInvocationOutcome
 from workflow_container_runtime.workflow import WorkflowExecutionContext, WorkflowRuntimeCapability
@@ -17,6 +19,7 @@ from brand_size_chart.model import (
     BrandResult,
     CanonicalSelectionResult,
     CoverageDecisionResult,
+    RunResult,
     SourceDiscoveryInputSource,
     SourceDiscoveryResult,
     WorkflowBrandSizeChartConfig,
@@ -29,6 +32,37 @@ from brand_size_chart.model import (
 )
 from brand_size_chart.workflow.brand import BrandSizeChartBrandWorkflow
 from brand_size_chart.workflow.root import BrandSizeChartRunWorkflow
+
+
+class WorkflowControlClientStub:
+    """Record exact safepoint and terminal requests from the root workflow."""
+
+    safepoint_request_list: list[WorkflowControlSafepointRequest]
+    terminal_request_list: list[WorkflowControlTerminalRequest]
+
+    def __init__(self) -> None:
+        """Initialize empty request history."""
+
+        self.safepoint_request_list = []
+        self.terminal_request_list = []
+
+    def safepoint_send(self, *, request: WorkflowControlSafepointRequest) -> None:
+        """Record one safepoint request.
+
+        Args:
+            request: Canonical safepoint request.
+        """
+
+        self.safepoint_request_list.append(request)
+
+    def terminal_send(self, *, request: WorkflowControlTerminalRequest) -> None:
+        """Record one terminal request.
+
+        Args:
+            request: Canonical terminal request.
+        """
+
+        self.terminal_request_list.append(request)
 
 
 def _brand_input_get() -> BrandInput:
@@ -78,9 +112,17 @@ def test_root_workflow_builds_minimal_brand_input_in_request_order(tmp_path: Pat
 
         return args[-1]
 
+    def safepoint_write(*args: object) -> None:
+        """Accept one brand safepoint boundary."""
+
+    def terminal_write(*args: object) -> None:
+        """Accept the root terminal boundary."""
+
     workflow._brand_workflow = BrandWorkflow()
     workflow.input_write_step = artifact_write
     workflow.result_write_step = result_write
+    workflow.brand_safepoint_step = safepoint_write
+    workflow.terminal_request_step = terminal_write
     workflow_input = _workflow_input_get(concurrency=1).model_copy(
         update={
             "request": WorkflowBrandSizeChartRequest(
@@ -109,6 +151,72 @@ def test_root_workflow_builds_minimal_brand_input_in_request_order(tmp_path: Pat
         BrandInput(parsed_brand_key="mavi", parsed_brand_name="Mavi"),
     ]
     assert [result.brand_input for result in workflow_result.brand_result_list] == received_brand_input_list
+
+
+def test_root_workflow_safepoint_publishes_result_and_workspace_atomically(tmp_path: Path) -> None:
+    """Bind one stable brand transition to both exact declared mount subtrees."""
+
+    control_client = WorkflowControlClientStub()
+    workflow = BrandSizeChartRunWorkflow.__new__(BrandSizeChartRunWorkflow)
+    workflow._artifact_writer = JsonArtifactWriter()
+    workflow._control_client = control_client
+    workflow._workspace_path = tmp_path / "workspace"
+    brand_input = _brand_input_get()
+    brand_result = BrandResult(
+        brand_input=brand_input,
+        brand_output_result=None,
+        canonical_selection_result=None,
+        coverage_decision_result=None,
+        error_list=[],
+        source_type_result_list=[],
+        status="success",
+        warning_list=[],
+    )
+    execution_context = WorkflowExecutionContext(
+        result_dir=tmp_path / "result",
+        runtime_capability=WorkflowRuntimeCapability(browser=None),
+        workflow_instance_dir=tmp_path / "result" / "workflow" / "run" / "workflow" / "brand_brand",
+    )
+    execution_context.workflow_instance_dir.mkdir(parents=True)
+
+    inspect.unwrap(BrandSizeChartRunWorkflow.brand_safepoint_step)(
+        workflow,
+        execution_context,
+        brand_input,
+        brand_result,
+    )
+
+    assert json.loads((tmp_path / "workspace" / "brand" / "brand" / "safepoint.json").read_text()) == {
+        "parsed_brand_key": "brand",
+        "parsed_brand_name": "Brand",
+        "status": "success",
+    }
+    request = control_client.safepoint_request_list[0]
+    assert request.step_identity == "brand/brand"
+    assert request.transition_identity == "brand/brand/completed"
+    assert [item.model_dump() for item in request.publication_request_list] == [
+        {"data_mount_key": "result", "source_relative_path": "workflow/run/workflow/brand_brand"},
+        {"data_mount_key": "workspace", "source_relative_path": "brand/brand"},
+    ]
+
+
+def test_root_workflow_terminal_intent_contains_exact_result_and_mount_trees() -> None:
+    """Send the final open result and canonical terminal publication list before process exit."""
+
+    control_client = WorkflowControlClientStub()
+    workflow = BrandSizeChartRunWorkflow.__new__(BrandSizeChartRunWorkflow)
+    workflow._control_client = control_client
+    workflow_result = RunResult(brand_result_list=[], error_list=[], status="success", warning_list=[])
+
+    inspect.unwrap(BrandSizeChartRunWorkflow.terminal_request_step)(workflow, workflow_result)
+
+    request = control_client.terminal_request_list[0]
+    assert request.transition_identity == "run/completed"
+    assert request.workflow_result == workflow_result
+    assert [item.model_dump() for item in request.publication_request_list] == [
+        {"data_mount_key": "result", "source_relative_path": "workflow/run"},
+        {"data_mount_key": "workspace", "source_relative_path": "brand"},
+    ]
 
 
 def _workflow_input_get(concurrency: int) -> WorkflowBrandSizeChartInput:

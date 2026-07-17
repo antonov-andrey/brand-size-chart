@@ -124,26 +124,7 @@ def test_configurable_step_inputs_keep_only_stable_domain_data_and_workflow_inpu
         assert "config" not in step_input_model.model_fields
 
 
-def test_runtime_cli_loads_one_complete_input_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Require the concrete complete input document through ``--input``."""
+def test_runtime_uses_platform_input_path_without_a_cli_translation() -> None:
+    """Keep the complete input location owned by the standard platform environment."""
 
-    input_path = tmp_path / "input.json"
-    input_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "brand-size-chart-run",
-            "--workflow-run-id",
-            "local",
-            "--input",
-            str(input_path),
-            "--output-dir",
-            str(tmp_path / "out"),
-        ],
-    )
-
-    args = runtime_config.args_parse()
-
-    assert args.input == input_path
-    assert not hasattr(args, "brand_list")
-    assert not hasattr(args, "workflow_run_prompt")
+    assert not hasattr(runtime_config, "args_parse")

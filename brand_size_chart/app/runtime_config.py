@@ -1,41 +1,15 @@
 """Runtime configuration helpers for the DBOS application entrypoint."""
 
-import argparse
 import os
 import shutil
 import stat
 from pathlib import Path
 
-DEFAULT_MCP_PLAYWRIGHT_PROFILE_SOURCE_ENV = "MCP_PLAYWRIGHT_PROFILE_SOURCE"
-DEFAULT_MCP_PLAYWRIGHT_PROFILE_WRITEBACK_CANDIDATE_URL_ENV = "MCP_PLAYWRIGHT_PROFILE_WRITEBACK_CANDIDATE_URL"
-DEFAULT_MCP_URL_ENV = "MCP_URL"
 DEFAULT_QUEUE_WORKER_CONCURRENCY = 4
+INPUT_SECRET_PATH = Path("/input/.secret")
+RESULT_PATH = Path("/result")
 SYSTEM_DATABASE_URL_PREFIX_TUPLE = ("postgresql://", "postgres://", "sqlite://")
-
-
-def args_parse() -> argparse.Namespace:
-    """Parse command-line arguments.
-
-    Returns:
-        Parsed arguments.
-    """
-    parser = argparse.ArgumentParser(description="Run the brand size-chart DBOS workflow.")
-    parser.add_argument(
-        "--mcp-playwright-profile-source",
-        default=os.environ.get(DEFAULT_MCP_PLAYWRIGHT_PROFILE_SOURCE_ENV, ""),
-    )
-    parser.add_argument(
-        "--mcp-playwright-profile-writeback-candidate-url",
-        default=os.environ.get(DEFAULT_MCP_PLAYWRIGHT_PROFILE_WRITEBACK_CANDIDATE_URL_ENV, ""),
-    )
-    parser.add_argument("--mcp-url", default=os.environ.get(DEFAULT_MCP_URL_ENV, ""))
-    parser.add_argument("--workflow-run-id", required=True)
-    parser.add_argument("--input", required=True, type=Path)
-    parser.add_argument("--input-secret", default=None, type=Path)
-    parser.add_argument("--secret", default=Path(".secret"), type=Path)
-    parser.add_argument("--output-dir", required=True, type=Path)
-    parser.add_argument("--workflow-git-url", default=os.environ.get("WORKFLOW_GIT_URL", ""))
-    return parser.parse_args()
+WORKSPACE_PATH = Path("/workspace")
 
 
 def directory_tree_write_enable(path: Path) -> None:
@@ -64,6 +38,8 @@ def secret_runtime_materialize(input_secret_path: Path, runtime_secret_path: Pat
     """
     if not input_secret_path.is_dir():
         raise FileNotFoundError(f"input secret directory is missing: {input_secret_path}")
+    if runtime_secret_path.exists():
+        return
     runtime_secret_path.parent.mkdir(parents=True, exist_ok=True)
     temp_secret_path = runtime_secret_path.with_name(f"{runtime_secret_path.name}.tmp")
     if temp_secret_path.exists():
@@ -75,21 +51,21 @@ def secret_runtime_materialize(input_secret_path: Path, runtime_secret_path: Pat
     os.replace(temp_secret_path, runtime_secret_path)
 
 
-def system_database_url_get() -> str:
-    """Return the explicit DBOS system database URL.
+def system_database_url_get(runtime_path: Path) -> str:
+    """Return the DBOS system database URL inside private runtime state by default.
+
+    Args:
+        runtime_path: Persistent image-visible runtime root.
 
     Returns:
-        Configured system database URL.
+        Configured or runtime-derived system database URL.
 
     Raises:
-        RuntimeError: If the URL is absent or uses an unsupported scheme.
+        RuntimeError: If an explicit URL uses an unsupported scheme.
     """
-    database_url = os.environ.get("DBOS_SYSTEM_DATABASE_URL", "").strip()
-    if not database_url:
-        raise RuntimeError(
-            "DBOS_SYSTEM_DATABASE_URL must be set explicitly. "
-            "DBOS otherwise falls back to a local SQLite system database."
-        )
+    database_url = (
+        os.environ.get("DBOS_SYSTEM_DATABASE_URL", "").strip() or f"sqlite:///{runtime_path / 'dbos.sqlite3'}"
+    )
     if not database_url.startswith(SYSTEM_DATABASE_URL_PREFIX_TUPLE):
         raise RuntimeError("DBOS_SYSTEM_DATABASE_URL must use postgresql://, postgres://, or sqlite://.")
     return database_url

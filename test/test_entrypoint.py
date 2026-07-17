@@ -1,11 +1,13 @@
-"""Tests for DBOS entrypoint bootstrap with one complete input file."""
+"""Tests for standard platform bootstrap of the DBOS application entrypoint."""
 
-import argparse
+from __future__ import annotations
+
 import json
 import os
 from pathlib import Path
 
 import pytest
+from workflow_container_runtime import WorkflowControlClient
 from workflow_container_runtime.mcp_playwright_profile import McpPlaywrightProfileRuntime
 
 from brand_size_chart.app import entrypoint, runtime_config
@@ -13,69 +15,101 @@ from brand_size_chart.app.application import BrandSizeChartApplication
 from brand_size_chart.model import RunResult
 
 
-class _WorkflowHandle:
-    """Return one successful root workflow result."""
+class WorkflowHandleStub:
+    """Return one fixed root workflow result."""
+
+    def __init__(self, *, workflow_result: RunResult) -> None:
+        """Store the fixed result.
+
+        Args:
+            workflow_result: Result returned by `get_result`.
+        """
+
+        self._workflow_result = workflow_result
 
     def get_result(self) -> RunResult:
-        """Return the fixed successful result."""
+        """Return the fixed root result.
 
-        return RunResult(brand_result_list=[], error_list=[], status="success", warning_list=[])
+        Returns:
+            Stored workflow result.
+        """
 
-
-class _FailedWorkflowHandle:
-    """Return one failed root workflow result."""
-
-    def get_result(self) -> RunResult:
-        """Return the fixed failed result."""
-
-        return RunResult(brand_result_list=[], error_list=["root failure"], status="failed", warning_list=[])
+        return self._workflow_result
 
 
-class _DBOS:
-    """Record only the DBOS entrypoint arguments relevant to the public input."""
+class DBOSStub:
+    """Record DBOS bootstrap and root workflow arguments."""
 
     enqueue_args: tuple[object, ...]
     event_list: list[tuple[str, object]] = []
+    workflow_result = RunResult(brand_result_list=[], error_list=[], status="success", warning_list=[])
 
     def __init__(self, *, config: dict[str, object]) -> None:
-        """Accept DBOS configuration."""
+        """Record DBOS configuration.
+
+        Args:
+            config: Complete DBOS application config.
+        """
 
         self.event_list.append(("configure", config))
 
     @classmethod
-    def enqueue_workflow(cls, queue_name: str, function: object, *args: object) -> _WorkflowHandle:
-        """Record root workflow arguments."""
+    def enqueue_workflow(cls, queue_name: str, function: object, *args: object) -> WorkflowHandleStub:
+        """Record root workflow arguments and return the configured result.
 
-        _ = queue_name
+        Args:
+            queue_name: Registered queue name.
+            function: Root workflow callable.
+            *args: Root workflow arguments.
+
+        Returns:
+            Fixed workflow handle.
+        """
+
         _ = function
         cls.event_list.append(("enqueue", queue_name))
         cls.enqueue_args = args
-        return _WorkflowHandle()
+        return WorkflowHandleStub(workflow_result=cls.workflow_result)
 
     @classmethod
     def launch(cls) -> None:
-        """Accept launch."""
+        """Record DBOS launch."""
 
         cls.event_list.append(("launch", None))
 
     @classmethod
     def listen_queues(cls, queue_name_list: list[str]) -> None:
-        """Accept queue listeners."""
+        """Record queue listener selection.
+
+        Args:
+            queue_name_list: Queue names listened before launch.
+        """
 
         cls.event_list.append(("listen", queue_name_list))
 
     @classmethod
     def register_queue(cls, queue_name: str, *, worker_concurrency: int) -> None:
-        """Accept queue registration."""
+        """Record queue registration.
+
+        Args:
+            queue_name: Registered queue name.
+            worker_concurrency: Configured worker concurrency.
+        """
 
         cls.event_list.append(("register", (queue_name, worker_concurrency)))
 
 
-class _SetWorkflowID:
-    """No-op workflow-id context manager."""
+class SetWorkflowIDStub:
+    """Provide a no-op workflow-id context manager."""
 
     def __init__(self, workflow_id: str) -> None:
-        """Accept the generated workflow id."""
+        """Accept the generated workflow id.
+
+        Args:
+            workflow_id: Stable root workflow id.
+        """
+
+        _ = workflow_id
 
     def __enter__(self) -> None:
         """Enter the no-op context."""
@@ -84,57 +118,58 @@ class _SetWorkflowID:
         """Exit the no-op context."""
 
 
-def test_entrypoint_loads_complete_typed_input(monkeypatch: object, tmp_path: Path) -> None:
-    """Parse the exact root input from ``--input`` before enqueueing DBOS work."""
+class WorkflowControlClientStub:
+    """Record registration through the standard control boundary."""
 
-    input_path = tmp_path / "input.json"
-    input_path.write_text(json.dumps(_input_payload_get()), encoding="utf-8")
-    monkeypatch.setattr(entrypoint, "DBOS", _DBOS)
-    monkeypatch.setattr(entrypoint, "SetWorkflowID", _SetWorkflowID)
-    monkeypatch.setattr(
-        entrypoint,
-        "BrandSizeChartApplication",
-        lambda: type("App", (), {"root_workflow": type("R", (), {"run": object()})()})(),
-    )
-    monkeypatch.setattr(
-        runtime_config,
-        "args_parse",
-        lambda: argparse.Namespace(
-            input=input_path,
-            input_secret=None,
-            mcp_playwright_profile_source="/input/.secret/playwright_profile",
-            mcp_playwright_profile_writeback_candidate_url=(
-                "http://playwright-mcp-router:8931/runtime/mcp-playwright-profile/writeback-candidate"
-            ),
-            mcp_url="http://playwright-mcp-router:8931/mcp",
-            output_dir=tmp_path / "out",
-            secret=tmp_path / "secret",
-            workflow_git_url="",
-            workflow_run_id="local",
-        ),
-    )
-    monkeypatch.setenv("DBOS_SYSTEM_DATABASE_URL", "sqlite:///tmp/dbos.sqlite")
+    def registration_send(self, *, workflow_run_id: str) -> None:
+        """Record registration before DBOS setup.
 
-    assert entrypoint.main() == 0
-    assert _DBOS.enqueue_args[1].model_dump(mode="json") == _input_payload_get()
+        Args:
+            workflow_run_id: Exact platform run identity.
+        """
+
+        DBOSStub.event_list.append(("registration", workflow_run_id))
 
 
-def test_entrypoint_bootstraps_dbos_with_stable_ids_and_worker_concurrency(monkeypatch: object, tmp_path: Path) -> None:
-    """Configure, listen, launch, register, and enqueue in the required order."""
+def test_entrypoint_loads_complete_typed_input_from_platform_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Parse the exact immutable input before enqueueing root DBOS work."""
 
-    _DBOS.event_list = []
     _entrypoint_configure(monkeypatch, tmp_path)
 
     assert entrypoint.main() == 0
-    assert [event[0] for event in _DBOS.event_list] == ["configure", "listen", "launch", "register", "enqueue"]
-    assert _DBOS.event_list[3] == ("register", ("queue/local", 4))
-    assert _DBOS.enqueue_args[1].model_dump(mode="json") == _input_payload_get()
+    assert DBOSStub.enqueue_args[1].model_dump(mode="json") == _input_payload_get()
 
 
-def test_application_injects_one_profile_runtime_into_every_codex_step() -> None:
-    """Share one run-local profile lease and candidate-publication owner across all Codex steps."""
+def test_entrypoint_registers_then_bootstraps_dbos_in_required_order(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Register, configure, listen, launch, register the queue, and enqueue in exact order."""
 
-    application = BrandSizeChartApplication()
+    _entrypoint_configure(monkeypatch, tmp_path)
+
+    assert entrypoint.main() == 0
+    assert [event[0] for event in DBOSStub.event_list] == [
+        "registration",
+        "configure",
+        "listen",
+        "launch",
+        "register",
+        "enqueue",
+    ]
+    assert DBOSStub.event_list[0] == ("registration", "local")
+    assert DBOSStub.event_list[4] == ("register", ("queue/local", 4))
+
+
+def test_application_injects_one_profile_runtime_into_every_codex_step(tmp_path: Path) -> None:
+    """Share one run-local profile lease and candidate-staging owner across all Codex steps."""
+
+    application = BrandSizeChartApplication(
+        control_client=WorkflowControlClient(control_url="http://control/v1"),
+        workspace_path=tmp_path / "workspace",
+    )
     brand_workflow = application.root_workflow._brand_workflow
     profile_runtime_list = [
         brand_workflow._source_discovery_step._mcp_playwright_profile_runtime,
@@ -146,157 +181,163 @@ def test_application_injects_one_profile_runtime_into_every_codex_step() -> None
     assert len({id(profile_runtime) for profile_runtime in profile_runtime_list}) == 1
 
 
-def test_entrypoint_builds_exact_browser_runtime_capability(monkeypatch: object, tmp_path: Path) -> None:
-    """Pass only router URL, immutable source, and candidate endpoint into the runtime capability."""
+def test_entrypoint_builds_exact_browser_runtime_capability(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Pass only the immutable image-visible capability config into browser-backed steps."""
 
     _entrypoint_configure(monkeypatch, tmp_path)
 
     assert entrypoint.main() == 0
-    assert _DBOS.enqueue_args[0].runtime_capability.browser.model_dump() == {
-        "mcp_playwright_profile_source": "/input/.secret/playwright_profile",
-        "mcp_playwright_profile_writeback_candidate_url": (
-            "http://playwright-mcp-router:8931/runtime/mcp-playwright-profile/writeback-candidate"
-        ),
-        "mcp_url": "http://playwright-mcp-router:8931/mcp",
+    assert DBOSStub.enqueue_args[0].runtime_capability.browser.model_dump() == {
+        "mcp_playwright_profile_source": "source",
+        "mcp_playwright_profile_writeback_candidate_url": "http://playwright:8931/candidate",
+        "mcp_url": "http://playwright:8931/mcp",
     }
 
 
-def test_entrypoint_returns_failed_exit_code_for_failed_root_result(monkeypatch: object, tmp_path: Path) -> None:
-    """Return a failed process status when the root workflow is failed."""
+def test_entrypoint_returns_zero_after_domain_failed_terminal_result(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Use normal process exit after the root workflow has already sent terminal intent."""
 
-    class FailedDBOS(_DBOS):
-        """Return the failed root result after normal enqueueing."""
-
-        @classmethod
-        def enqueue_workflow(cls, queue_name: str, function: object, *args: object) -> _FailedWorkflowHandle:
-            """Record enqueue and return a failed handle."""
-
-            _ = function
-            cls.enqueue_args = args
-            cls.event_list.append(("enqueue", queue_name))
-            return _FailedWorkflowHandle()
-
-    _entrypoint_configure(monkeypatch, tmp_path, dbos_class=FailedDBOS)
-    assert entrypoint.main() == 1
-
-
-def test_entrypoint_accepts_explicit_sqlite_system_database(monkeypatch: object) -> None:
-    """Accept SQLite only when it is explicitly configured."""
-
-    monkeypatch.setenv("DBOS_SYSTEM_DATABASE_URL", "sqlite:///tmp/brand_size_chart.sqlite")
-    assert runtime_config.system_database_url_get() == "sqlite:///tmp/brand_size_chart.sqlite"
-
-
-def test_entrypoint_rejects_hidden_sqlite_system_database_fallback(monkeypatch: object) -> None:
-    """Require explicit DBOS system-database configuration."""
-
-    monkeypatch.delenv("DBOS_SYSTEM_DATABASE_URL", raising=False)
-    with pytest.raises(RuntimeError, match="DBOS_SYSTEM_DATABASE_URL"):
-        runtime_config.system_database_url_get()
-
-
-def test_entrypoint_rejects_missing_browser_runtime_mcp_url(monkeypatch: object, tmp_path: Path) -> None:
-    """Reject the launch before DBOS setup when browser runtime is absent."""
-
-    _entrypoint_configure(monkeypatch, tmp_path, mcp_url="")
-    with pytest.raises(RuntimeError, match="MCP_URL"):
-        entrypoint.main()
-
-
-def test_entrypoint_parser_rejects_dry_run_flag(monkeypatch: object, tmp_path: Path) -> None:
-    """Keep the current CLI free of the deleted dry-run bridge."""
-
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "brand-size-chart-run",
-            "--workflow-run-id",
-            "local",
-            "--input",
-            str(tmp_path / "input.json"),
-            "--output-dir",
-            str(tmp_path / "out"),
-            "--dry-run",
-        ],
+    _entrypoint_configure(monkeypatch, tmp_path)
+    DBOSStub.workflow_result = RunResult(
+        brand_result_list=[],
+        error_list=["root failure"],
+        status="failed",
+        warning_list=[],
     )
-    with pytest.raises(SystemExit):
-        runtime_config.args_parse()
-
-
-def test_entrypoint_parser_uses_project_secret_by_default(monkeypatch: object, tmp_path: Path) -> None:
-    """Keep `.secret` as the default runtime secret directory."""
-
-    monkeypatch.setattr(
-        "sys.argv",
-        [
-            "brand-size-chart-run",
-            "--workflow-run-id",
-            "local",
-            "--input",
-            str(tmp_path / "input.json"),
-            "--output-dir",
-            str(tmp_path / "out"),
-        ],
-    )
-    assert runtime_config.args_parse().secret == Path(".secret")
-
-
-def test_entrypoint_materializes_input_secret_before_workflow_start(monkeypatch: object, tmp_path: Path) -> None:
-    """Copy a read-only input secret into the writable runtime-secret boundary."""
-
-    input_secret = tmp_path / "input" / ".secret"
-    (input_secret / "codex_profile").mkdir(parents=True)
-    (input_secret / "codex_profile" / "auth.json").write_text("{}", encoding="utf-8")
-    runtime_secret = tmp_path / "runtime" / ".secret"
-    _entrypoint_configure(monkeypatch, tmp_path, input_secret=input_secret, secret=runtime_secret)
 
     assert entrypoint.main() == 0
-    assert (runtime_secret / "codex_profile" / "auth.json").read_text(encoding="utf-8") == "{}"
-    assert os.environ["CODEX_HOME"] == str(runtime_secret / "codex_profile")
+
+
+def test_entrypoint_uses_runtime_local_sqlite_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep package-specific DBOS persistence inside the standard private runtime root."""
+
+    monkeypatch.delenv("DBOS_SYSTEM_DATABASE_URL", raising=False)
+
+    assert runtime_config.system_database_url_get(Path("/runtime")) == "sqlite:////runtime/dbos.sqlite3"
+
+
+def test_entrypoint_accepts_explicit_system_database_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Allow an implementation-specific explicit DBOS database override."""
+
+    monkeypatch.setenv("DBOS_SYSTEM_DATABASE_URL", "sqlite:////runtime/explicit.sqlite3")
+
+    assert runtime_config.system_database_url_get(Path("/runtime")) == "sqlite:////runtime/explicit.sqlite3"
+
+
+def test_entrypoint_rejects_missing_browser_runtime_after_registration(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Reject domain execution when the declared browser capability payload is absent."""
+
+    _entrypoint_configure(monkeypatch, tmp_path, capability_payload={})
+
+    with pytest.raises(RuntimeError, match="browser_vpn_runtime"):
+        entrypoint.main()
+    assert DBOSStub.event_list == [("registration", "local")]
+
+
+def test_entrypoint_ignores_legacy_process_arguments(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Use only the source-owned command and standard environment without a CLI bridge."""
+
+    _entrypoint_configure(monkeypatch, tmp_path)
+    monkeypatch.setattr("sys.argv", ["brand-size-chart-run", "--legacy-argument"])
+
+    assert entrypoint.main() == 0
+
+
+def test_entrypoint_materializes_input_secret_once_and_preserves_runtime_copy(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Copy immutable input secrets once without erasing replacement-attempt runtime state."""
+
+    _entrypoint_configure(monkeypatch, tmp_path)
+    input_secret_path = runtime_config.INPUT_SECRET_PATH
+    runtime_secret_path = Path(os.environ["WORKFLOW_RUNTIME_PATH"]) / ".secret"
+
+    assert entrypoint.main() == 0
+    assert (runtime_secret_path / "codex_profile" / "auth.json").read_text(encoding="utf-8") == "{}"
+    (runtime_secret_path / "codex_profile" / "replacement-state.json").write_text("{}", encoding="utf-8")
+
+    assert entrypoint.main() == 0
+    assert (runtime_secret_path / "codex_profile" / "replacement-state.json").is_file()
+    assert input_secret_path.is_dir()
+    assert os.environ["CODEX_HOME"] == str(runtime_secret_path / "codex_profile")
 
 
 def _entrypoint_configure(
-    monkeypatch: object,
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     *,
-    mcp_url: str = "http://playwright-mcp-router:8931/mcp",
-    dbos_class: type[_DBOS] = _DBOS,
-    input_secret: Path | None = None,
-    secret: Path | None = None,
+    capability_payload: dict[str, object] | None = None,
 ) -> None:
-    """Install one complete current CLI configuration and DBOS doubles."""
+    """Install one complete standard platform environment and runtime doubles.
 
-    input_path = tmp_path / "input.json"
+    Args:
+        monkeypatch: Pytest monkeypatch fixture.
+        tmp_path: Isolated test root.
+        capability_payload: Optional exact capability document override.
+    """
+
+    DBOSStub.event_list = []
+    DBOSStub.workflow_result = RunResult(brand_result_list=[], error_list=[], status="success", warning_list=[])
+    input_path = tmp_path / "input" / "input.json"
+    capability_path = tmp_path / "input" / "capability.json"
+    input_secret_path = tmp_path / "input" / ".secret"
+    result_path = tmp_path / "result"
+    runtime_path = tmp_path / "runtime"
+    workspace_path = tmp_path / "workspace"
+    (input_secret_path / "codex_profile").mkdir(parents=True)
+    (input_secret_path / "codex_profile" / "auth.json").write_text("{}", encoding="utf-8")
     input_path.write_text(json.dumps(_input_payload_get()), encoding="utf-8")
-    monkeypatch.setattr(entrypoint, "DBOS", dbos_class)
-    monkeypatch.setattr(entrypoint, "SetWorkflowID", _SetWorkflowID)
+    capability_path.write_text(
+        json.dumps(
+            capability_payload
+            if capability_payload is not None
+            else {
+                "browser_vpn_runtime": {
+                    "browser": {
+                        "mcp_playwright_profile_source": "source",
+                        "mcp_playwright_profile_writeback_candidate_url": "http://playwright:8931/candidate",
+                        "mcp_url": "http://playwright:8931/mcp",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(entrypoint, "DBOS", DBOSStub)
+    monkeypatch.setattr(entrypoint, "SetWorkflowID", SetWorkflowIDStub)
+    monkeypatch.setattr(entrypoint, "WorkflowControlClient", lambda **kwargs: WorkflowControlClientStub())
     monkeypatch.setattr(
         entrypoint,
         "BrandSizeChartApplication",
-        lambda: type("App", (), {"root_workflow": type("R", (), {"run": object()})()})(),
+        lambda **kwargs: type("App", (), {"root_workflow": type("Root", (), {"run": object()})()})(),
     )
-    monkeypatch.setattr(
-        runtime_config,
-        "args_parse",
-        lambda: argparse.Namespace(
-            input=input_path,
-            input_secret=input_secret,
-            mcp_playwright_profile_source="/input/.secret/playwright_profile",
-            mcp_playwright_profile_writeback_candidate_url=(
-                "http://playwright-mcp-router:8931/runtime/mcp-playwright-profile/writeback-candidate"
-            ),
-            mcp_url=mcp_url,
-            output_dir=tmp_path / "out",
-            secret=secret or tmp_path / "secret",
-            workflow_git_url="",
-            workflow_run_id="local",
-        ),
-    )
-    monkeypatch.setenv("DBOS_SYSTEM_DATABASE_URL", "sqlite:///tmp/dbos.sqlite")
+    monkeypatch.setattr(runtime_config, "INPUT_SECRET_PATH", input_secret_path)
+    monkeypatch.setattr(runtime_config, "RESULT_PATH", result_path)
+    monkeypatch.setattr(runtime_config, "WORKSPACE_PATH", workspace_path)
+    monkeypatch.setenv("DBOS_SYSTEM_DATABASE_URL", f"sqlite:///{runtime_path / 'dbos.sqlite3'}")
+    monkeypatch.setenv("WORKFLOW_CAPABILITY_CONFIG_PATH", str(capability_path))
+    monkeypatch.setenv("WORKFLOW_CONTROL_URL", "http://control/v1")
+    monkeypatch.setenv("WORKFLOW_INPUT_PATH", str(input_path))
+    monkeypatch.setenv("WORKFLOW_RUN_ID", "local")
+    monkeypatch.setenv("WORKFLOW_RUNTIME_PATH", str(runtime_path))
 
 
 def _input_payload_get() -> dict[str, object]:
-    """Build one complete input document accepted by the entrypoint."""
+    """Build one complete input document accepted by the entrypoint.
+
+    Returns:
+        Complete public workflow input payload.
+    """
 
     return {
         "request": {

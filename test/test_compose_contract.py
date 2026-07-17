@@ -5,8 +5,8 @@ from pathlib import Path
 import yaml
 
 
-def test_compose_uses_one_run_local_profile_router_and_direct_candidate_endpoint() -> None:
-    """Keep source immutable while routing profiles and candidate publication through one service."""
+def test_compose_uses_one_run_local_profile_router_and_standard_capability_document() -> None:
+    """Keep source immutable while routing profiles through one typed capability file."""
 
     compose = yaml.safe_load(Path("compose.yaml").read_text(encoding="utf-8"))
     service_by_name_map = compose["services"]
@@ -18,12 +18,14 @@ def test_compose_uses_one_run_local_profile_router_and_direct_candidate_endpoint
     assert "browser-profile-runtime:/runtime/mcp_playwright_profile" in router_service["volumes"]
     assert "./.secret:/input/.secret:ro" in router_service["volumes"]
     assert "./.secret:/input/.secret:ro" in service_by_name_map["workflow"]["volumes"]
-    workflow_environment = service_by_name_map["workflow"]["environment"]
-    assert workflow_environment["MCP_PLAYWRIGHT_PROFILE_SOURCE"] == "/input/.secret/playwright_profile"
-    assert workflow_environment["MCP_PLAYWRIGHT_PROFILE_WRITEBACK_CANDIDATE_URL"] == (
-        "http://playwright-mcp-router:8931/runtime/mcp-playwright-profile/writeback-candidate"
-    )
-    assert workflow_environment["MCP_URL"] == "http://playwright-mcp-router:8931/mcp"
+    workflow_service = service_by_name_map["workflow"]
+    assert "additional_contexts" not in workflow_service["build"]
+    assert workflow_service["command"] == ["brand-size-chart-run"]
+    assert "./compose.capability.json:/input/capability.json:ro" in workflow_service["volumes"]
+    workflow_environment = workflow_service["environment"]
+    assert workflow_environment["WORKFLOW_CAPABILITY_CONFIG_PATH"] == "/input/capability.json"
+    assert workflow_environment["WORKFLOW_INPUT_PATH"] == "/input/input.json"
+    assert workflow_environment["WORKFLOW_RUNTIME_PATH"] == "/runtime"
 
 
 def test_compose_isolates_browser_from_openvpn_tunnel_lifecycle() -> None:
@@ -43,4 +45,4 @@ def test_compose_isolates_browser_from_openvpn_tunnel_lifecycle() -> None:
     assert compose["networks"]["browser-control"]["internal"] is True
     assert compose["networks"]["vpn-uplink"]["internal"] is False
     assert "--vpn-proxy-server vpn-egress:1080" in " ".join(playwright_service["command"])
-    assert workflow_service["environment"]["MCP_URL"] == "http://playwright-mcp-router:8931/mcp"
+    assert workflow_service["environment"]["WORKFLOW_CAPABILITY_CONFIG_PATH"] == "/input/capability.json"

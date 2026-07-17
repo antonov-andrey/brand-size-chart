@@ -11,7 +11,7 @@ def test_compose_launches_the_complete_input_document() -> None:
     """Mount and pass one complete workflow input instead of removed prompt fragments."""
 
     compose_text = Path("compose.yaml").read_text(encoding="utf-8")
-    assert "--input /input/input.json" in compose_text
+    assert "WORKFLOW_INPUT_PATH: /input/input.json" in compose_text
     assert "--brand-list" not in compose_text
     assert "--workflow-run-prompt" not in compose_text
     assert "WORKFLOW_RUN_PROMPT" not in compose_text

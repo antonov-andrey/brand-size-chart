@@ -1,5 +1,5 @@
 project: brand-size-chart
-version: 0.5.0
+version: 0.5.3
 contracts:
   workflow: 4
   artifact_schema: 3

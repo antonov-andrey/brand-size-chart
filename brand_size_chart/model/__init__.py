@@ -3,7 +3,7 @@
 from brand_size_chart.model.base import IdentifierComponent, StrictBaseModel
 from brand_size_chart.model.brand import BrandInput, BrandOutputResult, BrandResult
 from brand_size_chart.model.chart import BrandSizeChart, BrandSizeChartMeasurement, BrandSizeChartRow
-from brand_size_chart.model.run import RunResult
+from brand_size_chart.model.run import BrandSafepoint, RunResult
 from brand_size_chart.model.selection import (
     CanonicalSelection,
     CanonicalSelectionActionOutput,
@@ -57,6 +57,7 @@ __all__ = [
     "BrandOutputItem",
     "BrandOutputResult",
     "BrandResult",
+    "BrandSafepoint",
     "BrandSourceTypeResultInputSource",
     "BrandSourceTypeResultStepInput",
     "BrandSizeChart",

@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from workflow_container_runtime import WorkflowControlClient
 from workflow_container_runtime.artifact import (
     ArtifactMaterializationPolicy,
     ArtifactMaterializer,
@@ -37,8 +38,13 @@ from brand_size_chart.workflow import (
 class BrandSizeChartApplication:
     """Construct the complete stateless workflow object graph once."""
 
-    def __init__(self) -> None:
-        """Build shared runtime services, concrete steps, and DBOS workflows."""
+    def __init__(self, *, control_client: WorkflowControlClient, workspace_path: Path) -> None:
+        """Build shared runtime services, concrete steps, and DBOS workflows.
+
+        Args:
+            control_client: Current execution-local platform control adapter.
+            workspace_path: Declared writable workspace mount root.
+        """
 
         artifact_materializer = ArtifactMaterializer()
         artifact_writer = JsonArtifactWriter()
@@ -50,7 +56,7 @@ class BrandSizeChartApplication:
             prompt_renderer=prompt_renderer,
             workflow_container_name="brand-size-chart",
         )
-        mcp_playwright_profile_runtime = McpPlaywrightProfileRuntime()
+        mcp_playwright_profile_runtime = McpPlaywrightProfileRuntime(workflow_control_client=control_client)
         browser_step_runtime_policy = WorkflowStepCodexRuntimePolicy(
             artifact_materialization_policy=ArtifactMaterializationPolicy(
                 artifact_root_tuple=(Path(".playwright-mcp/current"),),
@@ -121,4 +127,6 @@ class BrandSizeChartApplication:
             artifact_writer=artifact_writer,
             brand_workflow=brand_workflow,
             config_name="run",
+            control_client=control_client,
+            workspace_path=workspace_path,
         )
