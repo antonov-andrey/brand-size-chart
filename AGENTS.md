@@ -23,8 +23,9 @@
 
 ## Artifacts
 - Generated JSON schemas must come from Pydantic v2 models in `brand_size_chart.model`.
-- Runtime chart output lives under `brand_size_chart/brand/<parsed_brand_key>/`.
-- Workflow and step execution artifacts live in the runtime-owned workflow instance tree under the result root.
+- User-visible chart and dataset output lives under `/result/<parsed_brand_key>/`.
+- User-visible workflow state lives under `/workspace/<parsed_brand_key>/`.
+- Workflow and step execution artifacts live in the runtime-owned workflow instance tree under `/runtime/result/`.
 - Domain static prompts live under `brand_size_chart/prompt/template/`.
 - Project-local prompt partials under `brand_size_chart/prompt/template/partial/` must contain only domain-owned fragments.
 - Generic prompt partials must be loaded from `workflow-container-runtime` package resources.
