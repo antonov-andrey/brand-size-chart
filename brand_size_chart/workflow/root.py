@@ -1,18 +1,12 @@
 """Root DBOS workflow owner."""
 
-from pathlib import Path
-
 from dbos import DBOS, DBOSConfiguredInstance, pydantic_args_validator
-from workflow_container_contract import (
-    WorkflowControlPublicationRequest,
-    WorkflowControlSafepointRequest,
-    WorkflowControlTerminalRequest,
-)
-from workflow_container_runtime import WorkflowControlClient
+from workflow_container_runtime import WorkflowControlClient, WorkflowControlRequestBuilder
 from workflow_container_runtime.artifact import JsonArtifactWriter
 from workflow_container_runtime.workflow import WorkflowBase, WorkflowExecutionContext
 
 from brand_size_chart.identifier import dbos_identifier_component
+from brand_size_chart.artifact import BrandDataLayout
 from brand_size_chart.model import BrandInput, BrandResult, BrandSafepoint, RunResult, WorkflowBrandSizeChartInput
 from brand_size_chart.workflow.brand import BrandSizeChartBrandWorkflow
 
@@ -31,7 +25,7 @@ class BrandSizeChartRunWorkflow(
         brand_workflow: BrandSizeChartBrandWorkflow,
         config_name: str,
         control_client: WorkflowControlClient,
-        workspace_path: Path,
+        control_request_builder: WorkflowControlRequestBuilder,
     ) -> None:
         """Store reusable root workflow dependencies.
 
@@ -40,14 +34,14 @@ class BrandSizeChartRunWorkflow(
             brand_workflow: Child brand workflow owner.
             config_name: Stable DBOS configured-instance name.
             control_client: Current execution-local platform control adapter.
-            workspace_path: Declared writable workspace mount root.
+            control_request_builder: Exact source-declared control request builder.
         """
 
         WorkflowBase.__init__(self, artifact_writer=artifact_writer)
         DBOSConfiguredInstance.__init__(self, config_name=config_name)
         self._brand_workflow = brand_workflow
         self._control_client = control_client
-        self._workspace_path = workspace_path
+        self._control_request_builder = control_request_builder
 
     @DBOS.workflow(name="brand_size_chart_run", validate_args=pydantic_args_validator)
     async def run(
@@ -95,7 +89,7 @@ class BrandSizeChartRunWorkflow(
             warning_list=[],
         )
         workflow_result = await self.result_write_step(execution_context, workflow_input, workflow_result)
-        self.terminal_request_step(workflow_result)
+        self.final_request_step(workflow_result)
         return workflow_result
 
     @DBOS.step(name="brand_safepoint_step")
@@ -113,55 +107,44 @@ class BrandSizeChartRunWorkflow(
             brand_result: Accepted child workflow result.
         """
 
-        workspace_relative_path = Path("brand") / brand_input.parsed_brand_key
+        data_layout = BrandDataLayout(brand_execution_context.data_path)
         self._artifact_writer.write(
-            self._workspace_path / workspace_relative_path / "safepoint.json",
+            data_layout.workspace_brand_dir(brand_input) / "safepoint.json",
             BrandSafepoint(
                 parsed_brand_key=brand_input.parsed_brand_key,
                 parsed_brand_name=brand_input.parsed_brand_name,
                 status=brand_result.status,
             ),
         )
-        result_relative_path = brand_execution_context.workflow_instance_dir.relative_to(
-            brand_execution_context.result_dir
-        )
         self._control_client.safepoint_send(
-            request=WorkflowControlSafepointRequest(
-                publication_request_list=[
-                    WorkflowControlPublicationRequest(
-                        data_mount_key="result",
-                        source_relative_path=result_relative_path.as_posix(),
+            request=self._control_request_builder.safepoint_build(
+                manifest_request_list=[
+                    self._control_request_builder.manifest_build(
+                        manifest_key="result",
+                        path_parameter_by_name_map={"brand_key": brand_input.parsed_brand_key},
                     ),
-                    WorkflowControlPublicationRequest(
-                        data_mount_key="workspace",
-                        source_relative_path=workspace_relative_path.as_posix(),
+                    self._control_request_builder.manifest_build(
+                        manifest_key="workspace",
+                        path_parameter_by_name_map={"brand_key": brand_input.parsed_brand_key},
                     ),
                 ],
                 step_identity=f"brand/{brand_input.parsed_brand_key}",
+                step_key="brand_complete",
                 transition_identity=f"brand/{brand_input.parsed_brand_key}/completed",
             )
         )
 
-    @DBOS.step(name="terminal_request_step")
-    def terminal_request_step(self, workflow_result: RunResult) -> None:
-        """Persist the final result and declared mount trees as one terminal intent.
+    @DBOS.step(name="final_request_step")
+    def final_request_step(self, workflow_result: RunResult) -> None:
+        """Persist the final result and runtime checkpoint as one final intent.
 
         Args:
             workflow_result: Exact accepted root workflow result.
         """
 
-        self._control_client.terminal_send(
-            request=WorkflowControlTerminalRequest(
-                publication_request_list=[
-                    WorkflowControlPublicationRequest(
-                        data_mount_key="result",
-                        source_relative_path="workflow/run",
-                    ),
-                    WorkflowControlPublicationRequest(
-                        data_mount_key="workspace",
-                        source_relative_path="brand",
-                    ),
-                ],
+        self._control_client.final_send(
+            request=self._control_request_builder.final_build(
+                manifest_request_list=[],
                 transition_identity="run/completed",
                 workflow_result=workflow_result,
             )

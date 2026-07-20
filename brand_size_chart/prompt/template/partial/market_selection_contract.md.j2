@@ -25,4 +25,4 @@ Final selection is independent for each `size_group_key`. The exact four ordered
 3. `global`.
 4. `eu`.
 
-The selected row of the first available verified tier has terminal state `accepted`. Candidate rows in every non-winning tier, including lower tiers, have terminal state `market_filtered`. A `market_conflict` is produced only when repeated source evidence claims the same physical `(size_group_key, market_scope_key)` identity with conflicting validated chart content. A higher-tier `accepted` row is not widened or merged with a lower tier. The final state contains no `candidate` rows.
+The selected row of the first available verified tier has final state `accepted`. Candidate rows in every non-winning tier, including lower tiers, have final state `market_filtered`. A `market_conflict` is produced only when repeated source evidence claims the same physical `(size_group_key, market_scope_key)` identity with conflicting validated chart content. A higher-tier `accepted` row is not widened or merged with a lower tier. The final state contains no `candidate` rows.

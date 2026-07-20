@@ -3,10 +3,10 @@
 from pathlib import Path
 from typing import ClassVar
 
-from workflow_container_runtime.artifact import JsonArtifactWriter
+from workflow_container_runtime.artifact import JsonArtifactWriter, JsonLinesArtifactWriter
 from workflow_container_runtime.step import WorkflowStepDeterministicBase, WorkflowStepExecutionContext
 
-from brand_size_chart.artifact import ArtifactLayout
+from brand_size_chart.artifact import ArtifactLayout, BrandDataLayout
 from brand_size_chart.model import (
     ArtifactWriteTarget,
     BrandOutputInput,
@@ -14,6 +14,8 @@ from brand_size_chart.model import (
     BrandOutputItem,
     BrandOutputResult,
     BrandSizeChart,
+    BrandSizeChartDataset,
+    BrandSizeChartDatasetRow,
 )
 from brand_size_chart.source.discovery_database import SourceDiscoveryDatabaseReader
 from brand_size_chart.validator import BrandOutputValidator
@@ -34,6 +36,7 @@ class BrandOutputStep(
         self,
         *,
         artifact_writer: JsonArtifactWriter,
+        json_lines_artifact_writer: JsonLinesArtifactWriter,
         source_discovery_database_reader: SourceDiscoveryDatabaseReader,
         validator: BrandOutputValidator,
     ) -> None:
@@ -41,11 +44,13 @@ class BrandOutputStep(
 
         Args:
             artifact_writer: Atomic JSON artifact writer.
+            json_lines_artifact_writer: Atomic queryable-dataset writer.
             source_discovery_database_reader: Shared accepted-table query boundary.
             validator: Final brand-output mechanical validator.
         """
 
         super().__init__(artifact_writer=artifact_writer)
+        self._json_lines_artifact_writer = json_lines_artifact_writer
         self._source_discovery_database_reader = source_discovery_database_reader
         self._validator = validator
 
@@ -67,7 +72,7 @@ class BrandOutputStep(
             RuntimeError: If a canonical selection has no accepted source-table owner.
         """
 
-        layout = ArtifactLayout(execution_context.result_dir)
+        data_layout = BrandDataLayout(execution_context.data_path)
         accepted_table_list = (
             self._source_discovery_database_reader.accepted_table_list_get_for_source_type_result_list(
                 result_dir=execution_context.result_dir,
@@ -85,25 +90,37 @@ class BrandOutputStep(
                 raise RuntimeError(
                     f"Canonical selection references unknown accepted chart: {selection.selected_chart_path}"
                 )
-            output_path = layout.brand_size_chart_path(
+            output_path = data_layout.size_chart_path(
                 input_source.brand_input,
                 accepted_table.source_table.size_group_key,
                 accepted_table.source_table.market_scope_key,
             )
-            output_artifact_path = layout.artifact_path(output_path)
+            output_artifact_path = data_layout.result_artifact_path(output_path)
             if output_artifact_path in output_artifact_path_set:
                 raise RuntimeError(f"Canonical selections derive duplicate final chart target: {output_artifact_path}")
             output_artifact_path_set.add(output_artifact_path)
             output_item_list.append(
                 BrandOutputItem(
+                    market_scope_key=accepted_table.source_table.market_scope_key,
                     output_write_target=ArtifactWriteTarget(
                         artifact_path=output_artifact_path,
-                        filesystem_path=layout.filesystem_path_get(output_path),
+                        filesystem_path=output_path.resolve().as_posix(),
                     ),
+                    size_group_key=accepted_table.source_table.size_group_key,
                     source_chart_path=accepted_table.chart_path,
+                    source_type=accepted_table.source_type,
+                    source_url=accepted_table.source_table.source_url,
                 )
             )
-        return BrandOutputInput(output_item_list=output_item_list)
+        dataset_path = data_layout.dataset_path(input_source.brand_input)
+        return BrandOutputInput(
+            brand_input=input_source.brand_input,
+            dataset_write_target=ArtifactWriteTarget(
+                artifact_path=data_layout.result_artifact_path(dataset_path),
+                filesystem_path=dataset_path.resolve().as_posix(),
+            ),
+            output_item_list=output_item_list,
+        )
 
     def result_build(
         self,
@@ -121,10 +138,28 @@ class BrandOutputStep(
         """
 
         publication_list = self._publication_list_get(execution_context=execution_context, step_input=step_input)
-        for output_path, source_chart in publication_list:
+        dataset_row_list: list[BrandSizeChartDatasetRow] = []
+        for output_item, output_path, source_chart in publication_list:
             self._artifact_writer.write(output_path, source_chart)
+            dataset_row_list.extend(
+                BrandSizeChartDataset.from_chart(
+                    brand_input=step_input.brand_input,
+                    chart=source_chart,
+                    market_scope_key=output_item.market_scope_key,
+                    run_context=execution_context.run_context,
+                    size_group_key=output_item.size_group_key,
+                    source_type=output_item.source_type,
+                    source_url=output_item.source_url,
+                ).row_list
+            )
+        dataset_path = self._output_path_get(
+            data_layout=BrandDataLayout(execution_context.data_path),
+            output_write_target=step_input.dataset_write_target,
+        )
+        self._json_lines_artifact_writer.write(dataset_path, dataset_row_list)
         return BrandOutputResult(
-            size_chart_path_list=[item.output_write_target.artifact_path for item in step_input.output_item_list]
+            dataset_path=step_input.dataset_write_target.artifact_path,
+            size_chart_path_list=[item.output_write_target.artifact_path for item in step_input.output_item_list],
         )
 
     def result_validate(
@@ -148,7 +183,7 @@ class BrandOutputStep(
         *,
         execution_context: WorkflowStepExecutionContext,
         step_input: BrandOutputInput,
-    ) -> list[tuple[Path, BrandSizeChart]]:
+    ) -> list[tuple[BrandOutputItem, Path, BrandSizeChart]]:
         """Preflight every selected source and derived output target before publication.
 
         Args:
@@ -163,14 +198,15 @@ class BrandOutputStep(
         """
 
         layout = ArtifactLayout(execution_context.result_dir)
-        publication_list: list[tuple[Path, BrandSizeChart]] = []
+        data_layout = BrandDataLayout(execution_context.data_path)
+        publication_list: list[tuple[BrandOutputItem, Path, BrandSizeChart]] = []
         output_path_set: set[Path] = set()
         for output_item in step_input.output_item_list:
             source_chart_path = self._source_chart_path_get(
                 layout=layout, source_chart_path=output_item.source_chart_path
             )
             output_path = self._output_path_get(
-                layout=layout,
+                data_layout=data_layout,
                 output_write_target=output_item.output_write_target,
             )
             if output_path in output_path_set:
@@ -182,14 +218,19 @@ class BrandOutputStep(
                 raise RuntimeError(
                     f"Selected source chart is missing or invalid: {output_item.source_chart_path}"
                 ) from exc
-            publication_list.append((output_path, source_chart))
+            publication_list.append((output_item, output_path, source_chart))
         return publication_list
 
-    def _output_path_get(self, *, layout: ArtifactLayout, output_write_target: ArtifactWriteTarget) -> Path:
+    def _output_path_get(
+        self,
+        *,
+        data_layout: BrandDataLayout,
+        output_write_target: ArtifactWriteTarget,
+    ) -> Path:
         """Resolve one canonical final output target before any write.
 
         Args:
-            layout: Current result-root artifact layout.
+            data_layout: Current standard Data layout.
             output_write_target: Persisted target declaration.
 
         Returns:
@@ -204,11 +245,11 @@ class BrandOutputStep(
             raise RuntimeError("Final chart filesystem_path must be absolute.")
         output_path = output_path.resolve()
         try:
-            output_artifact_path = layout.artifact_path(output_path)
+            output_artifact_path = data_layout.result_artifact_path(output_path)
         except ValueError as exc:
-            raise RuntimeError("Final chart target escapes result_dir.") from exc
+            raise RuntimeError("Final output target escapes the standard result path.") from exc
         if output_artifact_path != output_write_target.artifact_path:
-            raise RuntimeError("Final chart target does not match its canonical result-relative artifact_path.")
+            raise RuntimeError("Final output target does not match its canonical image-relative artifact_path.")
         return output_path
 
     def _source_chart_path_get(self, *, layout: ArtifactLayout, source_chart_path: str) -> Path:

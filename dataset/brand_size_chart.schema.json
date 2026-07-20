@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One queryable measurement with exact platform run provenance.",
+  "properties": {
+    "workflow_run_id": {
+      "title": "Workflow Run Id",
+      "type": "string"
+    },
+    "workflow_run_timestamp": {
+      "format": "date-time",
+      "title": "Workflow Run Timestamp",
+      "type": "string"
+    },
+    "workflow_source_version_id": {
+      "title": "Workflow Source Version Id",
+      "type": "string"
+    },
+    "brand_key": {
+      "title": "Brand Key",
+      "type": "string"
+    },
+    "brand_name": {
+      "title": "Brand Name",
+      "type": "string"
+    },
+    "chart_description": {
+      "title": "Chart Description",
+      "type": "string"
+    },
+    "market_scope_key": {
+      "title": "Market Scope Key",
+      "type": "string"
+    },
+    "measurement_index": {
+      "title": "Measurement Index",
+      "type": "integer"
+    },
+    "measurement_max_value": {
+      "title": "Measurement Max Value",
+      "type": "string"
+    },
+    "measurement_min_value": {
+      "title": "Measurement Min Value",
+      "type": "string"
+    },
+    "measurement_name": {
+      "title": "Measurement Name",
+      "type": "string"
+    },
+    "measurement_unit": {
+      "title": "Measurement Unit",
+      "type": "string"
+    },
+    "row_index": {
+      "title": "Row Index",
+      "type": "integer"
+    },
+    "size_group_key": {
+      "title": "Size Group Key",
+      "type": "string"
+    },
+    "size_label": {
+      "title": "Size Label",
+      "type": "string"
+    },
+    "source_type": {
+      "title": "Source Type",
+      "type": "string"
+    },
+    "source_url": {
+      "title": "Source Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "brand_key",
+    "brand_name",
+    "chart_description",
+    "market_scope_key",
+    "measurement_index",
+    "measurement_max_value",
+    "measurement_min_value",
+    "measurement_name",
+    "measurement_unit",
+    "row_index",
+    "size_group_key",
+    "size_label",
+    "source_type",
+    "source_url",
+    "workflow_run_id",
+    "workflow_run_timestamp",
+    "workflow_source_version_id"
+  ],
+  "title": "BrandSizeChartDatasetRow",
+  "type": "object"
+}

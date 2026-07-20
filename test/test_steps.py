@@ -1,11 +1,13 @@
 """Behavior tests for source-discovery step preparation and shared state."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
+from workflow_container_contract import WorkflowRunContext
 from workflow_container_runtime.artifact import JsonArtifactWriter
 from workflow_container_runtime.state import SqliteStateStore, state_database_path_get
 from workflow_container_runtime.step import WorkflowStepExecutionContext
-from workflow_container_runtime.workflow import WorkflowRuntimeCapability
+from workflow_container_runtime.workflow import WorkflowDataPath, WorkflowRuntimeCapability
 
 from brand_size_chart.model import (
     ArtifactWriteTarget,
@@ -86,7 +88,21 @@ def _context_get(tmp_path: Path) -> WorkflowStepExecutionContext:
     """Build one isolated source-discovery execution context."""
 
     return WorkflowStepExecutionContext(
+        data_path=WorkflowDataPath(
+            result_path=(tmp_path / "data-result").resolve(),
+            workspace_path=(tmp_path / "data-workspace").resolve(),
+        ),
         result_dir=tmp_path,
+        run_context=WorkflowRunContext(
+            interface_major_version=2,
+            version=1,
+            workflow_id="workflow-id",
+            workflow_name="brand_size_chart",
+            workflow_run_id="20260719123456789",
+            workflow_run_timestamp=datetime(2026, 7, 19, 12, 34, 56, 789000, tzinfo=UTC),
+            workflow_source_id="source-id",
+            workflow_source_version_id="source-version-id",
+        ),
         runtime_capability=WorkflowRuntimeCapability(browser=None),
         step_instance_dir=tmp_path / "workflow" / "run" / "step" / "source_discover",
         workflow_input_path=Path("workflow/run/input.json"),

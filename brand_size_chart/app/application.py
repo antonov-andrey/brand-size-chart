@@ -2,11 +2,12 @@
 
 from pathlib import Path
 
-from workflow_container_runtime import WorkflowControlClient
+from workflow_container_runtime import WorkflowControlClient, WorkflowControlRequestBuilder
 from workflow_container_runtime.artifact import (
     ArtifactMaterializationPolicy,
     ArtifactMaterializer,
     JsonArtifactWriter,
+    JsonLinesArtifactWriter,
 )
 from workflow_container_runtime.codex import CodexRunner
 from workflow_container_runtime.mcp_playwright_profile import McpPlaywrightProfileRuntime
@@ -38,16 +39,22 @@ from brand_size_chart.workflow import (
 class BrandSizeChartApplication:
     """Construct the complete stateless workflow object graph once."""
 
-    def __init__(self, *, control_client: WorkflowControlClient, workspace_path: Path) -> None:
+    def __init__(
+        self,
+        *,
+        control_client: WorkflowControlClient,
+        control_request_builder: WorkflowControlRequestBuilder,
+    ) -> None:
         """Build shared runtime services, concrete steps, and DBOS workflows.
 
         Args:
             control_client: Current execution-local platform control adapter.
-            workspace_path: Declared writable workspace mount root.
+            control_request_builder: Exact source-declared control request builder.
         """
 
         artifact_materializer = ArtifactMaterializer()
         artifact_writer = JsonArtifactWriter()
+        json_lines_artifact_writer = JsonLinesArtifactWriter()
         prompt_renderer = PromptRenderer(
             template_dir=Path(__file__).resolve().parents[1] / "prompt" / "template",
         )
@@ -56,7 +63,10 @@ class BrandSizeChartApplication:
             prompt_renderer=prompt_renderer,
             workflow_container_name="brand-size-chart",
         )
-        mcp_playwright_profile_runtime = McpPlaywrightProfileRuntime(workflow_control_client=control_client)
+        mcp_playwright_profile_runtime = McpPlaywrightProfileRuntime(
+            workflow_control_client=control_client,
+            workflow_control_request_builder=control_request_builder,
+        )
         browser_step_runtime_policy = WorkflowStepCodexRuntimePolicy(
             artifact_materialization_policy=ArtifactMaterializationPolicy(
                 artifact_root_tuple=(Path(".playwright-mcp/current"),),
@@ -90,6 +100,7 @@ class BrandSizeChartApplication:
             artifact_writer=artifact_writer,
             brand_output_step=BrandOutputStep(
                 artifact_writer=artifact_writer,
+                json_lines_artifact_writer=json_lines_artifact_writer,
                 source_discovery_database_reader=source_discovery_database_reader,
                 validator=BrandOutputValidator(),
             ),
@@ -128,5 +139,5 @@ class BrandSizeChartApplication:
             brand_workflow=brand_workflow,
             config_name="run",
             control_client=control_client,
-            workspace_path=workspace_path,
+            control_request_builder=control_request_builder,
         )

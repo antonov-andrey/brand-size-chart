@@ -1,4 +1,4 @@
-ARG WORKFLOW_PLATFORM_BASE_IMAGE=workflow-image-registry.apwid-workflow.svc.cluster.local:5000/apwid-workflow-platform-base:0.5.3
+ARG WORKFLOW_PLATFORM_BASE_IMAGE=workflow-image-registry.apwid-workflow.svc.cluster.local:5000/apwid-workflow-platform-base:0.6.3
 FROM ${WORKFLOW_PLATFORM_BASE_IMAGE}
 
 USER root

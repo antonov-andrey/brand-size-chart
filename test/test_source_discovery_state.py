@@ -61,7 +61,7 @@ def test_source_discovery_registry_resolves_approved_product_and_brand_selectors
     ) == ["official_brand_size_guide", "official_brand_product_page"]
 
 
-def test_source_discovery_url_rejects_terminal_row_without_evidence() -> None:
+def test_source_discovery_url_rejects_final_row_without_evidence() -> None:
     """Reject an opened or rejected URL before invalid state reaches SQLite."""
 
     with pytest.raises(ValueError, match="evidence_path_list"):

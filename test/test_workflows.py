@@ -1,16 +1,20 @@
 """Behavior tests for typed DBOS workflow wrappers."""
 
 import asyncio
+from datetime import UTC, datetime
 import inspect
 import json
 from pathlib import Path
 
 import pytest
-from workflow_container_contract import WorkflowControlSafepointRequest, WorkflowControlTerminalRequest
+from workflow_container_contract import WorkflowControlFinalRequest, WorkflowControlSafepointRequest, WorkflowDefinition
+from workflow_container_contract import WorkflowRunContext
+from workflow_container_runtime import WorkflowControlRequestBuilder
 from workflow_container_runtime.artifact import JsonArtifactWriter
 from workflow_container_runtime.codex import CodexExecutionError
 from workflow_container_runtime.step import WorkflowStepInvocation, WorkflowStepInvocationOutcome
 from workflow_container_runtime.workflow import WorkflowExecutionContext, WorkflowRuntimeCapability
+from workflow_container_runtime.workflow import WorkflowDataPath
 
 import brand_size_chart.model as brand_size_chart_model
 from brand_size_chart.model import (
@@ -35,16 +39,16 @@ from brand_size_chart.workflow.root import BrandSizeChartRunWorkflow
 
 
 class WorkflowControlClientStub:
-    """Record exact safepoint and terminal requests from the root workflow."""
+    """Record exact safepoint and final requests from the root workflow."""
 
+    final_request_list: list[WorkflowControlFinalRequest]
     safepoint_request_list: list[WorkflowControlSafepointRequest]
-    terminal_request_list: list[WorkflowControlTerminalRequest]
 
     def __init__(self) -> None:
         """Initialize empty request history."""
 
+        self.final_request_list = []
         self.safepoint_request_list = []
-        self.terminal_request_list = []
 
     def safepoint_send(self, *, request: WorkflowControlSafepointRequest) -> None:
         """Record one safepoint request.
@@ -55,14 +59,70 @@ class WorkflowControlClientStub:
 
         self.safepoint_request_list.append(request)
 
-    def terminal_send(self, *, request: WorkflowControlTerminalRequest) -> None:
-        """Record one terminal request.
+    def final_send(self, *, request: WorkflowControlFinalRequest) -> None:
+        """Record one final request.
 
         Args:
-            request: Canonical terminal request.
+            request: Canonical final request.
         """
 
-        self.terminal_request_list.append(request)
+        self.final_request_list.append(request)
+
+
+def _control_request_builder_get() -> WorkflowControlRequestBuilder:
+    """Build the exact source declaration used by root control tests.
+
+    Returns:
+        Source-validating control request builder.
+    """
+
+    return WorkflowControlRequestBuilder(
+        workflow_definition=WorkflowDefinition.model_validate(
+            {
+                "build": {"dockerfile_path": "Dockerfile"},
+                "command": ["run"],
+                "data": {"run": {"result": "result/{brand_key}", "workspace": "workspace/{brand_key}"}},
+                "input_schema_path": "input.schema.json",
+                "name": "brand_size_chart",
+                "step": {"brand_complete": {}},
+            }
+        )
+    )
+
+
+def _data_path_get(tmp_path: Path) -> WorkflowDataPath:
+    """Return isolated standard result and workspace roots.
+
+    Args:
+        tmp_path: Test-owned root.
+
+    Returns:
+        Standard Data paths for one test run.
+    """
+
+    return WorkflowDataPath(
+        result_path=(tmp_path / "result").resolve(),
+        workspace_path=(tmp_path / "workspace").resolve(),
+    )
+
+
+def _run_context_get() -> WorkflowRunContext:
+    """Return one immutable exact platform provenance context.
+
+    Returns:
+        Stable test run context.
+    """
+
+    return WorkflowRunContext(
+        interface_major_version=2,
+        version=1,
+        workflow_id="workflow-id",
+        workflow_name="brand_size_chart",
+        workflow_run_id="20260719123456789",
+        workflow_run_timestamp=datetime(2026, 7, 19, 12, 34, 56, 789000, tzinfo=UTC),
+        workflow_source_id="source-id",
+        workflow_source_version_id="source-version-id",
+    )
 
 
 def _brand_input_get() -> BrandInput:
@@ -115,14 +175,14 @@ def test_root_workflow_builds_minimal_brand_input_in_request_order(tmp_path: Pat
     def safepoint_write(*args: object) -> None:
         """Accept one brand safepoint boundary."""
 
-    def terminal_write(*args: object) -> None:
-        """Accept the root terminal boundary."""
+    def final_write(*args: object) -> None:
+        """Accept the root final boundary."""
 
     workflow._brand_workflow = BrandWorkflow()
     workflow.input_write_step = artifact_write
     workflow.result_write_step = result_write
     workflow.brand_safepoint_step = safepoint_write
-    workflow.terminal_request_step = terminal_write
+    workflow.final_request_step = final_write
     workflow_input = _workflow_input_get(concurrency=1).model_copy(
         update={
             "request": WorkflowBrandSizeChartRequest(
@@ -138,7 +198,9 @@ def test_root_workflow_builds_minimal_brand_input_in_request_order(tmp_path: Pat
         inspect.unwrap(BrandSizeChartRunWorkflow.run)(
             workflow,
             WorkflowExecutionContext(
+                data_path=_data_path_get(tmp_path),
                 result_dir=tmp_path,
+                run_context=_run_context_get(),
                 runtime_capability=WorkflowRuntimeCapability(browser=None),
                 workflow_instance_dir=tmp_path / "workflow" / "run",
             ),
@@ -154,13 +216,13 @@ def test_root_workflow_builds_minimal_brand_input_in_request_order(tmp_path: Pat
 
 
 def test_root_workflow_safepoint_publishes_result_and_workspace_atomically(tmp_path: Path) -> None:
-    """Bind one stable brand transition to both exact declared mount subtrees."""
+    """Bind one stable brand transition to both exact declared Data subtrees."""
 
     control_client = WorkflowControlClientStub()
     workflow = BrandSizeChartRunWorkflow.__new__(BrandSizeChartRunWorkflow)
     workflow._artifact_writer = JsonArtifactWriter()
     workflow._control_client = control_client
-    workflow._workspace_path = tmp_path / "workspace"
+    workflow._control_request_builder = _control_request_builder_get()
     brand_input = _brand_input_get()
     brand_result = BrandResult(
         brand_input=brand_input,
@@ -173,9 +235,11 @@ def test_root_workflow_safepoint_publishes_result_and_workspace_atomically(tmp_p
         warning_list=[],
     )
     execution_context = WorkflowExecutionContext(
-        result_dir=tmp_path / "result",
+        data_path=_data_path_get(tmp_path),
+        result_dir=tmp_path / "runtime-result",
+        run_context=_run_context_get(),
         runtime_capability=WorkflowRuntimeCapability(browser=None),
-        workflow_instance_dir=tmp_path / "result" / "workflow" / "run" / "workflow" / "brand_brand",
+        workflow_instance_dir=tmp_path / "runtime-result" / "workflow" / "run" / "workflow" / "brand_brand",
     )
     execution_context.workflow_instance_dir.mkdir(parents=True)
 
@@ -186,37 +250,36 @@ def test_root_workflow_safepoint_publishes_result_and_workspace_atomically(tmp_p
         brand_result,
     )
 
-    assert json.loads((tmp_path / "workspace" / "brand" / "brand" / "safepoint.json").read_text()) == {
+    assert json.loads((tmp_path / "workspace" / "brand" / "safepoint.json").read_text()) == {
         "parsed_brand_key": "brand",
         "parsed_brand_name": "Brand",
         "status": "success",
     }
     request = control_client.safepoint_request_list[0]
     assert request.step_identity == "brand/brand"
+    assert request.step_key == "brand_complete"
     assert request.transition_identity == "brand/brand/completed"
-    assert [item.model_dump() for item in request.publication_request_list] == [
-        {"data_mount_key": "result", "source_relative_path": "workflow/run/workflow/brand_brand"},
-        {"data_mount_key": "workspace", "source_relative_path": "brand/brand"},
+    assert [item.model_dump() for item in request.manifest_request_list] == [
+        {"manifest_key": "result", "path_parameter_by_name_map": {"brand_key": "brand"}},
+        {"manifest_key": "workspace", "path_parameter_by_name_map": {"brand_key": "brand"}},
     ]
 
 
-def test_root_workflow_terminal_intent_contains_exact_result_and_mount_trees() -> None:
-    """Send the final open result and canonical terminal publication list before process exit."""
+def test_root_workflow_final_intent_contains_exact_result_without_duplicate_manifests() -> None:
+    """Send the final open result after brand manifests were accepted at safepoints."""
 
     control_client = WorkflowControlClientStub()
     workflow = BrandSizeChartRunWorkflow.__new__(BrandSizeChartRunWorkflow)
     workflow._control_client = control_client
+    workflow._control_request_builder = _control_request_builder_get()
     workflow_result = RunResult(brand_result_list=[], error_list=[], status="success", warning_list=[])
 
-    inspect.unwrap(BrandSizeChartRunWorkflow.terminal_request_step)(workflow, workflow_result)
+    inspect.unwrap(BrandSizeChartRunWorkflow.final_request_step)(workflow, workflow_result)
 
-    request = control_client.terminal_request_list[0]
+    request = control_client.final_request_list[0]
     assert request.transition_identity == "run/completed"
     assert request.workflow_result == workflow_result
-    assert [item.model_dump() for item in request.publication_request_list] == [
-        {"data_mount_key": "result", "source_relative_path": "workflow/run"},
-        {"data_mount_key": "workspace", "source_relative_path": "brand"},
-    ]
+    assert request.manifest_request_list == []
 
 
 def _workflow_input_get(concurrency: int) -> WorkflowBrandSizeChartInput:
@@ -304,7 +367,7 @@ def _workflow_get(
 
     workflow._source_discovery_step = SourceDiscoveryStep()
     workflow.brand_output_write_step = lambda execution_context, input_source: BrandOutputResult(
-        size_chart_path_list=[]
+        dataset_path="result/brand/dataset/brand_size_chart/part-00000.jsonl", size_chart_path_list=[]
     )
     workflow.canonical_select_write_step = (
         lambda execution_context, input_source, workflow_step_config: CanonicalSelectionResult(
@@ -351,7 +414,9 @@ def test_brand_workflow_runs_source_discovery_directly_with_exact_config_and_res
     workflow_input = _workflow_input_get(concurrency=2)
     brand_input = _brand_input_get()
     context = WorkflowExecutionContext(
+        data_path=_data_path_get(tmp_path),
         result_dir=tmp_path,
+        run_context=_run_context_get(),
         runtime_capability=WorkflowRuntimeCapability(browser=None),
         workflow_instance_dir=tmp_path / "workflow" / "brand",
     )
@@ -390,7 +455,9 @@ def test_brand_workflow_preserves_exhausted_validation_feedback(tmp_path: Path) 
         {},
     )
     context = WorkflowExecutionContext(
+        data_path=_data_path_get(tmp_path),
         result_dir=tmp_path,
+        run_context=_run_context_get(),
         runtime_capability=WorkflowRuntimeCapability(browser=None),
         workflow_instance_dir=tmp_path / "workflow" / "brand",
     )
@@ -416,10 +483,10 @@ def test_brand_workflow_preserves_exhausted_validation_feedback(tmp_path: Path) 
         ("market_conflict", "failed", ["Source discovery market conflict."]),
     ],
 )
-def test_brand_workflow_maps_verified_discovery_terminal_outcomes(
+def test_brand_workflow_maps_verified_discovery_final_outcomes(
     tmp_path: Path, outcome: str, status: str, error_list: list[str]
 ) -> None:
-    """Map each verified terminal discovery result into its source-type handoff."""
+    """Map each verified final discovery result into its source-type handoff."""
 
     result = SourceDiscoveryResult(
         browsing_error_list=[], outcome=outcome, source_discovery_database_path="workflow/brand/source/state.sqlite3"
@@ -430,7 +497,9 @@ def test_brand_workflow_maps_verified_discovery_terminal_outcomes(
         inspect.unwrap(BrandSizeChartBrandWorkflow.run)(
             workflow,
             WorkflowExecutionContext(
+                data_path=_data_path_get(tmp_path),
                 result_dir=tmp_path,
+                run_context=_run_context_get(),
                 runtime_capability=WorkflowRuntimeCapability(browser=None),
                 workflow_instance_dir=tmp_path / "workflow" / "brand",
             ),
@@ -464,7 +533,9 @@ def test_brand_workflow_propagates_codex_infrastructure_errors(tmp_path: Path) -
             inspect.unwrap(BrandSizeChartBrandWorkflow.run)(
                 workflow,
                 WorkflowExecutionContext(
+                    data_path=_data_path_get(tmp_path),
                     result_dir=tmp_path,
+                    run_context=_run_context_get(),
                     runtime_capability=WorkflowRuntimeCapability(browser=None),
                     workflow_instance_dir=tmp_path / "workflow" / "brand",
                 ),

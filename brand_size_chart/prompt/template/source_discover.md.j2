@@ -4,7 +4,7 @@
 
 Read only the current `input.json`, its generated row schemas, sibling `chart.schema.json`, sibling `state.sqlite3` through `brand-size-chart-source-discovery-state`, and declared evidence and chart artifacts. `state.json` is runtime-owned: do not read, write, or infer domain data from it.
 
-Read the complete workflow input through `workflow_input_path`. Its `request.product_type_request_list` is ordered. Process each requested product completely before the next one. Derive the applicable `search_sex` branches semantically from the shared product-search contract; Python does not classify products or sexes.
+Use the complete workflow input's ordered `request.product_type_request_list`. Process each requested product completely before the next one. Derive the applicable `search_sex` branches semantically from the shared product-search contract; Python does not classify products or sexes.
 
 {% include "partial/source_type_contract.md.j2" %}
 
@@ -20,7 +20,7 @@ Select the one market boundary required by the shared market contract before pro
 brand-size-chart-source-discovery-state {{ input_path }} {initialize|upsert|get|list|list-prefix|delete} ...
 ```
 
-Pass exactly one schema-valid row to each `upsert` operation through standard input. Upsert one `product_search_worklist` row with state `pending` immediately before its search, then terminalize that same `(product_type, search_sex)` row as `searched` or `rejected` before starting another search row. A searched row needs at least one opened URL connected through `source_url_product_search`. Product-scoped discovery must create search rows for exactly the requested product-type set. Non-product-scoped sources must not create product-search or relation rows.
+Pass exactly one schema-valid row to each `upsert` operation through standard input. Upsert one `product_search_worklist` row with state `pending` immediately before its search, then finalize that same `(product_type, search_sex)` row as `searched` or `rejected` before starting another search row. A searched row needs at least one opened URL connected through `source_url_product_search`. Product-scoped discovery must create search rows for exactly the requested product-type set. Non-product-scoped sources must not create product-search or relation rows.
 
 Before the first product search, persist the selected market URL as `source_url` with state `opened`, then upsert the single `market_boundary` row. On retry, reuse that row unless current verification feedback specifically rejects the selected boundary. In that correction case, delete the rejected row before inserting its replacement so the table always returns to exactly one selected boundary.
 
@@ -34,7 +34,7 @@ brand-size-chart-source-discovery-chart-write {{ input_path }} <size_group_key> 
 
 Supply one `BrandSizeChart` object through standard input. Then upsert the matching `source_table` row as `candidate` or `market_conflict`. A chart identity is exactly `(size_group_key, market_scope_key)`; do not parse chart filenames to recover identity.
 
-After browser discovery, reread only SQLite, charts, and evidence. Finalize each `size_group_key` with the shared market ladder: upsert the selected row of the first available verified tier as `accepted`, and upsert every non-winning candidate as `market_filtered`. Preserve a chart-producer identity conflict as terminal `market_conflict`; do not overwrite it or treat it as no-table. Leave no `candidate` row. `market_conflict` is terminal data, not a correction failure. Return `BrowserActionResult` only after every current row and chart meets the terminal contract.
+After browser discovery, reread only SQLite, charts, and evidence. Finalize each `size_group_key` with the shared market ladder: upsert the selected row of the first available verified tier as `accepted`, and upsert every non-winning candidate as `market_filtered`. Preserve a chart-producer identity conflict as final `market_conflict`; do not overwrite it or treat it as no-table. Leave no `candidate` row. `market_conflict` is final data, not a correction failure. Return `BrowserActionResult` only after every current row and chart meets the final-state contract.
 
 On retry, reuse valid current rows and charts. Change only feedback-named or incomplete rows; do not recreate valid artifacts or invent alternate identity paths.
 

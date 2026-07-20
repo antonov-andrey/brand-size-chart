@@ -1,12 +1,14 @@
-"""SQLite source-discovery terminal-state behavior tests."""
+"""SQLite source-discovery final-state behavior tests."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
+from workflow_container_contract import WorkflowRunContext
 from workflow_container_runtime.artifact import JsonArtifactWriter
 from workflow_container_runtime.state import SqliteStateStore, state_database_path_get
 from workflow_container_runtime.step import BrowserActionResult, StepResultValidationError, WorkflowStepExecutionContext
-from workflow_container_runtime.workflow import WorkflowRuntimeCapability
+from workflow_container_runtime.workflow import WorkflowDataPath, WorkflowRuntimeCapability
 
 from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import (
@@ -45,7 +47,7 @@ from brand_size_chart.validator import SourceDiscoveryValidator
 
 
 def test_source_discovery_derives_valid_table_available_result_from_current_sqlite_state(tmp_path: Path) -> None:
-    """Read terminal state without mutation and expose its sibling database handle."""
+    """Read final state without mutation and expose its sibling database handle."""
 
     context = _context_get(tmp_path)
     step_input = _input_get(context)
@@ -65,10 +67,10 @@ def test_source_discovery_derives_valid_table_available_result_from_current_sqli
     ("table_state", "outcome"),
     [("no_table", "no_table"), ("market_conflict", "market_conflict")],
 )
-def test_source_discovery_derives_terminal_outcomes_from_final_states(
+def test_source_discovery_derives_final_outcomes_from_final_states(
     tmp_path: Path, table_state: str, outcome: str
 ) -> None:
-    """Keep no-table and market-conflict data as explicit terminal outcomes."""
+    """Keep no-table and market-conflict data as explicit final outcomes."""
 
     context = _context_get(tmp_path)
     step_input = _input_get(context)
@@ -206,7 +208,21 @@ def _context_get(tmp_path: Path) -> WorkflowStepExecutionContext:
     workflow_input_file.parent.mkdir(parents=True)
     workflow_input_file.write_text(_workflow_input_get().model_dump_json(), encoding="utf-8")
     return WorkflowStepExecutionContext(
+        data_path=WorkflowDataPath(
+            result_path=(tmp_path / "data-result").resolve(),
+            workspace_path=(tmp_path / "data-workspace").resolve(),
+        ),
         result_dir=tmp_path,
+        run_context=WorkflowRunContext(
+            interface_major_version=2,
+            version=1,
+            workflow_id="workflow-id",
+            workflow_name="brand_size_chart",
+            workflow_run_id="20260719123456789",
+            workflow_run_timestamp=datetime(2026, 7, 19, 12, 34, 56, 789000, tzinfo=UTC),
+            workflow_source_id="source-id",
+            workflow_source_version_id="source-version-id",
+        ),
         runtime_capability=WorkflowRuntimeCapability(browser=None),
         step_instance_dir=tmp_path / "workflow" / "run" / "step" / "source_discover",
         workflow_input_path=workflow_input_path,
@@ -214,7 +230,7 @@ def _context_get(tmp_path: Path) -> WorkflowStepExecutionContext:
 
 
 def _current_state_write(context: WorkflowStepExecutionContext, *, table_state: str) -> SqliteStateStore:
-    """Persist complete terminal state and every declared artifact boundary."""
+    """Persist complete final state and every declared artifact boundary."""
 
     evidence_path = context.step_instance_dir / "evidence" / "source.json"
     evidence_path.parent.mkdir(parents=True)
@@ -304,7 +320,7 @@ def _input_get(context: WorkflowStepExecutionContext) -> SourceDiscoveryInput:
 
 
 def _result_get(context: WorkflowStepExecutionContext, *, outcome: str) -> SourceDiscoveryResult:
-    """Build the exact public handoff for one derived terminal outcome."""
+    """Build the exact public handoff for one derived final outcome."""
 
     return SourceDiscoveryResult(
         browsing_error_list=[],

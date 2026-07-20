@@ -2,6 +2,6 @@
 
 {% include "runtime/partial/step_retry_context.md.j2" %}
 
-Read `BrandSourceTypeResultStepInput` from `{{ input_path }}` and the complete workflow input through its `workflow_input_path`. For every complete source result with `source_discovery_result.outcome == "table_available"`, run `brand-size-chart-source-discovery-read {{ input_path }} <source_type> list-accepted`. Read every returned chart and its source-table evidence.
+Read `BrandSourceTypeResultStepInput` from `{{ input_path }}` and use the complete workflow input's ordered `request.product_type_request_list`. For every complete source result with `source_discovery_result.outcome == "table_available"`, run `brand-size-chart-source-discovery-read {{ input_path }} <source_type> list-accepted`. Read every returned chart and its source-table evidence.
 
 For every requested product type, return one `CoveredProductType(product_type, chart_path, reason)` only when chart content or description plus the accepted row evidence explicitly supports it. Otherwise return one `CoverageDecisionProductTypeGap(product_type, reason)`. A source result without an available table contributes no chart and is not a gap reason. Do not write SQLite, charts, or any view artifact.

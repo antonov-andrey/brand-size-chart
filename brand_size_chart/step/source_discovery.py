@@ -142,7 +142,7 @@ class SourceDiscoveryStep(
         step_input: SourceDiscoveryInput,
         action_output: BrowserActionResult,
     ) -> SourceDiscoveryResult:
-        """Derive the public terminal outcome from finalized source-table rows.
+        """Derive the public final outcome from finalized source-table rows.
 
         Args:
             execution_context: Current step context.

@@ -30,7 +30,7 @@ from brand_size_chart.source.discovery_database import (
 
 
 class SourceDiscoveryValidator:
-    """Validate terminal source-discovery current state without domain reconstruction."""
+    """Validate final source-discovery current state without domain reconstruction."""
 
     def __init__(self, *, sqlite_state_store: SqliteStateStore) -> None:
         """Store the shared current-state reader.
@@ -120,7 +120,7 @@ class SourceDiscoveryValidator:
             if table_list:
                 self._fail("Do not persist source-table rows for a no_table handoff.")
             if not query_list:
-                self._fail("Persist complete terminal discovery evidence before a no_table handoff.")
+                self._fail("Persist complete final discovery evidence before a no_table handoff.")
 
     def _evidence_list_validate(
         self,
@@ -215,15 +215,15 @@ class SourceDiscoveryValidator:
         _ = evidence_target_path
 
     def _query_list_validate(self, query_list: list[SourceDiscoveryQuery]) -> None:
-        """Validate evidence-backed terminal discovery-query rows.
+        """Validate evidence-backed final discovery-query rows.
 
         Args:
-            query_list: Persisted terminal discovery-query rows.
+            query_list: Persisted final discovery-query rows.
         """
 
         for query in query_list:
             if not query.reason.strip() or not query.evidence_path_list:
-                self._fail("Every terminal query row needs an evidence-backed reason.")
+                self._fail("Every final query row needs an evidence-backed reason.")
 
     def _market_boundary_list_validate(
         self,
@@ -250,7 +250,7 @@ class SourceDiscoveryValidator:
             self._fail("The selected market boundary needs an evidence-backed reason and opened source URL.")
 
     def _url_list_validate(self, url_list: list[SourceDiscoveryUrl]) -> None:
-        """Validate evidence-backed terminal source URL rows.
+        """Validate evidence-backed final source URL rows.
 
         Args:
             url_list: Persisted source URL rows.
@@ -258,7 +258,7 @@ class SourceDiscoveryValidator:
 
         for url in url_list:
             if not url.reason.strip() or not url.evidence_path_list:
-                self._fail("Every terminal source URL row needs an evidence-backed reason.")
+                self._fail("Every final source URL row needs an evidence-backed reason.")
 
     def _product_search_list_validate(
         self,
@@ -286,7 +286,7 @@ class SourceDiscoveryValidator:
             return
         for product_search in product_search_list:
             if not product_search.reason.strip() or not product_search.evidence_path_list:
-                self._fail("Every terminal product search row needs an evidence-backed reason.")
+                self._fail("Every final product search row needs an evidence-backed reason.")
         requested_product_type_set = set(
             WorkflowBrandSizeChartInput.model_validate_json(
                 (execution_context.result_dir / step_input.workflow_input_path).read_text(encoding="utf-8")
@@ -296,7 +296,7 @@ class SourceDiscoveryValidator:
         if requested_product_type_set != represented_product_type_set:
             self._fail("Persist search rows for exactly the requested product type set.")
         if any(row.state == "pending" for row in product_search_list):
-            self._fail("Terminal source discovery must not retain pending product search rows.")
+            self._fail("Source discovery cannot finish while product search rows remain pending.")
         product_search_key_set = {(row.product_type, row.search_sex) for row in product_search_list}
         url_by_key_map = {url.url: url for url in url_list}
         opened_url_product_search_key_set: set[tuple[str, str]] = set()

@@ -21,13 +21,19 @@ class ArtifactWriteTarget(StrictBaseModel):
 class BrandOutputItem(StrictBaseModel):
     """One selected chart and its exact final output target."""
 
+    market_scope_key: IdentifierComponent
     output_write_target: ArtifactWriteTarget
+    size_group_key: IdentifierComponent
     source_chart_path: str
+    source_type: IdentifierComponent
+    source_url: str
 
 
 class BrandOutputInput(StrictBaseModel):
     """Persisted input for final canonical chart publication."""
 
+    brand_input: BrandInput
+    dataset_write_target: ArtifactWriteTarget
     output_item_list: list[BrandOutputItem]
 
 

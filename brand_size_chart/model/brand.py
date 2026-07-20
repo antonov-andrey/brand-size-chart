@@ -20,6 +20,7 @@ class BrandInput(StrictBaseModel):
 class BrandOutputResult(StrictBaseModel):
     """Final canonical size-chart artifacts published for one brand."""
 
+    dataset_path: str
     size_chart_path_list: list[str] = Field(default_factory=list)
 
 

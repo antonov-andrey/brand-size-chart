@@ -50,7 +50,7 @@ def test_reader_returns_only_accepted_rows_in_primary_key_order_with_derived_cha
 
 
 def test_reader_aggregates_only_successful_table_available_source_results(tmp_path: Path) -> None:
-    """Ignore failed and non-table terminal source results during aggregate reads."""
+    """Ignore failed and non-table final source results during aggregate reads."""
 
     available_result = _state_write(tmp_path, tmp_path / "workflow" / "run" / "source" / "source_discover")
     no_table_result = _source_type_result_get(
@@ -79,7 +79,7 @@ def test_reader_aggregates_only_successful_table_available_source_results(tmp_pa
 
 @pytest.mark.parametrize("outcome", ["no_table", "market_conflict"])
 def test_reader_rejects_source_result_without_table_available_outcome(tmp_path: Path, outcome: str) -> None:
-    """Reject terminal handoffs that cannot own accepted table rows."""
+    """Reject final handoffs that cannot own accepted table rows."""
 
     with pytest.raises(RuntimeError, match="table_available"):
         SourceDiscoveryDatabaseReader().accepted_table_list_get(
@@ -315,7 +315,7 @@ def _input_path_write(result_dir: Path, source_type_result_list: list[SourceType
 
 
 def _source_type_result_get(*, database_path: str, outcome: str, source_type: str, status: str) -> SourceTypeResult:
-    """Build one complete source-type handoff with the supplied terminal outcome."""
+    """Build one complete source-type handoff with the supplied final outcome."""
 
     return SourceTypeResult(
         error_list=[] if status == "success" else ["source failure"],

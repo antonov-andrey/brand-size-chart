@@ -10,26 +10,32 @@ test:
     - -m
     - pytest
     - -q
-data_mount_list:
-  - mount_key: secret
-    container_path: /input/.secret
-    access_mode: read_only
-    data_source_type: secret
-    publication_trigger_list: []
-  - mount_key: workspace
-    container_path: /workspace
-    access_mode: read_write
-    data_source_type: data
-    publication_trigger_list:
-      - safepoint
-      - terminal
-  - mount_key: result
-    container_path: /result
-    access_mode: read_write
-    data_source_type: data
-    publication_trigger_list:
-      - safepoint
-      - terminal
+data:
+  run:
+    result: result/{brand_key}
+    workspace: workspace/{brand_key}
+dataset:
+  brand_size_chart:
+    data_path_template: result/{brand_key}/dataset/brand_size_chart
+    format: json_lines
+    manifest_key: result
+    schema_path: dataset/brand_size_chart.schema.json
+    schema_version: 1
+secret:
+  codex_profile:
+    kind: directory
+    path: /input/.secret/codex_profile
+  playwright_profile:
+    kind: directory
+    path: /input/.secret/playwright_profile
+step:
+  brand_complete: {}
+  canonical_select: {}
+  coverage_decide: {}
+  source_discover: {}
 runtime_capability_list:
   - name: browser_vpn_runtime
-    data_mount_key: secret
+    config:
+      is_vpn_enabled: false
+    secret_key_list:
+      - playwright_profile

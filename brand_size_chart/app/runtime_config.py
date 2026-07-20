@@ -6,14 +6,16 @@ import stat
 from pathlib import Path
 
 DEFAULT_QUEUE_WORKER_CONCURRENCY = 4
-INPUT_SECRET_PATH = Path("/input/.secret")
+INPUT_CODEX_PROFILE_PATH = Path("/input/.secret/codex_profile")
 RESULT_PATH = Path("/result")
 SYSTEM_DATABASE_URL_PREFIX_TUPLE = ("postgresql://", "postgres://", "sqlite://")
+TEMPORARY_PATH = Path("/tmp")
+WORKFLOW_DEFINITION_PATH = Path("/app/brand-size-chart/workflow.yaml")
 WORKSPACE_PATH = Path("/workspace")
 
 
 def directory_tree_write_enable(path: Path) -> None:
-    """Make copied runtime secret files writable by the container user.
+    """Make copied temporary secret files writable by the container user.
 
     Args:
         path: Root path of the copied tree.
@@ -26,29 +28,27 @@ def directory_tree_write_enable(path: Path) -> None:
             child_path.chmod(child_path.stat().st_mode | stat.S_IRUSR | stat.S_IWUSR)
 
 
-def secret_runtime_materialize(input_secret_path: Path, runtime_secret_path: Path) -> None:
-    """Copy read-only input secret into pod-local runtime secret storage.
+def secret_directory_materialize(input_secret_path: Path, temporary_secret_path: Path) -> None:
+    """Copy one read-only secret directory into pod-local temporary storage.
 
     Args:
         input_secret_path: Read-only mounted input secret directory.
-        runtime_secret_path: Pod-local writable secret directory.
+        temporary_secret_path: Pod-local writable temporary directory.
 
     Raises:
         FileNotFoundError: If input secret path is missing.
     """
     if not input_secret_path.is_dir():
         raise FileNotFoundError(f"input secret directory is missing: {input_secret_path}")
-    if runtime_secret_path.exists():
-        return
-    runtime_secret_path.parent.mkdir(parents=True, exist_ok=True)
-    temp_secret_path = runtime_secret_path.with_name(f"{runtime_secret_path.name}.tmp")
-    if temp_secret_path.exists():
-        shutil.rmtree(temp_secret_path)
-    shutil.copytree(input_secret_path, temp_secret_path, symlinks=True)
-    directory_tree_write_enable(temp_secret_path)
-    if runtime_secret_path.exists():
-        shutil.rmtree(runtime_secret_path)
-    os.replace(temp_secret_path, runtime_secret_path)
+    temporary_secret_path.parent.mkdir(parents=True, exist_ok=True)
+    staging_secret_path = temporary_secret_path.with_name(f".{temporary_secret_path.name}.staging")
+    if staging_secret_path.exists():
+        shutil.rmtree(staging_secret_path)
+    shutil.copytree(input_secret_path, staging_secret_path, symlinks=True)
+    directory_tree_write_enable(staging_secret_path)
+    if temporary_secret_path.exists():
+        shutil.rmtree(temporary_secret_path)
+    os.replace(staging_secret_path, temporary_secret_path)
 
 
 def system_database_url_get(runtime_path: Path) -> str:

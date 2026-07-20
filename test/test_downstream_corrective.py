@@ -1,18 +1,20 @@
 """Downstream decision behavior over current runtime-owned workflow input."""
 
 import asyncio
+from datetime import UTC, datetime
 import inspect
 from pathlib import Path
 
 import pytest
-from workflow_container_runtime.artifact import JsonArtifactWriter
+from workflow_container_contract import WorkflowRunContext
+from workflow_container_runtime.artifact import JsonArtifactWriter, JsonLinesArtifactWriter
 from workflow_container_runtime.state import SqliteStateStore, state_database_path_get
 from workflow_container_runtime.step import (
     StepResultValidationError,
     WorkflowStepExecutionContext,
     WorkflowStepInvocationOutcome,
 )
-from workflow_container_runtime.workflow import WorkflowExecutionContext, WorkflowRuntimeCapability
+from workflow_container_runtime.workflow import WorkflowDataPath, WorkflowExecutionContext, WorkflowRuntimeCapability
 
 from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import (
@@ -369,9 +371,10 @@ def test_brand_output_preflights_containment_and_preserves_source_content(tmp_pa
     )
     result = BrandOutputStep.result_build(step, context, step_input)
 
-    assert result.size_chart_path_list == ["brand_size_chart/brand/brand/size_chart/women_dress__tr.json"]
+    assert result.dataset_path == "result/brand/dataset/brand_size_chart/part-00000.jsonl"
+    assert result.size_chart_path_list == ["result/brand/size_chart/women_dress__tr.json"]
     BrandOutputStep.result_validate(step, context, step_input, result)
-    final_path = tmp_path / result.size_chart_path_list[0]
+    final_path = tmp_path / "data-result" / "brand" / "size_chart" / "women_dress__tr.json"
     final_path.write_text(_chart_get("Changed.").model_dump_json(), encoding="utf-8")
     with pytest.raises(StepResultValidationError, match="exactly equal"):
         BrandOutputStep.result_validate(step, context, step_input, result)
@@ -381,12 +384,16 @@ def test_brand_output_preflights_containment_and_preserves_source_content(tmp_pa
     escape_path = tmp_path / "source-chart-escape.json"
     escape_path.symlink_to(external_chart_path)
     escaped_input = BrandOutputInput(
+        brand_input=step_input.brand_input,
+        dataset_write_target=step_input.dataset_write_target,
         output_item_list=[
             BrandOutputItem(
-                output_write_target=step_input.output_item_list[0].output_write_target,
-                source_chart_path=escape_path.relative_to(tmp_path).as_posix(),
+                **{
+                    **step_input.output_item_list[0].model_dump(),
+                    "source_chart_path": escape_path.relative_to(tmp_path).as_posix(),
+                }
             )
-        ]
+        ],
     )
     with pytest.raises(RuntimeError, match="escapes result_dir"):
         BrandOutputStep.result_build(step, context, escaped_input)
@@ -395,17 +402,23 @@ def test_brand_output_preflights_containment_and_preserves_source_content(tmp_pa
     target_escape_path = tmp_path / "target-escape.json"
     target_escape_path.symlink_to(external_target_path)
     target_escaped_input = BrandOutputInput(
+        brand_input=step_input.brand_input,
+        dataset_write_target=step_input.dataset_write_target,
         output_item_list=[
             BrandOutputItem(
+                market_scope_key=step_input.output_item_list[0].market_scope_key,
                 output_write_target=ArtifactWriteTarget(
                     artifact_path="target-escape.json",
                     filesystem_path=target_escape_path.as_posix(),
                 ),
-                source_chart_path=source_chart_path,
+                size_group_key=step_input.output_item_list[0].size_group_key,
+                source_chart_path=step_input.output_item_list[0].source_chart_path,
+                source_type=step_input.output_item_list[0].source_type,
+                source_url=step_input.output_item_list[0].source_url,
             )
-        ]
+        ],
     )
-    with pytest.raises(RuntimeError, match="target escapes result_dir"):
+    with pytest.raises(RuntimeError, match="target escapes the standard result path"):
         BrandOutputStep.result_build(step, context, target_escaped_input)
 
 
@@ -437,20 +450,19 @@ def test_brand_output_rejects_unknown_selection_and_invalid_source_chart(tmp_pat
         )
 
     source_chart_path = _accepted_table_list_get(tmp_path, [source_type_result])[0].chart_path
-    (tmp_path / source_chart_path).write_text("{}", encoding="utf-8")
-    invalid_source_input = BrandOutputInput(
-        output_item_list=[
-            BrandOutputItem(
-                output_write_target=ArtifactWriteTarget(
-                    artifact_path="brand_size_chart/brand/brand/size_chart/women_dress__tr.json",
-                    filesystem_path=(
-                        tmp_path / "brand_size_chart" / "brand" / "brand" / "size_chart" / "women_dress__tr.json"
-                    ).as_posix(),
-                ),
-                source_chart_path=source_chart_path,
-            )
-        ]
+    invalid_source_input = BrandOutputStep.input_build(
+        step,
+        context,
+        BrandOutputInputSource(
+            brand_input=_brand_input_get(),
+            canonical_selection_result=CanonicalSelectionResult(
+                canonical_selection_list=[CanonicalSelection(selected_chart_path=source_chart_path)],
+                unresolved_size_group_gap_list=[],
+            ),
+            source_type_result_list=[source_type_result],
+        ),
     )
+    (tmp_path / source_chart_path).write_text("{}", encoding="utf-8")
     with pytest.raises(RuntimeError, match="missing or invalid"):
         BrandOutputStep.result_build(step, context, invalid_source_input)
 
@@ -469,7 +481,7 @@ def test_brand_workflow_keeps_coverage_gaps_out_of_error_list(tmp_path: Path) ->
         """Return one normal no-table source outcome."""
 
         async def run_outcome_list(self, invocation_list: object, workflow_step_config: object) -> object:
-            """Return one successful terminal outcome."""
+            """Return one successful final outcome."""
 
             _ = invocation_list
             _ = workflow_step_config
@@ -511,11 +523,13 @@ def test_brand_workflow_keeps_coverage_gaps_out_of_error_list(tmp_path: Path) ->
         )
     )
     workflow.brand_output_write_step = lambda execution_context, input_source: BrandOutputResult(
-        size_chart_path_list=[]
+        dataset_path="result/brand/dataset/brand_size_chart/part-00000.jsonl", size_chart_path_list=[]
     )
     workflow_input = _workflow_input_get(["dress"])
     context = WorkflowExecutionContext(
+        data_path=_data_path_get(tmp_path),
         result_dir=tmp_path,
+        run_context=_run_context_get(),
         runtime_capability=WorkflowRuntimeCapability(browser=None),
         workflow_instance_dir=tmp_path / "workflow" / "brand",
     )
@@ -665,11 +679,47 @@ def _brand_input_get() -> BrandInput:
     return BrandInput(parsed_brand_key="brand", parsed_brand_name="Brand")
 
 
+def _data_path_get(tmp_path: Path) -> WorkflowDataPath:
+    """Return isolated standard Data roots for downstream tests.
+
+    Args:
+        tmp_path: Test-owned runtime root.
+
+    Returns:
+        Exact result and workspace paths.
+    """
+
+    return WorkflowDataPath(
+        result_path=(tmp_path / "data-result").resolve(),
+        workspace_path=(tmp_path / "data-workspace").resolve(),
+    )
+
+
+def _run_context_get() -> WorkflowRunContext:
+    """Return immutable provenance used by output dataset tests.
+
+    Returns:
+        Stable platform run context.
+    """
+
+    return WorkflowRunContext(
+        interface_major_version=2,
+        version=1,
+        workflow_id="workflow-id",
+        workflow_name="brand_size_chart",
+        workflow_run_id="20260719123456789",
+        workflow_run_timestamp=datetime(2026, 7, 19, 12, 34, 56, 789000, tzinfo=UTC),
+        workflow_source_id="source-id",
+        workflow_source_version_id="source-version-id",
+    )
+
+
 def _brand_output_step_get(reader: SourceDiscoveryDatabaseReader) -> BrandOutputStep:
     """Build one deterministic output step with production dependencies."""
 
     return BrandOutputStep(
         artifact_writer=JsonArtifactWriter(),
+        json_lines_artifact_writer=JsonLinesArtifactWriter(),
         source_discovery_database_reader=reader,
         validator=BrandOutputValidator(),
     )
@@ -707,7 +757,9 @@ def _context_get(tmp_path: Path) -> WorkflowStepExecutionContext:
     """Build one isolated downstream step context with its runtime input path."""
 
     return WorkflowStepExecutionContext(
+        data_path=_data_path_get(tmp_path),
         result_dir=tmp_path,
+        run_context=_run_context_get(),
         runtime_capability=WorkflowRuntimeCapability(browser=None),
         step_instance_dir=tmp_path / "workflow" / "run" / "step" / "downstream",
         workflow_input_path=Path("workflow/run/input.json"),
@@ -736,7 +788,7 @@ def _source_table_write(
 
 
 def _source_type_result_get(*, database_path: str, outcome: str, source_type: str) -> SourceTypeResult:
-    """Build one successful source-discovery terminal handoff."""
+    """Build one successful source-discovery final handoff."""
 
     return SourceTypeResult(
         error_list=[],

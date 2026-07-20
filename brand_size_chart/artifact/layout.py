@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-from brand_size_chart.model import BrandInput
 from brand_size_chart.model.source import market_scope_key_validate, size_group_key_validate
 
 
@@ -29,36 +28,6 @@ class ArtifactLayout:
         """
 
         return path.resolve().relative_to(self.result_dir).as_posix()
-
-    def brand_output_dir(self, brand_input: BrandInput) -> Path:
-        """Return the final output directory for one brand.
-
-        Args:
-            brand_input: Parsed brand identity.
-
-        Returns:
-            Brand output directory.
-        """
-
-        return self.result_dir / "brand_size_chart" / "brand" / brand_input.parsed_brand_key
-
-    def brand_size_chart_path(self, brand_input: BrandInput, size_group_key: str, market_scope_key: str) -> Path:
-        """Return one final canonical size-chart path.
-
-        Args:
-            brand_input: Parsed brand identity.
-            size_group_key: Manufacturer-derived physical table key.
-            market_scope_key: Deterministic market scope key.
-
-        Returns:
-            Final size-chart artifact path.
-        """
-
-        return (
-            self.brand_output_dir(brand_input)
-            / "size_chart"
-            / (f"{size_group_key_validate(size_group_key)}__{market_scope_key_validate(market_scope_key)}.json")
-        )
 
     def source_discovery_chart_path(
         self,
