@@ -317,7 +317,7 @@ def _entrypoint_configure(
                 "interface_major_version": 2,
                 "version": 1,
                 "workflow_id": "workflow-id",
-                "workflow_name": "brand_size_chart",
+                "workflow_name": "brand_size_chart_defacto",
                 "workflow_run_id": _WORKFLOW_RUN_ID,
                 "workflow_run_timestamp": "2026-07-19T12:34:56.789Z",
                 "workflow_source_id": "source-id",

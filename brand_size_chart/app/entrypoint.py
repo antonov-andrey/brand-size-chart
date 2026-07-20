@@ -34,8 +34,6 @@ def main() -> int:
     os.environ["HOME"] = str(temporary_home_path)
     os.environ["TMPDIR"] = str(temporary_process_path)
     workflow_definition = WorkflowDefinition.from_path(runtime_config.WORKFLOW_DEFINITION_PATH)
-    if workflow_definition.name != platform_runtime_config.run_context.workflow_name:
-        raise RuntimeError("workflow.yaml name does not match the immutable workflow run context")
     control_request_builder = WorkflowControlRequestBuilder(workflow_definition=workflow_definition)
     control_client = WorkflowControlClient(control_url=platform_runtime_config.control_url)
     control_client.registration_send(workflow_run_id=platform_runtime_config.run_context.workflow_run_id)
