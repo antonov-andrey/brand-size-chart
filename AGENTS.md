@@ -4,7 +4,8 @@
 - This project owns the `brand-size-chart` workflow-container domain logic.
 - Shared workflow-container ecosystem authoring and code quality rules belong to the `workflow-container-tools` plugin reference `references/workflow-container-authoring.md`.
 - Generic workflow-container runtime code and generic prompt partials belong to `workflow-container-runtime`.
-- Browser/VPN runtime behavior belongs to `browser-vpn-runtime`.
+- Browser runtime behavior belongs to `browser-runtime`.
+- VPN gateway, SOCKS5, tunnel lifecycle, and VPN config validation belong to `vpn-runtime`.
 - This project must not depend on `workflow-container-tools` at runtime.
 
 ## Python
@@ -16,10 +17,11 @@
 ## DBOS Runtime
 - Configure DBOS only inside `brand_size_chart.app.entrypoint.main`.
 - Launch order must stay: build config, call `DBOS.listen_queues(...)`, call `DBOS.launch()`, register the queue, then start the root workflow.
-- The browser/VPN runtime is an external runtime capability for this workflow process; `brand_size_chart.app.entrypoint.main` must receive the run-local browser capability values and pass them only through the typed runtime capability used by browser-backed DBOS steps.
+- The browser runtime and network proxy map are external runtime capabilities for this workflow process; `brand_size_chart.app.entrypoint.main` must receive their safe values and pass them only through the typed runtime capability used by browser-backed DBOS steps.
 - Production runtime must not depend on subagent protocol files, tracker files, Codex exec orchestration, or agent-pool state.
-- The workflow process and Playwright must remain outside the OpenVPN network namespace; only the external `vpn-egress` gateway owns OpenVPN and `tun0`, and Playwright reaches it through SOCKS.
-- Step code, step prompts, and step arguments must not customize browser/VPN runtime internals such as profile path, VPN path, MCP command, browser flags, locale, timezone, user agent, or stealth behavior.
+- The workflow process and Playwright must remain outside every VPN gateway network namespace and may reach a selected gateway only through its platform-provided SOCKS endpoint.
+- Every browser-backed step must use only its exact `mcp_playwright_network_proxy_name` from the complete workflow input; project code must not add automatic proxy selection, distribution, routing indices, or fallback.
+- Step code, step prompts, and step arguments must not customize browser or VPN runtime internals such as profile path, VPN path, MCP command, browser flags, locale, timezone, user agent, stealth behavior, tunnel protocol, or provider credentials.
 
 ## Artifacts
 - Generated JSON schemas must come from Pydantic v2 models in `brand_size_chart.model`.
