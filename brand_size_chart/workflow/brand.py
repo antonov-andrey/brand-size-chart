@@ -145,7 +145,7 @@ class BrandSizeChartBrandWorkflow(
         try:
             coverage_decision_result = self.coverage_decide_write_step(
                 execution_context.for_step(
-                    runtime_capability=WorkflowRuntimeCapability(browser=None),
+                    runtime_capability=execution_context.runtime_capability,
                     step_instance_key="coverage_decide",
                 ),
                 decision_input_source,
@@ -153,7 +153,7 @@ class BrandSizeChartBrandWorkflow(
             )
             canonical_selection_result = self.canonical_select_write_step(
                 execution_context.for_step(
-                    runtime_capability=WorkflowRuntimeCapability(browser=None),
+                    runtime_capability=execution_context.runtime_capability,
                     step_instance_key="canonical_select",
                 ),
                 decision_input_source,
@@ -161,7 +161,10 @@ class BrandSizeChartBrandWorkflow(
             )
             brand_output_result = self.brand_output_write_step(
                 execution_context.for_step(
-                    runtime_capability=WorkflowRuntimeCapability(browser=None),
+                    runtime_capability=WorkflowRuntimeCapability(
+                        browser=None,
+                        network_proxy=execution_context.runtime_capability.network_proxy,
+                    ),
                     step_instance_key="brand_output",
                 ),
                 BrandOutputInputSource(

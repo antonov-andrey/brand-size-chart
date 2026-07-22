@@ -155,6 +155,20 @@
           "type": "string",
           "x-ui-control": "textarea"
         },
+        "mcp_playwright_network_proxy_name": {
+          "anyOf": [
+            {
+              "format": "network-proxy-name",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exact stable network proxy used by Playwright, or null for direct egress.",
+          "title": "Playwright network proxy"
+        },
         "mcp_playwright_profile": {
           "anyOf": [
             {
@@ -209,6 +223,7 @@
       "required": [
         "correction_attempt_limit",
         "instruction",
+        "mcp_playwright_network_proxy_name",
         "mcp_playwright_profile",
         "mcp_playwright_profile_source",
         "model",
@@ -235,6 +250,20 @@
           "type": "string",
           "x-ui-control": "textarea"
         },
+        "mcp_playwright_network_proxy_name": {
+          "anyOf": [
+            {
+              "format": "network-proxy-name",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exact stable network proxy used by Playwright, or null for direct egress.",
+          "title": "Playwright network proxy"
+        },
         "mcp_playwright_profile": {
           "anyOf": [
             {
@@ -289,6 +318,7 @@
       "required": [
         "correction_attempt_limit",
         "instruction",
+        "mcp_playwright_network_proxy_name",
         "mcp_playwright_profile",
         "mcp_playwright_profile_source",
         "model",
@@ -322,6 +352,20 @@
           "type": "string",
           "x-ui-control": "textarea"
         },
+        "mcp_playwright_network_proxy_name": {
+          "anyOf": [
+            {
+              "format": "network-proxy-name",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exact stable network proxy used by Playwright, or null for direct egress.",
+          "title": "Playwright network proxy"
+        },
         "mcp_playwright_profile": {
           "anyOf": [
             {
@@ -376,6 +420,7 @@
       "required": [
         "correction_attempt_limit",
         "instruction",
+        "mcp_playwright_network_proxy_name",
         "mcp_playwright_profile",
         "mcp_playwright_profile_source",
         "model",

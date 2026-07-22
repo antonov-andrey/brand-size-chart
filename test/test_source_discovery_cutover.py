@@ -8,7 +8,11 @@ from workflow_container_contract import WorkflowRunContext
 from workflow_container_runtime.artifact import JsonArtifactWriter
 from workflow_container_runtime.state import SqliteStateStore, state_database_path_get
 from workflow_container_runtime.step import BrowserActionResult, StepResultValidationError, WorkflowStepExecutionContext
-from workflow_container_runtime.workflow import WorkflowDataPath, WorkflowRuntimeCapability
+from workflow_container_runtime.workflow import (
+    NetworkProxyRuntimeCapability,
+    WorkflowDataPath,
+    WorkflowRuntimeCapability,
+)
 
 from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import (
@@ -223,7 +227,10 @@ def _context_get(tmp_path: Path) -> WorkflowStepExecutionContext:
             workflow_source_id="source-id",
             workflow_source_version_id="source-version-id",
         ),
-        runtime_capability=WorkflowRuntimeCapability(browser=None),
+        runtime_capability=WorkflowRuntimeCapability(
+            browser=None,
+            network_proxy=NetworkProxyRuntimeCapability(proxy_by_name_map={}),
+        ),
         step_instance_dir=tmp_path / "workflow" / "run" / "step" / "source_discover",
         workflow_input_path=workflow_input_path,
     )
@@ -351,6 +358,7 @@ def _workflow_input_get() -> WorkflowBrandSizeChartInput:
                 canonical_select=WorkflowStepCanonicalSelectConfig(
                     correction_attempt_limit=1,
                     instruction="",
+                    mcp_playwright_network_proxy_name=None,
                     mcp_playwright_profile=None,
                     mcp_playwright_profile_source=None,
                     model="gpt-5.6-terra",
@@ -359,6 +367,7 @@ def _workflow_input_get() -> WorkflowBrandSizeChartInput:
                 coverage_decide=WorkflowStepCoverageDecideConfig(
                     correction_attempt_limit=1,
                     instruction="",
+                    mcp_playwright_network_proxy_name=None,
                     mcp_playwright_profile=None,
                     mcp_playwright_profile_source=None,
                     model="gpt-5.6-terra",
@@ -368,6 +377,7 @@ def _workflow_input_get() -> WorkflowBrandSizeChartInput:
                     concurrency=1,
                     correction_attempt_limit=1,
                     instruction="",
+                    mcp_playwright_network_proxy_name=None,
                     mcp_playwright_profile="source-discover",
                     mcp_playwright_profile_source=None,
                     model="gpt-5.6-terra",

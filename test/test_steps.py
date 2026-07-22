@@ -7,7 +7,11 @@ from workflow_container_contract import WorkflowRunContext
 from workflow_container_runtime.artifact import JsonArtifactWriter
 from workflow_container_runtime.state import SqliteStateStore, state_database_path_get
 from workflow_container_runtime.step import WorkflowStepExecutionContext
-from workflow_container_runtime.workflow import WorkflowDataPath, WorkflowRuntimeCapability
+from workflow_container_runtime.workflow import (
+    NetworkProxyRuntimeCapability,
+    WorkflowDataPath,
+    WorkflowRuntimeCapability,
+)
 
 from brand_size_chart.model import (
     ArtifactWriteTarget,
@@ -103,7 +107,10 @@ def _context_get(tmp_path: Path) -> WorkflowStepExecutionContext:
             workflow_source_id="source-id",
             workflow_source_version_id="source-version-id",
         ),
-        runtime_capability=WorkflowRuntimeCapability(browser=None),
+        runtime_capability=WorkflowRuntimeCapability(
+            browser=None,
+            network_proxy=NetworkProxyRuntimeCapability(proxy_by_name_map={}),
+        ),
         step_instance_dir=tmp_path / "workflow" / "run" / "step" / "source_discover",
         workflow_input_path=Path("workflow/run/input.json"),
     )

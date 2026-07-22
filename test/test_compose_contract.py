@@ -1,5 +1,6 @@
 """Behavior tests for the local browser-profile lifecycle in Compose."""
 
+import json
 from pathlib import Path
 
 import yaml
@@ -15,7 +16,11 @@ def test_compose_uses_one_direct_run_local_profile_router_and_standard_capabilit
     assert "vpn-egress" not in service_by_name_map
     assert "playwright-mcp" not in service_by_name_map
     assert "playwright-profile-writeback" not in service_by_name_map
-    assert router_service["command"][0] == "browser-vpn-runtime-playwright-mcp-router"
+    assert router_service["build"]["context"] == "${BROWSER_RUNTIME_CONTEXT:-../browser-runtime}"
+    assert router_service["build"]["additional_contexts"] == {
+        "workflow_container_contract": "${WORKFLOW_CONTAINER_CONTRACT_CONTEXT:-../workflow-container-contract}"
+    }
+    assert router_service["command"][0] == "browser-runtime-playwright-mcp-router"
     assert router_service["command"][router_service["command"].index("--secret-root-path") + 1] == "/input/.secret"
     assert "--vpn-proxy-server" not in router_service["command"]
     assert "--data-source-path" not in router_service["command"]
@@ -41,7 +46,7 @@ def test_compose_uses_one_direct_run_local_profile_router_and_standard_capabilit
     assert workflow_service["command"] == ["brand-size-chart-run"]
     assert workflow_service["read_only"] is True
     assert workflow_service["tmpfs"] == ["/tmp:mode=1777"]
-    assert "./compose.capability.json:/input/capability.json:ro" in workflow_service["volumes"]
+    assert "${CAPABILITY_JSON:-./compose.capability.json}:/input/capability.json:ro" in workflow_service["volumes"]
     workflow_environment = workflow_service["environment"]
     assert workflow_environment["WORKFLOW_CAPABILITY_CONFIG_PATH"] == "/input/capability.json"
     assert workflow_environment["WORKFLOW_INPUT_PATH"] == "/input/input.json"
@@ -72,3 +77,13 @@ def test_compose_direct_mode_omits_openvpn_resources_and_proxy() -> None:
     assert "--vpn-proxy-server" not in playwright_service["command"]
     assert "vpn-egress-runtime" not in compose["volumes"]
     assert workflow_service["environment"]["WORKFLOW_CAPABILITY_CONFIG_PATH"] == "/input/capability.json"
+
+
+def test_compose_capability_uses_separate_browser_and_exact_network_proxy_documents() -> None:
+    """Expose browser routing and one explicit exact proxy map without a combined runtime."""
+
+    capability = json.loads(Path("compose.capability.json").read_text(encoding="utf-8"))
+
+    assert set(capability) == {"browser_runtime", "network_proxy"}
+    assert capability["network_proxy"] == {"proxy_by_name_map": {}}
+    assert set(capability["browser_runtime"]) == {"browser"}

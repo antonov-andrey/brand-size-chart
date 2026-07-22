@@ -10,6 +10,8 @@ test:
     - -m
     - pytest
     - -q
+    - -p
+    - no:cacheprovider
 data:
   run:
     result: result/{brand_key}
@@ -34,8 +36,6 @@ step:
   coverage_decide: {}
   source_discover: {}
 runtime_capability_list:
-  - name: browser_vpn_runtime
-    config:
-      is_vpn_enabled: false
+  - name: browser_runtime
     secret_key_list:
       - playwright_profile

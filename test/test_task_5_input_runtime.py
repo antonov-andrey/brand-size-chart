@@ -38,6 +38,7 @@ def _input_payload_get() -> dict[str, object]:
                 "canonical_select": {
                     "correction_attempt_limit": 3,
                     "instruction": "Keep one chart per group.",
+                    "mcp_playwright_network_proxy_name": "owner/canonical",
                     "mcp_playwright_profile": None,
                     "mcp_playwright_profile_source": None,
                     "model": "gpt-5.6-terra",
@@ -46,6 +47,7 @@ def _input_payload_get() -> dict[str, object]:
                 "coverage_decide": {
                     "correction_attempt_limit": 3,
                     "instruction": "Classify every requested product type.",
+                    "mcp_playwright_network_proxy_name": "owner/coverage",
                     "mcp_playwright_profile": None,
                     "mcp_playwright_profile_source": None,
                     "model": "gpt-5.6-terra",
@@ -55,6 +57,7 @@ def _input_payload_get() -> dict[str, object]:
                     "concurrency": 2,
                     "correction_attempt_limit": 3,
                     "instruction": "Collect verified size charts.",
+                    "mcp_playwright_network_proxy_name": "owner/source",
                     "mcp_playwright_profile": "source-discover",
                     "mcp_playwright_profile_source": None,
                     "model": "gpt-5.6-terra",

@@ -190,7 +190,7 @@ def test_entrypoint_builds_exact_browser_runtime_capability(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """Pass only the immutable image-visible capability config into browser-backed steps."""
+    """Pass the immutable browser endpoint and exact proxy map into browser-backed steps."""
 
     _entrypoint_configure(monkeypatch, tmp_path)
 
@@ -199,6 +199,11 @@ def test_entrypoint_builds_exact_browser_runtime_capability(
         "mcp_playwright_profile_source": "source",
         "mcp_playwright_profile_writeback_candidate_url": "http://playwright:8931/candidate",
         "mcp_url": "http://playwright:8931/mcp",
+    }
+    assert DBOSStub.enqueue_args[0].runtime_capability.network_proxy.proxy_by_name_map == {
+        "owner/canonical": "socks5://canonical-proxy:1080",
+        "owner/coverage": "socks5://coverage-proxy:1080",
+        "owner/source": "socks5://source-proxy:1080",
     }
     assert DBOSStub.enqueue_args[0].run_context.workflow_run_id == _WORKFLOW_RUN_ID
     assert DBOSStub.enqueue_args[0].data_path.result_path == tmp_path / "result"
@@ -245,9 +250,13 @@ def test_entrypoint_rejects_missing_browser_runtime_after_registration(
 ) -> None:
     """Reject domain execution when the declared browser capability payload is absent."""
 
-    _entrypoint_configure(monkeypatch, tmp_path, capability_payload={})
+    _entrypoint_configure(
+        monkeypatch,
+        tmp_path,
+        capability_payload={"network_proxy": {"proxy_by_name_map": {}}},
+    )
 
-    with pytest.raises(RuntimeError, match="browser_vpn_runtime"):
+    with pytest.raises(RuntimeError, match="browser_runtime"):
         entrypoint.main()
     assert DBOSStub.event_list == [("registration", _WORKFLOW_RUN_ID)]
 
@@ -331,13 +340,20 @@ def _entrypoint_configure(
             capability_payload
             if capability_payload is not None
             else {
-                "browser_vpn_runtime": {
+                "browser_runtime": {
                     "browser": {
                         "mcp_playwright_profile_source": "source",
                         "mcp_playwright_profile_writeback_candidate_url": "http://playwright:8931/candidate",
                         "mcp_url": "http://playwright:8931/mcp",
                     }
-                }
+                },
+                "network_proxy": {
+                    "proxy_by_name_map": {
+                        "owner/canonical": "socks5://canonical-proxy:1080",
+                        "owner/coverage": "socks5://coverage-proxy:1080",
+                        "owner/source": "socks5://source-proxy:1080",
+                    }
+                },
             }
         ),
         encoding="utf-8",
@@ -390,6 +406,7 @@ def _input_payload_get() -> dict[str, object]:
                         "concurrency": 1,
                         "correction_attempt_limit": 1,
                         "instruction": "",
+                        "mcp_playwright_network_proxy_name": "owner/source",
                         "mcp_playwright_profile": "source-discover",
                         "mcp_playwright_profile_source": None,
                         "model": "gpt-5.6-terra",
@@ -399,6 +416,9 @@ def _input_payload_get() -> dict[str, object]:
                     else {
                         "correction_attempt_limit": 1,
                         "instruction": "",
+                        "mcp_playwright_network_proxy_name": (
+                            "owner/coverage" if step_key == "coverage_decide" else "owner/canonical"
+                        ),
                         "mcp_playwright_profile": None,
                         "mcp_playwright_profile_source": None,
                         "model": "gpt-5.6-terra",

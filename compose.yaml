@@ -1,10 +1,12 @@
 services:
   playwright-mcp-router:
     build:
-      context: ${BROWSER_VPN_RUNTIME_CONTEXT:-../browser-vpn-runtime}
+      context: ${BROWSER_RUNTIME_CONTEXT:-../browser-runtime}
       dockerfile: docker/playwright/Dockerfile
+      additional_contexts:
+        workflow_container_contract: ${WORKFLOW_CONTAINER_CONTRACT_CONTEXT:-../workflow-container-contract}
     command:
-      - browser-vpn-runtime-playwright-mcp-router
+      - browser-runtime-playwright-mcp-router
       - --allowed-hosts
       - localhost,127.0.0.1,playwright-mcp-router
       - --backend-runtime-root-path
@@ -47,7 +49,7 @@ services:
   workflow:
     build:
       args:
-        WORKFLOW_PLATFORM_BASE_IMAGE: ${WORKFLOW_PLATFORM_BASE_IMAGE:-127.0.0.1:5001/apwid-workflow-platform-base:0.6.3}
+        WORKFLOW_PLATFORM_BASE_IMAGE: ${WORKFLOW_PLATFORM_BASE_IMAGE:-127.0.0.1:5001/apwid-workflow-platform-base:0.7.0}
       context: .
       dockerfile: docker/workflow/Dockerfile
     command:
@@ -80,7 +82,7 @@ services:
         read_only: true
         bind:
           create_host_path: false
-      - ./compose.capability.json:/input/capability.json:ro
+      - ${CAPABILITY_JSON:-./compose.capability.json}:/input/capability.json:ro
       - type: bind
         source: ${INPUT_JSON:?Set INPUT_JSON to a complete workflow input JSON file path}
         target: /input/input.json

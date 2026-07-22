@@ -30,8 +30,8 @@ def test_input_schema_is_generated_from_pydantic_owner() -> None:
     WorkflowInputSchema.from_path(schema_path)
 
 
-def test_workflow_config_uses_explicit_browser_profile_contract() -> None:
-    """Require the workflow policy and both nullable profile fields on every Codex step."""
+def test_workflow_config_uses_explicit_browser_profile_and_proxy_contract() -> None:
+    """Require workflow policy plus explicit profile and proxy fields on every Codex step."""
 
     assert issubclass(WorkflowBrandSizeChartConfig, WorkflowBrowserConfigBase)
     for config_model in (
@@ -39,7 +39,12 @@ def test_workflow_config_uses_explicit_browser_profile_contract() -> None:
         WorkflowStepCoverageDecideConfig,
         WorkflowStepSourceDiscoverConfig,
     ):
-        assert {"mcp_playwright_profile", "mcp_playwright_profile_source"} <= set(config_model.model_fields)
+        assert {
+            "mcp_playwright_network_proxy_name",
+            "mcp_playwright_profile",
+            "mcp_playwright_profile_source",
+        } <= set(config_model.model_fields)
+        assert config_model.model_fields["mcp_playwright_network_proxy_name"].is_required()
         assert config_model.model_fields["mcp_playwright_profile"].is_required()
         assert config_model.model_fields["mcp_playwright_profile_source"].is_required()
 

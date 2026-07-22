@@ -14,7 +14,12 @@ from workflow_container_runtime.step import (
     WorkflowStepExecutionContext,
     WorkflowStepInvocationOutcome,
 )
-from workflow_container_runtime.workflow import WorkflowDataPath, WorkflowExecutionContext, WorkflowRuntimeCapability
+from workflow_container_runtime.workflow import (
+    NetworkProxyRuntimeCapability,
+    WorkflowDataPath,
+    WorkflowExecutionContext,
+    WorkflowRuntimeCapability,
+)
 
 from brand_size_chart.artifact import ArtifactLayout
 from brand_size_chart.model import (
@@ -530,7 +535,10 @@ def test_brand_workflow_keeps_coverage_gaps_out_of_error_list(tmp_path: Path) ->
         data_path=_data_path_get(tmp_path),
         result_dir=tmp_path,
         run_context=_run_context_get(),
-        runtime_capability=WorkflowRuntimeCapability(browser=None),
+        runtime_capability=WorkflowRuntimeCapability(
+            browser=None,
+            network_proxy=NetworkProxyRuntimeCapability(proxy_by_name_map={}),
+        ),
         workflow_instance_dir=tmp_path / "workflow" / "brand",
     )
 
@@ -760,7 +768,10 @@ def _context_get(tmp_path: Path) -> WorkflowStepExecutionContext:
         data_path=_data_path_get(tmp_path),
         result_dir=tmp_path,
         run_context=_run_context_get(),
-        runtime_capability=WorkflowRuntimeCapability(browser=None),
+        runtime_capability=WorkflowRuntimeCapability(
+            browser=None,
+            network_proxy=NetworkProxyRuntimeCapability(proxy_by_name_map={}),
+        ),
         step_instance_dir=tmp_path / "workflow" / "run" / "step" / "downstream",
         workflow_input_path=Path("workflow/run/input.json"),
     )
@@ -848,6 +859,7 @@ def _workflow_input_get(product_type_request_list: list[str]) -> WorkflowBrandSi
                 canonical_select=WorkflowStepCanonicalSelectConfig(
                     correction_attempt_limit=1,
                     instruction="",
+                    mcp_playwright_network_proxy_name=None,
                     mcp_playwright_profile=None,
                     mcp_playwright_profile_source=None,
                     model="gpt-5.6-terra",
@@ -856,6 +868,7 @@ def _workflow_input_get(product_type_request_list: list[str]) -> WorkflowBrandSi
                 coverage_decide=WorkflowStepCoverageDecideConfig(
                     correction_attempt_limit=1,
                     instruction="",
+                    mcp_playwright_network_proxy_name=None,
                     mcp_playwright_profile=None,
                     mcp_playwright_profile_source=None,
                     model="gpt-5.6-terra",
@@ -865,6 +878,7 @@ def _workflow_input_get(product_type_request_list: list[str]) -> WorkflowBrandSi
                     concurrency=1,
                     correction_attempt_limit=1,
                     instruction="",
+                    mcp_playwright_network_proxy_name=None,
                     mcp_playwright_profile="source-discover",
                     mcp_playwright_profile_source=None,
                     model="gpt-5.6-terra",

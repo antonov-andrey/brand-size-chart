@@ -31,7 +31,7 @@ wheels = [
 
 [[package]]
 name = "brand-size-chart"
-version = "0.6.4"
+version = "0.7.0"
 source = { editable = "." }
 dependencies = [
     { name = "dbos" },
@@ -649,7 +649,7 @@ wheels = [
 
 [[package]]
 name = "workflow-container-contract"
-version = "0.5.0"
+version = "0.6.0"
 source = { editable = "../workflow-container-contract" }
 dependencies = [
     { name = "jsonschema" },
@@ -671,7 +671,7 @@ provides-extras = ["test"]
 
 [[package]]
 name = "workflow-container-runtime"
-version = "0.6.3"
+version = "0.7.0"
 source = { editable = "../workflow-container-runtime" }
 dependencies = [
     { name = "dbos" },

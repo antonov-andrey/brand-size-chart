@@ -30,6 +30,7 @@ def main() -> int:
     }
     for step_key in ("canonical_select", "coverage_decide", "source_discover"):
         step_config_payload = config_payload["step_map"][step_key]
+        step_config_payload["mcp_playwright_network_proxy_name"] = None
         step_config_payload["mcp_playwright_profile"] = "source-discover" if step_key == "source_discover" else None
         step_config_payload["mcp_playwright_profile_source"] = None
 

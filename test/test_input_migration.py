@@ -62,8 +62,8 @@ def _migration_run(input_payload: dict[str, object]) -> subprocess.CompletedProc
     )
 
 
-def test_input_migration_converts_legacy_text_and_adds_exact_profile_config() -> None:
-    """Migrate only the removed field and exact new browser-profile settings."""
+def test_input_migration_converts_legacy_text_and_adds_exact_browser_config() -> None:
+    """Migrate the removed field plus exact browser profile and direct-proxy settings."""
 
     legacy_input = _legacy_input_get()
     completed_process = _migration_run(legacy_input)
@@ -81,16 +81,19 @@ def test_input_migration_converts_legacy_text_and_adds_exact_profile_config() ->
     assert migrated_input["config"]["step_map"] == {
         "canonical_select": {
             **legacy_input["config"]["step_map"]["canonical_select"],
+            "mcp_playwright_network_proxy_name": None,
             "mcp_playwright_profile": None,
             "mcp_playwright_profile_source": None,
         },
         "coverage_decide": {
             **legacy_input["config"]["step_map"]["coverage_decide"],
+            "mcp_playwright_network_proxy_name": None,
             "mcp_playwright_profile": None,
             "mcp_playwright_profile_source": None,
         },
         "source_discover": {
             **legacy_input["config"]["step_map"]["source_discover"],
+            "mcp_playwright_network_proxy_name": None,
             "mcp_playwright_profile": "source-discover",
             "mcp_playwright_profile_source": None,
         },

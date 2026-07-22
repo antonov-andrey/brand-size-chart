@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "brand-size-chart"
-version = "0.6.4"
+version = "0.7.0"
 description = "DBOS workflow container for verified brand size-chart collection"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -13,8 +13,8 @@ dependencies = [
   "Jinja2>=3.1.0",
   "pydantic>=2.10.0",
   "Unidecode>=1.3.8",
-  "workflow-container-contract>=0.5,<0.6",
-  "workflow-container-runtime>=0.6,<0.7",
+  "workflow-container-contract>=0.6,<0.7",
+  "workflow-container-runtime>=0.7,<0.8",
 ]
 
 [project.optional-dependencies]

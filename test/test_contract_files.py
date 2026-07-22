@@ -17,19 +17,19 @@ def test_workflow_source_contract_files_validate() -> None:
     workflow_contract_file_validate(project_root=Path(__file__).resolve().parents[1])
 
 
-def test_workflow_source_targets_exact_0_6_contract_and_migration_edge() -> None:
+def test_workflow_source_targets_exact_0_7_contract_and_migration_edge() -> None:
     """Publish the interface-v2 source with exact Data and dependency declarations."""
 
     pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
     workflow = yaml.safe_load(Path("workflow.yaml").read_text(encoding="utf-8"))
     versions = yaml.safe_load(Path("versions.yaml").read_text(encoding="utf-8"))
 
-    assert pyproject["project"]["version"] == "0.6.4"
-    assert "workflow-container-contract>=0.5,<0.6" in pyproject["project"]["dependencies"]
-    assert "workflow-container-runtime>=0.6,<0.7" in pyproject["project"]["dependencies"]
+    assert pyproject["project"]["version"] == "0.7.0"
+    assert "workflow-container-contract>=0.6,<0.7" in pyproject["project"]["dependencies"]
+    assert "workflow-container-runtime>=0.7,<0.8" in pyproject["project"]["dependencies"]
     assert workflow["build"] == {"dockerfile_path": "docker/workflow/Dockerfile"}
     assert workflow["command"] == ["brand-size-chart-run"]
-    assert workflow["test"] == {"command": ["python", "-m", "pytest", "-q"]}
+    assert workflow["test"] == {"command": ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider"]}
     assert workflow["data"] == {"run": {"result": "result/{brand_key}", "workspace": "workspace/{brand_key}"}}
     assert workflow["dataset"] == {
         "brand_size_chart": {
@@ -52,15 +52,14 @@ def test_workflow_source_targets_exact_0_6_contract_and_migration_edge() -> None
     }
     assert workflow["runtime_capability_list"] == [
         {
-            "config": {"is_vpn_enabled": False},
-            "name": "browser_vpn_runtime",
+            "name": "browser_runtime",
             "secret_key_list": ["playwright_profile"],
         }
     ]
     assert versions == {
         "project": "brand-size-chart",
-        "version": "0.6.4",
-        "contracts": {"workflow": 6, "artifact_schema": 4, "prompt_set": 3},
+        "version": "0.7.0",
+        "contracts": {"workflow": 7, "artifact_schema": 4, "prompt_set": 3},
         "input_migrations": [
             {
                 "from_version": "0.4.0",

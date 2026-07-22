@@ -11,10 +11,15 @@ from workflow_container_contract import WorkflowControlFinalRequest, WorkflowCon
 from workflow_container_contract import WorkflowRunContext
 from workflow_container_runtime import WorkflowControlRequestBuilder
 from workflow_container_runtime.artifact import JsonArtifactWriter
+from workflow_container_runtime.capability import BrowserRuntimeCapability
 from workflow_container_runtime.codex import CodexExecutionError
 from workflow_container_runtime.step import WorkflowStepInvocation, WorkflowStepInvocationOutcome
-from workflow_container_runtime.workflow import WorkflowExecutionContext, WorkflowRuntimeCapability
-from workflow_container_runtime.workflow import WorkflowDataPath
+from workflow_container_runtime.workflow import (
+    NetworkProxyRuntimeCapability,
+    WorkflowDataPath,
+    WorkflowExecutionContext,
+    WorkflowRuntimeCapability,
+)
 
 import brand_size_chart.model as brand_size_chart_model
 from brand_size_chart.model import (
@@ -201,7 +206,10 @@ def test_root_workflow_builds_minimal_brand_input_in_request_order(tmp_path: Pat
                 data_path=_data_path_get(tmp_path),
                 result_dir=tmp_path,
                 run_context=_run_context_get(),
-                runtime_capability=WorkflowRuntimeCapability(browser=None),
+                runtime_capability=WorkflowRuntimeCapability(
+                    browser=None,
+                    network_proxy=NetworkProxyRuntimeCapability(proxy_by_name_map={}),
+                ),
                 workflow_instance_dir=tmp_path / "workflow" / "run",
             ),
             workflow_input,
@@ -238,7 +246,10 @@ def test_root_workflow_safepoint_publishes_result_and_workspace_atomically(tmp_p
         data_path=_data_path_get(tmp_path),
         result_dir=tmp_path / "runtime-result",
         run_context=_run_context_get(),
-        runtime_capability=WorkflowRuntimeCapability(browser=None),
+        runtime_capability=WorkflowRuntimeCapability(
+            browser=None,
+            network_proxy=NetworkProxyRuntimeCapability(proxy_by_name_map={}),
+        ),
         workflow_instance_dir=tmp_path / "runtime-result" / "workflow" / "run" / "workflow" / "brand_brand",
     )
     execution_context.workflow_instance_dir.mkdir(parents=True)
@@ -282,11 +293,20 @@ def test_root_workflow_final_intent_contains_exact_result_without_duplicate_mani
     assert request.manifest_request_list == []
 
 
-def _workflow_input_get(concurrency: int) -> WorkflowBrandSizeChartInput:
+def _workflow_input_get(
+    concurrency: int,
+    *,
+    canonical_select_network_proxy_name: str | None = None,
+    coverage_decide_network_proxy_name: str | None = None,
+    source_discover_network_proxy_name: str | None = None,
+) -> WorkflowBrandSizeChartInput:
     """Build the complete typed workflow input for a concurrent source-discovery run.
 
     Args:
         concurrency: Maximum number of source-discovery invocations owned by runtime.
+        canonical_select_network_proxy_name: Exact proxy selected for canonical selection.
+        coverage_decide_network_proxy_name: Exact proxy selected for coverage decisions.
+        source_discover_network_proxy_name: Exact proxy selected for all source discovery invocations.
 
     Returns:
         Complete workflow input with exact step configurations.
@@ -303,6 +323,7 @@ def _workflow_input_get(concurrency: int) -> WorkflowBrandSizeChartInput:
                 canonical_select=WorkflowStepCanonicalSelectConfig(
                     correction_attempt_limit=1,
                     instruction="",
+                    mcp_playwright_network_proxy_name=canonical_select_network_proxy_name,
                     mcp_playwright_profile=None,
                     mcp_playwright_profile_source=None,
                     model="gpt-5.6-terra",
@@ -311,6 +332,7 @@ def _workflow_input_get(concurrency: int) -> WorkflowBrandSizeChartInput:
                 coverage_decide=WorkflowStepCoverageDecideConfig(
                     correction_attempt_limit=1,
                     instruction="",
+                    mcp_playwright_network_proxy_name=coverage_decide_network_proxy_name,
                     mcp_playwright_profile=None,
                     mcp_playwright_profile_source=None,
                     model="gpt-5.6-terra",
@@ -320,6 +342,7 @@ def _workflow_input_get(concurrency: int) -> WorkflowBrandSizeChartInput:
                     concurrency=concurrency,
                     correction_attempt_limit=1,
                     instruction="",
+                    mcp_playwright_network_proxy_name=source_discover_network_proxy_name,
                     mcp_playwright_profile="source-discover",
                     mcp_playwright_profile_source=None,
                     model="gpt-5.6-terra",
@@ -366,19 +389,50 @@ def _workflow_get(
             return outcome_list
 
     workflow._source_discovery_step = SourceDiscoveryStep()
-    workflow.brand_output_write_step = lambda execution_context, input_source: BrandOutputResult(
-        dataset_path="result/brand/dataset/brand_size_chart/part-00000.jsonl", size_chart_path_list=[]
-    )
-    workflow.canonical_select_write_step = (
-        lambda execution_context, input_source, workflow_step_config: CanonicalSelectionResult(
-            canonical_selection_list=[], unresolved_size_group_gap_list=[]
+
+    def brand_output_write_step(execution_context: object, input_source: object) -> BrandOutputResult:
+        """Record deterministic output routing and return an empty dataset result."""
+
+        received.update(
+            brand_output_execution_context=execution_context,
+            brand_output_input_source=input_source,
         )
-    )
-    workflow.coverage_decide_write_step = (
-        lambda execution_context, input_source, workflow_step_config: CoverageDecisionResult(
-            covered_product_type_list=[]
+        return BrandOutputResult(
+            dataset_path="result/brand/dataset/brand_size_chart/part-00000.jsonl",
+            size_chart_path_list=[],
         )
-    )
+
+    def canonical_select_write_step(
+        execution_context: object,
+        input_source: object,
+        workflow_step_config: WorkflowStepCanonicalSelectConfig,
+    ) -> CanonicalSelectionResult:
+        """Record exact canonical-selection routing and return an empty decision."""
+
+        received.update(
+            canonical_select_execution_context=execution_context,
+            canonical_select_input_source=input_source,
+            canonical_select_workflow_step_config=workflow_step_config,
+        )
+        return CanonicalSelectionResult(canonical_selection_list=[], unresolved_size_group_gap_list=[])
+
+    def coverage_decide_write_step(
+        execution_context: object,
+        input_source: object,
+        workflow_step_config: WorkflowStepCoverageDecideConfig,
+    ) -> CoverageDecisionResult:
+        """Record exact coverage-decision routing and return an empty decision."""
+
+        received.update(
+            coverage_decide_execution_context=execution_context,
+            coverage_decide_input_source=input_source,
+            coverage_decide_workflow_step_config=workflow_step_config,
+        )
+        return CoverageDecisionResult(covered_product_type_list=[])
+
+    workflow.brand_output_write_step = brand_output_write_step
+    workflow.canonical_select_write_step = canonical_select_write_step
+    workflow.coverage_decide_write_step = coverage_decide_write_step
 
     async def input_write_step(execution_context: object, workflow_input: object) -> None:
         """Accept the publication call at the async runtime boundary."""
@@ -417,7 +471,10 @@ def test_brand_workflow_runs_source_discovery_directly_with_exact_config_and_res
         data_path=_data_path_get(tmp_path),
         result_dir=tmp_path,
         run_context=_run_context_get(),
-        runtime_capability=WorkflowRuntimeCapability(browser=None),
+        runtime_capability=WorkflowRuntimeCapability(
+            browser=None,
+            network_proxy=NetworkProxyRuntimeCapability(proxy_by_name_map={}),
+        ),
         workflow_instance_dir=tmp_path / "workflow" / "brand",
     )
 
@@ -432,6 +489,70 @@ def test_brand_workflow_runs_source_discovery_directly_with_exact_config_and_res
     ]
     assert [result.source_discovery_result for result in workflow_result.source_type_result_list] == _result_list_get()
     assert "source_type_skip_list" not in type(workflow_result).model_fields
+
+
+def test_brand_workflow_preserves_each_explicit_proxy_setting_without_distribution(tmp_path: Path) -> None:
+    """Pass one full map while every browser-backed step keeps only its own exact input setting."""
+
+    received: dict[str, object] = {}
+    workflow = _workflow_get(
+        [WorkflowStepInvocationOutcome(result=result, validation_feedback_tuple=()) for result in _result_list_get()],
+        received,
+    )
+    workflow_input = _workflow_input_get(
+        concurrency=2,
+        canonical_select_network_proxy_name="owner/canonical",
+        coverage_decide_network_proxy_name="owner/coverage",
+        source_discover_network_proxy_name="owner/source",
+    )
+    runtime_capability = WorkflowRuntimeCapability(
+        browser=BrowserRuntimeCapability(
+            mcp_playwright_profile_source="/.secret/playwright_profile",
+            mcp_playwright_profile_writeback_candidate_url="http://browser-runtime/profile-writeback",
+            mcp_url="http://browser-runtime/mcp",
+        ),
+        network_proxy=NetworkProxyRuntimeCapability(
+            proxy_by_name_map={
+                "owner/canonical": "socks5://canonical-proxy:1080",
+                "owner/coverage": "socks5://coverage-proxy:1080",
+                "owner/source": "socks5://source-proxy:1080",
+            }
+        ),
+    )
+
+    asyncio.run(
+        inspect.unwrap(BrandSizeChartBrandWorkflow.run)(
+            workflow,
+            WorkflowExecutionContext(
+                data_path=_data_path_get(tmp_path),
+                result_dir=tmp_path,
+                run_context=_run_context_get(),
+                runtime_capability=runtime_capability,
+                workflow_instance_dir=tmp_path / "workflow" / "brand",
+            ),
+            workflow_input,
+            _brand_input_get(),
+        )
+    )
+
+    invocation_list = received["invocation_list"]
+    assert isinstance(invocation_list, list)
+    assert len(invocation_list) == 2
+    assert all(invocation.execution_context.runtime_capability == runtime_capability for invocation in invocation_list)
+    assert all(
+        set(type(invocation.input_source).model_fields).isdisjoint(
+            {"mcp_playwright_network_proxy_name", "network_proxy_index", "workflow_step_config"}
+        )
+        for invocation in invocation_list
+    )
+    assert received["workflow_step_config"] == workflow_input.config.step_map.source_discover
+    assert received["canonical_select_workflow_step_config"] == workflow_input.config.step_map.canonical_select
+    assert received["coverage_decide_workflow_step_config"] == workflow_input.config.step_map.coverage_decide
+    assert received["canonical_select_execution_context"].runtime_capability == runtime_capability
+    assert received["coverage_decide_execution_context"].runtime_capability == runtime_capability
+    brand_output_runtime_capability = received["brand_output_execution_context"].runtime_capability
+    assert brand_output_runtime_capability.browser is None
+    assert brand_output_runtime_capability.network_proxy == runtime_capability.network_proxy
 
 
 def test_brand_model_excludes_sequential_source_skip_contract() -> None:
@@ -458,7 +579,10 @@ def test_brand_workflow_preserves_exhausted_validation_feedback(tmp_path: Path) 
         data_path=_data_path_get(tmp_path),
         result_dir=tmp_path,
         run_context=_run_context_get(),
-        runtime_capability=WorkflowRuntimeCapability(browser=None),
+        runtime_capability=WorkflowRuntimeCapability(
+            browser=None,
+            network_proxy=NetworkProxyRuntimeCapability(proxy_by_name_map={}),
+        ),
         workflow_instance_dir=tmp_path / "workflow" / "brand",
     )
 
@@ -500,7 +624,10 @@ def test_brand_workflow_maps_verified_discovery_final_outcomes(
                 data_path=_data_path_get(tmp_path),
                 result_dir=tmp_path,
                 run_context=_run_context_get(),
-                runtime_capability=WorkflowRuntimeCapability(browser=None),
+                runtime_capability=WorkflowRuntimeCapability(
+                    browser=None,
+                    network_proxy=NetworkProxyRuntimeCapability(proxy_by_name_map={}),
+                ),
                 workflow_instance_dir=tmp_path / "workflow" / "brand",
             ),
             _workflow_input_get(concurrency=1),
@@ -536,7 +663,10 @@ def test_brand_workflow_propagates_codex_infrastructure_errors(tmp_path: Path) -
                     data_path=_data_path_get(tmp_path),
                     result_dir=tmp_path,
                     run_context=_run_context_get(),
-                    runtime_capability=WorkflowRuntimeCapability(browser=None),
+                    runtime_capability=WorkflowRuntimeCapability(
+                        browser=None,
+                        network_proxy=NetworkProxyRuntimeCapability(proxy_by_name_map={}),
+                    ),
                     workflow_instance_dir=tmp_path / "workflow" / "brand",
                 ),
                 _workflow_input_get(concurrency=1),

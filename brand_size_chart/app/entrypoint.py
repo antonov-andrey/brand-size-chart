@@ -45,7 +45,7 @@ def main() -> int:
         platform_runtime_config.capability_config_path
     )
     if runtime_capability.browser is None:
-        raise RuntimeError("brand-size-chart requires the declared browser_vpn_runtime capability")
+        raise RuntimeError("brand-size-chart requires the declared browser_runtime capability")
     codex_profile_path = runtime_config.TEMPORARY_PATH / "codex_profile"
     runtime_config.secret_directory_materialize(runtime_config.INPUT_CODEX_PROFILE_PATH, codex_profile_path)
     os.environ["CODEX_HOME"] = str(codex_profile_path)

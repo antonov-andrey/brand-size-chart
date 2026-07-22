@@ -72,6 +72,7 @@ def _input_payload_get() -> dict[str, object]:
                         "concurrency": 1,
                         "correction_attempt_limit": 1,
                         "instruction": "",
+                        "mcp_playwright_network_proxy_name": None,
                         "mcp_playwright_profile": "source-discover",
                         "mcp_playwright_profile_source": None,
                         "model": "gpt-5.6-terra",
@@ -81,6 +82,7 @@ def _input_payload_get() -> dict[str, object]:
                     else {
                         "correction_attempt_limit": 1,
                         "instruction": "",
+                        "mcp_playwright_network_proxy_name": None,
                         "mcp_playwright_profile": None,
                         "mcp_playwright_profile_source": None,
                         "model": "gpt-5.6-terra",

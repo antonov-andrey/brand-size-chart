@@ -1,9 +1,12 @@
 {
-  "browser_vpn_runtime": {
+  "browser_runtime": {
     "browser": {
       "mcp_playwright_profile_source": "source",
       "mcp_playwright_profile_writeback_candidate_url": "http://playwright-mcp-router:8931/runtime/mcp-playwright-profile/writeback-candidate",
       "mcp_url": "http://playwright-mcp-router:8931/mcp"
     }
+  },
+  "network_proxy": {
+    "proxy_by_name_map": {}
   }
 }
