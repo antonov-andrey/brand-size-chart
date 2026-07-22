@@ -108,6 +108,7 @@ class BrandSizeChartRunWorkflow(
         """
 
         data_layout = BrandDataLayout(brand_execution_context.data_path)
+        data_layout.result_brand_dir(brand_input).mkdir(parents=True, exist_ok=True)
         self._artifact_writer.write(
             data_layout.workspace_brand_dir(brand_input) / "safepoint.json",
             BrandSafepoint(

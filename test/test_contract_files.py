@@ -24,7 +24,7 @@ def test_workflow_source_targets_exact_0_7_contract_and_migration_edge() -> None
     workflow = yaml.safe_load(Path("workflow.yaml").read_text(encoding="utf-8"))
     versions = yaml.safe_load(Path("versions.yaml").read_text(encoding="utf-8"))
 
-    assert pyproject["project"]["version"] == "0.7.0"
+    assert pyproject["project"]["version"] == "0.7.1"
     assert "workflow-container-contract>=0.6,<0.7" in pyproject["project"]["dependencies"]
     assert "workflow-container-runtime>=0.7,<0.8" in pyproject["project"]["dependencies"]
     assert workflow["build"] == {"dockerfile_path": "docker/workflow/Dockerfile"}
@@ -58,7 +58,7 @@ def test_workflow_source_targets_exact_0_7_contract_and_migration_edge() -> None
     ]
     assert versions == {
         "project": "brand-size-chart",
-        "version": "0.7.0",
+        "version": "0.7.1",
         "contracts": {"workflow": 7, "artifact_schema": 4, "prompt_set": 3},
         "input_migrations": [
             {

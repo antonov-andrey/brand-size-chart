@@ -266,6 +266,7 @@ def test_root_workflow_safepoint_publishes_result_and_workspace_atomically(tmp_p
         "parsed_brand_name": "Brand",
         "status": "success",
     }
+    assert (tmp_path / "result" / "brand").is_dir()
     request = control_client.safepoint_request_list[0]
     assert request.step_identity == "brand/brand"
     assert request.step_key == "brand_complete"
