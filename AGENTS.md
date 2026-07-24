@@ -1,12 +1,25 @@
 # Repository Guidelines
 
+## Required Standards
+- `project-standards:project-foundation` applies to all work in this repository.
+- `project-standards:project-instruction-developer` applies to instruction artifacts.
+- `project-standards:project-documentation-developer` applies to `DESIGN.md`.
+- `project-standards:python-developer`, `project-standards:python-cli-developer`, and `project-standards:pytest-developer` apply to Python code, entrypoints, and tests.
+- `project-standards:runtime-config-developer` applies to environment-backed runtime configuration.
+- `project-standards:docker-compose-developer` applies to `compose.yaml` and its runtime contour.
+- `workflow-container-agent-tools:workflow-container-developer` applies to workflow-container code, contracts, prompts, and runtime integration.
+
+If one required provider skill is unavailable, continue read-only discovery only and do not mutate this repository until the provider is restored.
+
+Active task pairs live only under the ignored `.spec/` root.
+
 ## Scope
 - This project owns the `brand-size-chart` workflow-container domain logic.
-- Shared workflow-container ecosystem authoring and code quality rules belong to the `workflow-container-tools` plugin reference `references/workflow-container-authoring.md`.
+- Shared workflow-container ecosystem authoring and code quality rules belong to `workflow-container-agent-tools:workflow-container-developer`.
 - Generic workflow-container runtime code and generic prompt partials belong to `workflow-container-runtime`.
 - Browser runtime behavior belongs to `browser-runtime`.
 - VPN gateway, SOCKS5, tunnel lifecycle, and VPN config validation belong to `vpn-runtime`.
-- This project must not depend on `workflow-container-tools` at runtime.
+- This project must not depend on agent plugins at runtime.
 
 ## Python
 - Python code uses Python 3.14.

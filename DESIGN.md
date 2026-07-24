@@ -1,4 +1,4 @@
-# Brand Size Chart Workflow
+# Brand Size Chart Workflow Design
 
 ## Platform Source Contract
 
