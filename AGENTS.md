@@ -1,5 +1,13 @@
 # Repository Guidelines
 
+## Table Of Contents
+
+- [Required Standards](#required-standards)
+- [Scope](#scope)
+- [Python](#python)
+- [DBOS Runtime](#dbos-runtime)
+- [Artifacts](#artifacts)
+
 ## Required Standards
 - `project-standards:project-foundation` applies to all work in this repository.
 - `project-standards:project-instruction-developer` applies to instruction artifacts.
