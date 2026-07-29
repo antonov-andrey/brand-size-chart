@@ -2,7 +2,7 @@
 
 from dbos import DBOS, DBOSConfiguredInstance, pydantic_args_validator
 from workflow_container_runtime import WorkflowControlClient, WorkflowControlRequestBuilder
-from workflow_container_runtime.artifact import JsonArtifactWriter
+from workflow_container_runtime.artifact import JsonArtifactWriter, JsonLinesArtifactWriter
 from workflow_container_runtime.workflow import WorkflowBase, WorkflowExecutionContext
 
 from brand_size_chart.identifier import dbos_identifier_component
@@ -26,6 +26,7 @@ class BrandSizeChartRunWorkflow(
         config_name: str,
         control_client: WorkflowControlClient,
         control_request_builder: WorkflowControlRequestBuilder,
+        json_lines_artifact_writer: JsonLinesArtifactWriter,
     ) -> None:
         """Store reusable root workflow dependencies.
 
@@ -35,6 +36,7 @@ class BrandSizeChartRunWorkflow(
             config_name: Stable DBOS configured-instance name.
             control_client: Current execution-local platform control adapter.
             control_request_builder: Exact source-declared control request builder.
+            json_lines_artifact_writer: Atomic queryable-dataset writer.
         """
 
         WorkflowBase.__init__(self, artifact_writer=artifact_writer)
@@ -42,6 +44,7 @@ class BrandSizeChartRunWorkflow(
         self._brand_workflow = brand_workflow
         self._control_client = control_client
         self._control_request_builder = control_request_builder
+        self._json_lines_artifact_writer = json_lines_artifact_writer
 
     @DBOS.workflow(name="brand_size_chart_run", validate_args=pydantic_args_validator)
     async def run(
@@ -109,6 +112,11 @@ class BrandSizeChartRunWorkflow(
 
         data_layout = BrandDataLayout(brand_execution_context.data_path)
         data_layout.result_brand_dir(brand_input).mkdir(parents=True, exist_ok=True)
+        dataset_path = data_layout.dataset_path(brand_input)
+        if dataset_path.is_symlink() or (dataset_path.exists() and not dataset_path.is_file()):
+            raise RuntimeError(f"Brand dataset target is not a regular file: {dataset_path}")
+        if not dataset_path.exists():
+            self._json_lines_artifact_writer.write(dataset_path, [])
         self._artifact_writer.write(
             data_layout.workspace_brand_dir(brand_input) / "safepoint.json",
             BrandSafepoint(

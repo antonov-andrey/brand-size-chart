@@ -10,7 +10,7 @@ import pytest
 from workflow_container_contract import WorkflowControlFinalRequest, WorkflowControlSafepointRequest, WorkflowDefinition
 from workflow_container_contract import WorkflowRunContext
 from workflow_container_runtime import WorkflowControlRequestBuilder
-from workflow_container_runtime.artifact import JsonArtifactWriter
+from workflow_container_runtime.artifact import JsonArtifactWriter, JsonLinesArtifactWriter
 from workflow_container_runtime.capability import BrowserRuntimeCapability
 from workflow_container_runtime.codex import CodexExecutionError
 from workflow_container_runtime.step import WorkflowStepInvocation, WorkflowStepInvocationOutcome
@@ -22,6 +22,7 @@ from workflow_container_runtime.workflow import (
 )
 
 import brand_size_chart.model as brand_size_chart_model
+from brand_size_chart.artifact import BrandDataLayout
 from brand_size_chart.model import (
     BrandInput,
     BrandOutputResult,
@@ -143,6 +144,48 @@ def _brand_input_get() -> BrandInput:
     )
 
 
+def _root_safepoint_case_get(
+    tmp_path: Path,
+) -> tuple[
+    BrandSizeChartRunWorkflow,
+    WorkflowControlClientStub,
+    WorkflowExecutionContext,
+    BrandInput,
+    BrandResult,
+]:
+    """Build one root safepoint case with explicit publication dependencies."""
+
+    control_client = WorkflowControlClientStub()
+    workflow = BrandSizeChartRunWorkflow.__new__(BrandSizeChartRunWorkflow)
+    workflow._artifact_writer = JsonArtifactWriter()
+    workflow._control_client = control_client
+    workflow._control_request_builder = _control_request_builder_get()
+    workflow._json_lines_artifact_writer = JsonLinesArtifactWriter()
+    brand_input = _brand_input_get()
+    brand_result = BrandResult(
+        brand_input=brand_input,
+        brand_output_result=None,
+        canonical_selection_result=None,
+        coverage_decision_result=None,
+        error_list=[],
+        source_type_result_list=[],
+        status="success",
+        warning_list=[],
+    )
+    execution_context = WorkflowExecutionContext(
+        data_path=_data_path_get(tmp_path),
+        result_dir=tmp_path / "runtime-result",
+        run_context=_run_context_get(),
+        runtime_capability=WorkflowRuntimeCapability(
+            browser=None,
+            network_proxy=NetworkProxyRuntimeCapability(proxy_by_name_map={}),
+        ),
+        workflow_instance_dir=tmp_path / "runtime-result" / "workflow" / "run" / "workflow" / "brand_brand",
+    )
+    execution_context.workflow_instance_dir.mkdir(parents=True)
+    return workflow, control_client, execution_context, brand_input, brand_result
+
+
 def test_root_workflow_builds_minimal_brand_input_in_request_order(tmp_path: Path) -> None:
     """Construct one minimal brand handoff per strict request value in order."""
 
@@ -226,33 +269,7 @@ def test_root_workflow_builds_minimal_brand_input_in_request_order(tmp_path: Pat
 def test_root_workflow_safepoint_publishes_result_and_workspace_atomically(tmp_path: Path) -> None:
     """Bind one stable brand transition to both exact declared Data subtrees."""
 
-    control_client = WorkflowControlClientStub()
-    workflow = BrandSizeChartRunWorkflow.__new__(BrandSizeChartRunWorkflow)
-    workflow._artifact_writer = JsonArtifactWriter()
-    workflow._control_client = control_client
-    workflow._control_request_builder = _control_request_builder_get()
-    brand_input = _brand_input_get()
-    brand_result = BrandResult(
-        brand_input=brand_input,
-        brand_output_result=None,
-        canonical_selection_result=None,
-        coverage_decision_result=None,
-        error_list=[],
-        source_type_result_list=[],
-        status="success",
-        warning_list=[],
-    )
-    execution_context = WorkflowExecutionContext(
-        data_path=_data_path_get(tmp_path),
-        result_dir=tmp_path / "runtime-result",
-        run_context=_run_context_get(),
-        runtime_capability=WorkflowRuntimeCapability(
-            browser=None,
-            network_proxy=NetworkProxyRuntimeCapability(proxy_by_name_map={}),
-        ),
-        workflow_instance_dir=tmp_path / "runtime-result" / "workflow" / "run" / "workflow" / "brand_brand",
-    )
-    execution_context.workflow_instance_dir.mkdir(parents=True)
+    workflow, control_client, execution_context, brand_input, brand_result = _root_safepoint_case_get(tmp_path)
 
     inspect.unwrap(BrandSizeChartRunWorkflow.brand_safepoint_step)(
         workflow,
@@ -267,6 +284,7 @@ def test_root_workflow_safepoint_publishes_result_and_workspace_atomically(tmp_p
         "status": "success",
     }
     assert (tmp_path / "result" / "brand").is_dir()
+    assert (tmp_path / "result" / "brand" / "dataset" / "brand_size_chart" / "part-00000.jsonl").read_text() == ""
     request = control_client.safepoint_request_list[0]
     assert request.step_identity == "brand/brand"
     assert request.step_key == "brand_complete"
@@ -275,6 +293,24 @@ def test_root_workflow_safepoint_publishes_result_and_workspace_atomically(tmp_p
         {"manifest_key": "result", "path_parameter_by_name_map": {"brand_key": "brand"}},
         {"manifest_key": "workspace", "path_parameter_by_name_map": {"brand_key": "brand"}},
     ]
+
+
+def test_root_workflow_safepoint_preserves_published_dataset(tmp_path: Path) -> None:
+    """Do not replace the dataset already published by the deterministic output step."""
+
+    workflow, _, execution_context, brand_input, brand_result = _root_safepoint_case_get(tmp_path)
+    dataset_path = BrandDataLayout(execution_context.data_path).dataset_path(brand_input)
+    dataset_path.parent.mkdir(parents=True)
+    dataset_path.write_text('{"existing":true}\n', encoding="utf-8")
+
+    inspect.unwrap(BrandSizeChartRunWorkflow.brand_safepoint_step)(
+        workflow,
+        execution_context,
+        brand_input,
+        brand_result,
+    )
+
+    assert dataset_path.read_text(encoding="utf-8") == '{"existing":true}\n'
 
 
 def test_root_workflow_final_intent_contains_exact_result_without_duplicate_manifests() -> None:

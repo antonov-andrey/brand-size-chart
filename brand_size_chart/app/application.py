@@ -140,4 +140,5 @@ class BrandSizeChartApplication:
             config_name="run",
             control_client=control_client,
             control_request_builder=control_request_builder,
+            json_lines_artifact_writer=json_lines_artifact_writer,
         )
