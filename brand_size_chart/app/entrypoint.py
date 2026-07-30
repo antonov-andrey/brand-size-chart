@@ -1,7 +1,9 @@
 """Application entrypoint for the DBOS brand size-chart workflow."""
 
+from collections.abc import Sequence
 import importlib.metadata
 import os
+import sys
 
 from dbos import DBOS, DBOSConfig, SetWorkflowID
 from workflow_container_contract import WorkflowDefinition
@@ -19,12 +21,17 @@ from brand_size_chart.identifier import dbos_identifier, dbos_identifier_compone
 from brand_size_chart.model import RunResult, WorkflowBrandSizeChartInput
 
 
-def main() -> int:
+def main(argument_list: Sequence[str] | None = None) -> int:
     """Configure and launch the DBOS workflow process.
+
+    Args:
+        argument_list: Process arguments after the executable name.
 
     Returns:
     Process exit code.
     """
+    if list(sys.argv[1:] if argument_list is None else argument_list):
+        raise RuntimeError("brand-size-chart current command does not accept CLI arguments")
     platform_runtime_config = WorkflowPlatformRuntimeConfig.from_environment(os.environ)
     platform_runtime_config.runtime_path.mkdir(parents=True, exist_ok=True)
     temporary_home_path = runtime_config.TEMPORARY_PATH / "home"

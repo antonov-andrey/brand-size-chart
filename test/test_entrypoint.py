@@ -261,13 +261,15 @@ def test_entrypoint_rejects_missing_browser_runtime_after_registration(
     assert DBOSStub.event_list == [("registration", _WORKFLOW_RUN_ID)]
 
 
-def test_entrypoint_ignores_legacy_process_arguments(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Use only the source-owned command and standard environment without a CLI bridge."""
+def test_entrypoint_rejects_process_arguments(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Only the current source-owned command without a CLI bridge is accepted."""
 
     _entrypoint_configure(monkeypatch, tmp_path)
-    monkeypatch.setattr("sys.argv", ["brand-size-chart-run", "--legacy-argument"])
+    monkeypatch.setattr("sys.argv", ["brand-size-chart-run", "--unsupported"])
 
-    assert entrypoint.main() == 0
+    with pytest.raises(RuntimeError, match="does not accept CLI arguments"):
+        entrypoint.main()
+    assert DBOSStub.event_list == []
 
 
 def test_entrypoint_materializes_only_codex_secret_in_temporary_storage(
@@ -310,6 +312,7 @@ def _entrypoint_configure(
 
     DBOSStub.event_list = []
     DBOSStub.workflow_result = RunResult(brand_result_list=[], error_list=[], status="success", warning_list=[])
+    monkeypatch.setattr("sys.argv", ["brand-size-chart-run"])
     input_path = tmp_path / "input" / "input.json"
     capability_path = tmp_path / "input" / "capability.json"
     input_secret_path = tmp_path / "input" / ".secret"

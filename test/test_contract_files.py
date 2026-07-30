@@ -17,7 +17,7 @@ def test_workflow_source_contract_files_validate() -> None:
     workflow_contract_file_validate(project_root=Path(__file__).resolve().parents[1])
 
 
-def test_workflow_source_targets_exact_0_7_contract_and_migration_edge() -> None:
+def test_workflow_source_targets_exact_current_contract() -> None:
     """Publish the interface-v2 source with exact Data and dependency declarations."""
 
     pyproject = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
@@ -60,13 +60,6 @@ def test_workflow_source_targets_exact_0_7_contract_and_migration_edge() -> None
         "project": "brand-size-chart",
         "version": "0.7.3",
         "contracts": {"workflow": 7, "artifact_schema": 4, "prompt_set": 3},
-        "input_migrations": [
-            {
-                "from_version": "0.4.0",
-                "to_version": "0.5.0",
-                "script_path": "migration/input/0.4.0_to_0.5.0.py",
-            }
-        ],
     }
 
 

@@ -1,4 +1,4 @@
-"""Regression coverage for Task 5 review findings."""
+"""Current runtime integration contracts."""
 
 from pathlib import Path
 

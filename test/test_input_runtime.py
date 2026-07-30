@@ -1,4 +1,4 @@
-"""TDD contracts for the concrete Task 5 workflow input and runtime migration."""
+"""Current workflow input and runtime contracts."""
 
 import importlib
 import json

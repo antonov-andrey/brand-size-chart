@@ -1,4 +1,4 @@
-"""SQLite source-discovery final-state behavior tests."""
+"""Current SQLite source-discovery final-state behavior tests."""
 
 from datetime import UTC, datetime
 from pathlib import Path

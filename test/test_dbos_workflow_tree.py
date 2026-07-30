@@ -1,4 +1,4 @@
-"""Workflow-tree contracts after direct concurrent source discovery migration."""
+"""Current workflow-tree contracts for direct concurrent source discovery."""
 
 import inspect
 
