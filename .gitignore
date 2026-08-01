@@ -1,5 +1,4 @@
 .venv/
-.worktrees/
 .spec/
 .secret
 .superpowers/
@@ -10,3 +9,5 @@ __pycache__/
 tmp/
 out/
 doc/superpowers/
+/.spec
+/.worktree/
