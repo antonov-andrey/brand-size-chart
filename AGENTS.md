@@ -11,6 +11,8 @@
 
 ## Required Standards
 
+- `linear-agent-tools:task-cleanup`
+- `linear-agent-tools:task-implement`
 - `project-standards:aws-cloudformation-developer`
 - `project-standards:docker-compose-developer`
 - `project-standards:http-api-client-developer`
@@ -41,11 +43,11 @@ If one required provider skill is unavailable, continue read-only discovery only
 ```text
 project/
   .worktree/
-  worktree-bootstrap.toml
+  worktree-bootstrap.yaml
 ```
 
-- `.worktree/` is the task-worktree container whose reusable semantics are owned by `agent-workflows:goal-brainstorm`.
-- `worktree-bootstrap.toml` binds this repository's bootstrap resources to the reusable manifest contract owned by `agent-workflows:goal-brainstorm`.
+- `.worktree/` is the Linear task-worktree container governed by `linear-agent-tools:task-implement` and `linear-agent-tools:task-cleanup`.
+- `worktree-bootstrap.yaml` binds task bootstrap resources and cleanup handlers to `linear-agent-tools:task-implement` and `linear-agent-tools:task-cleanup`.
 
 ## Scope
 - This project owns the `brand-size-chart` workflow-container domain logic.
